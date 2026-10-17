@@ -160,6 +160,15 @@ func TestInternal(t *testing.T) {
 	if LogText(e.Cause()) != "wrapped: a cause with https://api.example.com/x in it" || LogText(nil) != "" {
 		t.Fatalf("log text %q", LogText(e.Cause()))
 	}
+	for in, want := range map[string]string{
+		"dial postgres://examen:pw@db.example.com:5432/x?sslmode=disable: refused": "dial postgres://db.example.com:5432/x refused",
+		"get https://user@api.example.com/a#frag":                                  "get https://api.example.com/a",
+		"no url here, user@example.com":                                            "no url here, user@example.com",
+	} {
+		if got := CutQueries(in); got != want {
+			t.Errorf("CutQueries(%q) = %q, want %q", in, got, want)
+		}
+	}
 	_, b, _ = write(t, &Error{Code: "no_such_code", Detail: "x"})
 	if b.Error.Code != CodeInternal {
 		t.Fatalf("an unknown code answered %+v", b)

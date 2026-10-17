@@ -216,13 +216,20 @@ func retryAfter(e *Error) int {
 	return max(1, int(math.Ceil(wait.Seconds())))
 }
 
-// query matches the query of a URL in an error's text: a transport error can
-// hold the whole URL it was asked for.
-var query = regexp.MustCompile(`(https?://[^\s?#"']*)[?#][^\s"']*`)
+// The parts of a URL in an error's text that may hold a credential: a
+// transport error can hold the whole URL it was asked for, a query with a
+// token in it, and a database error the user and password of its address.
+var (
+	userinfo = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/?#@"']*@`)
+	query    = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://[^\s?#"']*)[?#][^\s"']*`)
+)
 
-// CutQueries removes the query and fragment of every URL in a text, so a
-// logged error keeps the scheme, the host and the path alone.
-func CutQueries(s string) string { return query.ReplaceAllString(s, "$1") }
+// CutQueries removes the user part, the query and the fragment of every
+// URL in a text, so a logged error keeps the scheme, the host and the path
+// alone.
+func CutQueries(s string) string {
+	return query.ReplaceAllString(userinfo.ReplaceAllString(s, "$1"), "$1")
+}
 
 // LogText is the text of an unclassified error as it is logged.
 func LogText(err error) string {
