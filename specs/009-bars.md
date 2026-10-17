@@ -1,5 +1,5 @@
 ---
-title: "Bars: rules on a comparison that pass or fail, the recorded evaluation, the release check a CI job calls, signed alerts when a bar fails, and Topos's release bar as the first Examen bar"
+title: "Bars: rules on a comparison that pass or fail, the recorded evaluation, the release check a CI job calls, the bar events sent to the installation's sink, and Topos's release bar as the first Examen bar"
 status: drafted
 track: core
 depends_on:
@@ -28,12 +28,13 @@ measurably worse on the tasks that matter stops the release, and a
 change within the noise does not. This spec fixes what each rule
 reads and when it fails, how an evaluation is recorded so that a past
 release decision can be audited, the call and the command a CI job
-uses, the signed alert sent when a bar fails, and how Topos's release
-bar (Topos spec 025) is expressed as an Examen bar.
+uses, the bar events the installation's event sink receives (spec
+003), and how Topos's release bar (Topos spec 025) is expressed as an
+Examen bar.
 
 In the build order, bars, and with them the first suite moved from
 Topos's release bar, follow the console path: the comparisons of spec
-008 shown in the console view of spec 010.
+008 shown in a console as spec 010 fixes.
 
 ## Design
 
@@ -59,11 +60,13 @@ failing on any `regressed` verdict for its metric.
 | `no_regression` | the comparison's results for the metric at its scope | no result read is `regressed`, `insufficient`, or missing values | `regressed`, `insufficient`, `missing` |
 | `at_least: v` | the metric's entry in the comparison's `candidate_suite` (spec 008) | its `value` is at least `v` | `below`, `insufficient`, `missing` |
 | `at_most: v` | the same | its `value` is at most `v` | `above`, `insufficient`, `missing` |
-| `require_single_variable: true` | the comparison's `single_variable` | it is true | `confounded`, listing the comparison's `confounds` |
+| `require_single_variable: true` | the comparison's `single_variable` | it is true | `confounded`, listing the tuple confounds that make it false; a layer confound or `missing` leaves `single_variable` true, and the other rules fail on missing values themselves |
+| `allow_partial: false` (the default) | the suite-level results the other rules read | none leaves a task of the suite out | `incomplete`, naming each task left out and why |
 
-- A `candidate_suite` entry is **insufficient** when any task of the
-  candidate's suite with weight greater than zero has fewer than
-  `MIN_TRIALS_FOR_VERDICT` valued trials.
+- A `candidate_suite` entry is **insufficient** when the tasks it
+  includes, those with at least `MIN_TRIALS_PER_TASK_IN_SUITE` valued
+  trials, hold less than `MIN_SUITE_COVERAGE` of the suite's weight,
+  as a suite-level result is (spec 008).
 - A result read **misses values** when its `missing` is above zero on
   either side for `no_regression`, or on the candidate side for
   `at_least` and `at_most`. A missing check or judge value is a grader
@@ -102,13 +105,14 @@ refused with the error of spec 003 of the reason's name when:
 | `experiment_not_complete` | the candidate's experiment is not `complete` |
 | `experiment_canceled` | the candidate's experiment was canceled |
 | `suite_mismatch` | the candidate's experiment ran no version of the bar's suite |
-| `no_reference` | no comparison is named and the experiment names no baseline |
+| `no_reference` | no comparison is named and the candidate is the experiment's reference candidate, which nothing is compared with |
 
-The comparison is the one the request names, or else the newest
-complete comparison of the candidate against the experiment's
-baseline whose inputs are current: no grading has been appended to a
-trial it read since. When there is none, Examen computes one (spec
-008) and the evaluation waits for it in state `pending`.
+The comparison is the one the request names, or else the newest final
+comparison of the candidate against the experiment's `reference` whose
+inputs are current: no grading has been appended to a trial it read
+since. When there is none, Examen computes one (spec 008) and the
+evaluation waits for it in state `pending`. A bar reads only a
+comparison with `final` true: a provisional one can still change.
 
 The evaluation reads only the comparison: the verdicts, summaries and
 corrected values were computed and stored there, and the bar
@@ -162,7 +166,7 @@ with the evaluation and its links:
 A failed bar is a `201` with `result: failed`, never an HTTP error.
 The links are absolute, built on the installation's public address,
 `EXAMEN_PUBLIC_URL` (spec 011), and absent without it; `console` opens
-the comparison's console view (spec 010), from which every figure
+the comparison's page in a console (spec 010), from which every figure
 leads to the trials and evidence behind it. An evaluation in state
 `pending` has no `result` and is read again with `GET
 /evaluations/{id}`.
@@ -200,12 +204,13 @@ examen bar check --suite topos-release --bar release --experiment "$exp" \
   --candidate topos-release-candidate --wait 6h --meta commit="$GITHUB_SHA"
 ```
 
-### Alerts
+### Bar events
 
-When an evaluation completes, Examen journals one event (spec 002),
-`bar.failed` or `bar.passed`, in the log of the candidate's experiment
-and in the same transaction, and delivers it to the installation's
-event sink. `bar.passed` lets a sink clear an alert it raised.
+When an evaluation completes, Examen journals one sink event (spec
+002), `bar.failed` or `bar.passed`, in the log of the candidate's
+experiment and in the same transaction, and delivers it to the
+installation's event sink, signed and retried as spec 003 fixes for
+every sink event. `bar.passed` lets a sink clear an alert it raised.
 
 ```json
 {"id": "evt_01jab...", "experiment": "exp_01jab...", "seq": 4190,
@@ -223,45 +228,11 @@ event sink. `bar.passed` lets a sink clear an alert it raised.
           "links": {"console": "https://examen.example/comparisons/cmp_01jab..."}}}
 ```
 
-An event carries ids, names, digests, verdicts and figures. It never
-carries a transcript, a final message, a file, a check's output, a
-judge's rationale, a task's instruction or a credential.
-
-**The sink.** `EXAMEN_EVENTS_URL` (spec 011) receives a `POST` with
-`Content-Type: application/json`, the event as journaled, byte for
-byte, and
-
-```
-Examen-Signature: t=<unix seconds of this attempt>,v1=<hex HMAC-SHA256 of "<t>.<body>" under the first secret>[,v1=<the same under the second>]
-```
-
-The file `EXAMEN_EVENTS_SECRET_FILE` names (spec 011) holds one secret, or two separated by a comma
-while a secret is rotated, and then both signatures are sent. The
-signature is recomputed on every attempt. A sink verifies by
-recomputing the HMAC over the exact bytes, comparing in constant time
-against each `v1`, and refusing a `t` more than `SIGNATURE_MAX_AGE`
-from its own clock. This is the format Cella and Lux sign their
-events with, so one sink verifies all three.
-
-**Delivery** runs on one replica at a time, the holder of a Postgres
-advisory lock, and is at least once, in journal order per bar. The
-event's `delivery` is `pending` until it is acknowledged or dropped.
-
-| Answer | Then |
-|---|---|
-| 2xx | acknowledged |
-| 408, 429, 5xx, a connection failure, or no answer within `ALERT_TIMEOUT` | retried with exponential backoff from `ALERT_BACKOFF_MIN` to `ALERT_BACKOFF_MAX` |
-| 401 | retried the same way and logged at error: the two ends hold different secrets, and dropping would lose every event of a botched rotation |
-| any other 4xx | dropped at once and counted: a sink that refuses the body will refuse it again |
-| still unacknowledged after `ALERT_RETRY_WINDOW` | dropped, counted and logged |
-
-A URL without a secret, a secret without a URL, and a non-loopback
-`http://` URL each stop the start (spec 011). Without a URL, events are
-journaled with `delivery` `acknowledged` and nothing is sent.
-
-Examen keeps no per-owner webhook address or secret. The event names
-its owner, and an installation serving many owners routes each event
-to the owner's chosen destination in its sink.
+This `data` is the bar evaluation's summary that spec 003's stream and
+sink carry. Like every sink event it carries ids, names, digests,
+verdicts and figures, and never a transcript, a final message, a file,
+a check's output, a judge's rationale, a task's instruction or a
+credential.
 
 ### Topos's release bar as an Examen bar
 
@@ -275,24 +246,26 @@ run is incomplete. Other models are reported and never gate. Spec
 `topos-release`, through the task import of spec 001 (decision 11).
 Each task's checks are one check grader that runs Topos's checker and
 produces `task_passed`, binary, `higher_is_better`, aggregate `rate`.
-The suite's `primary_metric` is `task_passed`; it also lists the
-built-ins `completed`, `cost_usd` and `duration`, which are reported
-and do not gate. It lists nothing else, since every metric it lists
-is one more result in the suite family (spec 008). Every task weighs
-1.
+The suite's `primary_metric` is `task_passed`, so its suite-level
+result is the one pre-declared test of every comparison, uncorrected
+(spec 008); the suite also lists the built-ins `builtin:completed`,
+`builtin:cost_usd` and `builtin:duration`, which are reported and do
+not gate. Every task weighs 1.
 
 **`task_passed` is false for a run that did not end its turn.** Topos
 spec 025 passes a run only when the session ended its turn, spent no
 more than its `maxCost`, and the checker passed. In Examen,
 `task_passed` is true exactly when Topos's checker passes and the
-trial's outcome is `completed`: a trial that ends `timed_out`,
-`turn_limit` or `over_budget` has `task_passed` false. Spec 006 runs
-checks after every end of the agent's work except an infrastructure
-failure or a cancel, so every finished trial has a value. The check
+trial's outcome is `completed`: a trial that ends `timed_out` or
+`turn_limit` has `task_passed` false. A trial stopped because its
+Budget ran out ends `over_budget`, is excluded, and parks its cell
+until the cell is retried (spec 005). Spec 006 runs checks after every
+end of the agent's work except an infrastructure failure, a spend
+refusal or a cancel, so every finished trial has a value. The check
 learns how the session ended from the session's log at
 `EXAMEN_TRANSCRIPT` (spec 006), as Topos's own checker reads the log
-today, and reports false unless the session ended its turn within its
-budget. A trial left without a value fails the bar with `missing`.
+today, and reports false unless the session ended its turn. A trial
+left without a value fails the bar with `missing`.
 
 **The candidate, the baseline and the bar.**
 
@@ -318,7 +291,7 @@ require_single_variable: true
 The baseline `main` pins the experiment and candidate of the last
 accepted release on the same model. The release experiment runs the
 suite against the release candidate with `trials` at least
-`MIN_TRIALS_FOR_VERDICT`, names `main` as its baseline and one Lux
+`MIN_TRIALS_FOR_VERDICT`, names `main` as its `reference` and one Lux
 Budget, and may include other models as further candidates; their
 comparisons and reports appear, and the release check evaluates the
 bar for the gating candidate only.
@@ -327,9 +300,9 @@ bar for the gating candidate only.
 |---|---|
 | `bar.yaml` names one gating model | the gating candidate's `topos.model`; the bar is evaluated for that candidate only |
 | baseline: the mean pass rate of five runs of the suite | the baseline `main`; the reference side's suite-level `task_passed` rate |
-| noise: twice the standard deviation of those five pass rates | the test of the suite-level result at `FALSE_DISCOVERY_RATE`, from within-cell spread on both sides, with its interval at `CONFIDENCE_LEVEL` |
+| noise: twice the standard deviation of those five pass rates | the primary metric's suite-level test at `FALSE_DISCOVERY_RATE`, uncorrected, from within-cell spread on both sides, with its interval at `CONFIDENCE_LEVEL` |
 | threshold: baseline less noise, rounded down | no threshold figure: `no_regression` fails when the suite-level verdict is `regressed` |
-| an incomplete run never passes | a parked cell or a task without enough trials makes the result `insufficient`, which fails |
+| an incomplete run never passes | `allow_partial` is false, its default: a suite-level result that leaves any task out fails `incomplete`, and the evaluation's `inputs` list the tasks left out and why |
 | other models report and never gate | other candidates are compared and reported; the bar is evaluated for the gating candidate |
 | changing the pinned model measures a new baseline first | a release that changes the agent and the model at once differs from `main` in two logical variables, is not single-variable, and fails `require_single_variable` until `main` is moved to an experiment of the new model |
 | the CI key's Lux budget and `TOPOS_TASKS_BUDGET` | the experiment's one Lux Budget |
@@ -337,19 +310,25 @@ bar for the gating candidate only.
 | the release job fails | `examen bar check` exits 1 |
 | the rate, the threshold and the report in the release notes | the evaluation's suite-level summaries with their denominators, the delta with its interval, `q`, and the console link |
 
-One difference is deliberate. Topos's threshold measured the noise of
-the baseline alone and compared one run of the candidate with it.
+Two differences are deliberate. Topos's threshold measured the noise
+of the baseline alone and compared one run of the candidate with it.
 Examen's test counts the trial-to-trial spread of both sides, so a
 candidate whose own pass rate swings widely needs a larger drop to be
 called a regression, and a steady one a smaller drop.
 
+A release bar keeps Topos's rule that an incomplete run never passes:
+`allow_partial` is false by default, so a parked cell fails the bar
+`incomplete` until the cell is retried. A bar that sets `allow_partial`
+reads a suite-level result that covers at least `MIN_SUITE_COVERAGE` of
+the suite, with the tasks left out named beside it, which suits a
+nightly comparison more than a release.
+
 ### Limits
 
 The constants of spec 002 this spec holds: `MAX_RULES_PER_BAR`,
-`BAR_POLL_INTERVAL`, `ALERT_TIMEOUT`, `ALERT_BACKOFF_MIN`,
-`ALERT_BACKOFF_MAX`, `ALERT_RETRY_WINDOW`, `SIGNATURE_MAX_AGE`,
-`MIN_TRIALS_FOR_VERDICT`, `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL`
-and `METADATA_MAX_PAIRS`.
+`BAR_POLL_INTERVAL`, `MIN_TRIALS_FOR_VERDICT`,
+`MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`,
+`FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL` and `METADATA_MAX_PAIRS`.
 
 ## Not in this spec
 
@@ -360,26 +339,25 @@ directories, their `serve`, `search` and `answers` fields included
 scripted-solution tier that proves each task and checker without a
 model, the replay tier, and the comparison of Topos's IR path with a
 provider's own SDK, which compares two builds of Topos rather than
-two candidates. An owner-level webhook address; delivery to a chat or
-paging service, which a sink does. Bars that block anything other
-than the caller's own job.
+two candidates. Signing and delivering events to the sink (spec 003).
+An owner-level webhook address; delivery to a chat or paging service,
+which a sink does. Bars that block anything other than the caller's
+own job.
 
 ## Acceptance criteria
 
 | Criterion | Test that proves it |
 |---|---|
 | `no_regression` at each scope fails exactly on a `regressed`, `insufficient` or value-missing result in its scope and passes otherwise; its default scope is `all` | `bar.TestNoRegressionScopes` |
-| `at_least` and `at_most` compare the `candidate_suite` summary with the value, and fail `insufficient` when any weighted task has fewer than `MIN_TRIALS_FOR_VERDICT` valued trials | `bar.TestBounds` |
+| `at_least` and `at_most` compare the `candidate_suite` summary with the value, and fail `insufficient` when its coverage is below `MIN_SUITE_COVERAGE` | `bar.TestBounds` |
+| With `allow_partial` false, any rule reading a suite-level result that leaves a task out fails `incomplete` and names the task; with it true, the result stands at `MIN_SUITE_COVERAGE` | `bar.TestIncompleteRun` |
 | Missing values fail a rule, except for a metric an annotation grader produces | `bar.TestMissingFailsClosed` |
-| `require_single_variable` fails a confounded comparison and lists its confounds | `bar.TestRequireSingleVariable` |
+| `require_single_variable` fails a comparison with a tuple confound and lists it, and passes one whose only confounds are layer confounds | `bar.TestRequireSingleVariable` |
 | Applying a bar with an unknown metric, `no_regression` on a direction-`none` metric, a bound on a label metric, an out-of-range value, or more than `MAX_RULES_PER_BAR` rules is refused naming the rule | `bar.TestApplyRefusals` |
-| An evaluation of an experiment that is not complete, canceled, on another suite version, or without a reference is refused with its reason | `bar.TestEvaluationRefusals` |
+| An evaluation of an experiment that is not complete, canceled, on another suite version, or for its reference candidate is refused with its reason; an evaluation reads only a final comparison | `bar.TestEvaluationRefusals` |
 | An evaluation computes no statistic, and two evaluations of one bar version against one comparison give the same result | `bar.TestEvaluationReadsOnlyTheComparison` |
 | A complete evaluation is immutable, its `inputs` and `rules` reproduce its `result`, and it stays readable after its comparison's experiment is deleted | `bar.TestEvaluationIsSelfContained` |
 | `POST /suites/{suite}/bars/{ref}/evaluate` answers `201` with `result: failed` for a failing bar and carries absolute links built on `EXAMEN_PUBLIC_URL` | `httpapi.TestBarEvaluationRoute` |
 | `examen bar check` exits 0, 1, 2 and 3 in the cases of its table, and with `--wait` polls every `BAR_POLL_INTERVAL` | `cli.TestBarCheckExitCodes`, against a stub server and a fake clock |
-| A completed evaluation journals one `bar.failed` or `bar.passed` in its transaction, and the event holds no content field | `events.TestBarEventIsJournaled`, `events.TestNoContentInEvents` with canary strings |
-| The signature verifies with the documented formula for each of two secrets, is fresh on every attempt, and fails for a body changed by one byte | `events.TestSignature` |
-| Delivery retries, holds a 401, drops another 4xx at once, drops after `ALERT_RETRY_WINDOW`, and runs on one replica | `events.TestDelivery`, under a fake clock |
-| A URL without a secret, a secret without a URL, and a non-loopback `http://` URL stop the start | `events.TestSinkStartupRules` |
-| On recorded Topos suite results, the release bar fails for a clear drop in the gating model's pass rate and for an incomplete run, passes for a change within the noise, and counts a trial that ended `timed_out` with a passing checker as not passed | `bar.TestToposReleaseBar` |
+| A completed evaluation journals one `bar.failed` or `bar.passed` in its transaction, delivered as spec 003's sink events are, and the event holds no content field | `events.TestBarEventIsJournaled`, `events.TestNoContentInEvents` with canary strings |
+| On recorded Topos suite results, the release bar fails for a clear drop in the gating model's pass rate and for a run covering less than `MIN_SUITE_COVERAGE`, passes for a change within the noise, and counts a trial that ended `timed_out` with a passing checker as not passed | `bar.TestToposReleaseBar` |

@@ -1,5 +1,5 @@
 ---
-title: "Reports: the live console view of an experiment and its comparisons, the presentation rules every figure obeys, narrative as a linted draft an owner releases, JSON, CSV and static HTML exports, and sharing by explicit grant"
+title: "Reports: what a console reads and shows for an experiment and its comparisons, the presentation rules every figure obeys, the frozen report document, narrative as a linted draft an owner releases, JSON, CSV and static HTML exports, and sharing by explicit grant"
 status: drafted
 track: core
 depends_on:
@@ -26,87 +26,106 @@ A report is where measurements become claims a person reads and acts
 on, so it carries Examen's strictest presentation rules. The people it
 serves first compare agents in a console: they open an experiment,
 see the candidate × task grid fill in while it runs, read per-metric
-verdicts with their denominators, intervals and confounds, see which
-cells were never run and what everything cost, and follow any figure
+verdicts with their denominators, intervals, reasons and confounds,
+see which cells parked and what everything cost, and follow any figure
 to the trials and evidence behind it.
 
-The primary surface is therefore the **live console view**, a document
-the API serves for an experiment or a comparison, in which every
-figure was computed and stored by `examend` (spec 008). A console
-renders it and computes no statistic. A **report** is a frozen copy of
-that view, which can carry a narrative an owner released, be exported
-as JSON, CSV or a static HTML bundle into Arca, and be shared. The
-console view is built first; the static exports follow it.
+A console reads three things from the API (spec 003): the grid, paged
+by task; a comparison with its rows, paged; and the progress stream,
+which says when to read either again. Every figure in them was
+computed and stored by `examend` (spec 008), and a console computes no
+statistic. A **report** is a frozen document of the same figures, which
+can carry a narrative an owner released, be exported as JSON, CSV or a
+static HTML bundle into Arca, and be shared. The console path is built
+first; the rest follows it (Build order, below).
 
 ## Design
 
-### The console view
+### What a console reads
 
-`GET /experiments/{id}/view` and `GET /comparisons/{id}/view` (spec
-003) answer a **view document**, asking `experiment.read` of the
-experiment, or of the comparison's experiment (spec 004). The experiment view
-holds every section below for that experiment; the comparison view
-holds the header and one comparison's verdict tables in full.
+- **The grid.** `GET /experiments/{id}/grid`, one page of task rows at
+  a time, for the suite's primary metric or another the person picks.
+  Each column's verdicts come from the candidate's automatic comparison
+  against the experiment's `reference`, or from a comparison the person
+  picks (spec 003).
+- **A comparison.** `GET /comparisons/{id}` for its suite-level
+  results, and `GET /comparisons/{id}/rows`, page by page, for its
+  task-level results.
+- **The stream.** `GET /experiments/{id}/stream`: a `cell`, `trial`,
+  `graded` or `comparison` event says what changed, and the console
+  reads the page that holds it again. Nothing is read on a timer.
+- **Trials.** `GET /experiments/{id}/trials` with their current
+  values, narrowed by a metric's value, such as every trial whose
+  `tests_pass` is false; from a trial, its measurements with every
+  generation, its configured, sent and observed layers, and its
+  evidence refs (spec 007). Evidence bytes are opened from Arca with
+  the viewer's own identity.
 
-- **Every figure is stored.** Each number in the document is read from
-  a stored comparison or from the stored analysis of spec 008, cost
-  per success and the headline's verdict counts included. The view
-  builder in `examend` selects and formats stored figures and counts
-  stored records, such as the gap map's pairs; it computes no
-  figure from other figures. Each figure
-  appears twice: its value, and its display string formatted by the
-  rules below, so the console, the HTML export and the CSV agree. No
-  client computes a summary, an interval, a test or a verdict.
-- **Every figure has a source.** Each carries a `source`: a result
-  key `{comparison, metric, level, task}`, or a cell summary key
-  `{cell, metric}`. From a cell the console opens its trials, each
-  with its outcome, its configured, sent and observed layers, its
-  measurements with every generation, and its evidence refs (spec
-  007). Evidence bytes are opened from Arca with the viewer's own
-  identity.
-- **Live.** While an experiment runs, the stored analysis is
-  recomputed as trials finish and gradings are recorded (spec 008).
-  The document carries a `version` that grows with every change and
-  answers it as its `ETag`; a console sends `If-None-Match` and gets
-  `304` when nothing moved. A console refreshes every
-  `VIEW_REFRESH_INTERVAL`. A cell still running shows its progress as
-  finished trials over N.
+Three rules hold for everything a console shows:
+
+- **Every figure is stored.** Each number is a member of an API answer,
+  read from a stored comparison or from the stored analysis of spec
+  008, cost per success and the headline's verdict counts included. A
+  console formats figures by the rules below and computes no figure
+  from other figures: no summary, interval, test or verdict.
+- **Every figure has a source.** Each traces to a result key
+  `{comparison, metric, level, task}` or a cell summary key
+  `{cell, metric}`, and from a cell the console opens its trials.
+- **Live.** While an experiment runs, its automatic comparisons are
+  provisional, `final` false, and recomputed as trials finish (spec
+  008), so the grid's verdicts appear and move as cells fill. A
+  provisional figure is marked as such until it is final. A cell still
+  running shows its progress as finished trials over N.
 
 An installation may run a reference console, a client of the API that
-ships apart from `examend` (spec 011); any console renders the same
-document.
+ships apart from `examend` (spec 011); any console reads the same
+answers.
 
-### What a report shows
+### What the console and a report show
 
-The experiment view and every report hold these sections, in this
-order.
+The console and every report hold these sections, in this order.
 
 **Header.** The suite's name and digest; the experiment's id, state,
-N and windows; each candidate's name and digest; the baseline's name,
-record id, experiment, candidate and `pinned_at`; the comparisons'
-`analysis_version` and `parameters`, so the reader sees the
-`FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL` and
-`MIN_TRIALS_FOR_VERDICT` in force; and the Lux Budget's amount, spend
-and remainder, read from Lux.
+N and windows; each candidate's name and digest; the reference: the
+baseline's name, record id, experiment, candidate and `pinned_at`, or
+the reference candidate's name; the comparisons' `analysis_version`
+and `parameters`, so the reader sees the `FALSE_DISCOVERY_RATE`,
+`CONFIDENCE_LEVEL`, `MIN_TRIALS_FOR_VERDICT` and `MIN_SUITE_COVERAGE`
+in force; and the Lux Budget's amount and spend, read from Lux, with
+the smallest remainder the key source last reported (spec 004).
 
-**Headline.** For each single-variable comparison, its variable, and
-each suite-level result whose verdict is `improved`, `regressed` or
-`changed`, with its delta, interval and `q`; then, per metric, how
-many task-level results were `improved`, `regressed`, `changed`,
-`within_noise` and `insufficient`. A comparison that is not
+**Headline.** For each automatic comparison, in candidate order:
+
+1. First, always, the primary metric's suite-level result, whatever
+   its verdict, with its delta, the delta's interval, both sides'
+   summaries with their denominators, and its `reason`: an improvement,
+   a regression, a change, "no clear difference" or "insufficient";
+   then the suite-level summary's `advice`.
+2. Then every other suite-level result whose verdict is `improved`,
+   `regressed` or `changed`, with its delta, interval and `q`.
+3. Then, per metric, how many task-level results were `improved`,
+   `regressed`, `changed`, `within_noise` and `insufficient`.
+
+A layer confound of a headlined result is named in its line with its
+tasks and request counts; it does not take the comparison out of the
+headline. A result with `missing` among its confounds is not
+headlined: its line says "not a finding" with the counts of trials
+without a value, in place of its verdict. A comparison that is not
 single-variable never appears in the headline. It is listed under it
-by name with its confounds, "not headlined: confounded by
+by name with its tuple confounds, "not headlined: confounded by
 `<fields>`", and its results appear in the verdict tables.
 
 **The candidate × task grid.** Rows are the suite's tasks in suite
 order, then a suite-level row; columns are the candidates, and the
-baseline's candidate when the experiment names a baseline. A cell
-shows the primary metric's summary with its denominator, such as
+baseline's candidate when the reference is a baseline. A cell shows
+the primary metric's summary with its denominator, such as
 `80.0% (4/5)` or `12.3 s median (n = 5)`, and the per-task verdict of
-the candidate's comparison against the reference for that metric. A
-cell not yet complete shows its state and progress; a parked cell its
-parking state and reason. A cell is marked when it has missing values,
-when a layer confound applies to it, and when its task weighs 0.
+the candidate's comparison against the reference for that metric. The
+suite-level row shows `81.0% weighted over 42 tasks; 680/840 trials`.
+A cell not yet complete shows its state and progress; a parked cell
+its parking state and reason, and that it can be retried. A cell is
+marked when it has missing values, when a layer confound applies to
+it, and when its task weighs 0.
 
 **Verdict tables.** One table per comparison and metric, titled with
 the comparison's variable and its two sides. The suite-level row comes
@@ -114,33 +133,29 @@ first, then one row per task:
 
 | Column | Shows |
 |---|---|
-| Task | the task name, or "suite" |
+| Task | the task name, or "suite" with its coverage and the tasks left out |
 | Candidate | summary, interval, denominator |
 | Reference | summary, interval, denominator |
 | Delta | delta with its `delta_kind`, and its interval |
 | p, q | the uncorrected and the corrected value |
 | Verdict | the verdict |
-| Confounds | the result's confounds, in the row |
-| Calibration | for a metric a judge produces: that judge version's calibration flag, alpha, interval and pair count (spec 006) |
+| Reason | the result's `reason` |
+| Confounds | the result's confounds, in the row, with their tasks and counts |
+| Calibration | for a metric a judge produces: that judge version's calibration flag, alpha, interval and pair count (spec 006); a later build step |
+
+A `label` metric's table shows each label's proportions and their
+difference with its interval, and no verdict (spec 008).
 
 **Outcomes.** Per cell, the count of each outcome of spec 002.
-`declined`, `timed_out`, `turn_limit` and `over_budget` are each their
-own column and never folded into a failure count; `infra_failed`
-trials and their retries are shown apart, as excluded from analysis.
+`declined`, `timed_out` and `turn_limit` are each their own column and
+never folded into a failure count; `infra_failed`, `over_budget` and
+`canceled` trials and their retries are shown apart, as excluded from
+analysis.
 
 **Provenance differences.** Every cell whose sent or observed layer
 differs from its configured layer: the configured model and reasoning
 beside the models and reasoning values sent and the models served,
 with request counts.
-
-**The gap map.** Rows are the tasks of the experiment's suite
-version; columns are every candidate that any of the owner's
-experiments on that suite version named. Each pair is one of `run`
-(an experiment holds at least `MIN_TRIALS_FOR_VERDICT` finished
-trials of it), `partial` (fewer), `parked` (with the parking state and
-reason), or `never_run`, with the newest experiment that ran it.
-Counts of each state head the map. A gap is shown as a cell, never as
-blank space.
 
 **Costs.** Per candidate, and per cell:
 
@@ -151,79 +166,103 @@ blank space.
 | Cost per success | when the primary metric is binary: the spend on finished trials over the number of true values; absent when there are none |
 | Judge spend | the part of the spend that judge gradings made |
 
-**Trends.** When the experiment's baseline has earlier records, the
-trend of spec 008 for the primary metric and every metric with a
-direction: each record's suite-level summary with its interval, and
-each step's verdict and confounds.
+**The gap map**, a later build step. Rows are the tasks of the
+experiment's suite version; columns are every candidate that any of
+the owner's experiments on that suite version named. Each pair is one
+of `run` (an experiment holds at least `MIN_TRIALS_FOR_VERDICT`
+finished trials of it), `partial` (fewer), `parked` (with the parking
+state and reason), or `never_run`, with the newest experiment that ran
+it. Counts of each state head the map. A gap is shown as a cell, never
+as blank space.
+
+**Trends**, a later build step. When the experiment's reference is a
+baseline that has earlier records, the trend of spec 008 for the
+primary metric and every metric with a direction: each record's
+suite-level summary with its interval, and each step's verdict and
+confounds.
 
 ### Presentation rules
 
-The view builder enforces these, each with a test; they are not
-style guidance.
+A console written against this spec, and the report builder, enforce
+these, each with a test; they are not style guidance.
 
-1. Only single-variable comparisons are headlined.
+1. Only single-variable comparisons are headlined, and a result with
+   missing values never is; the primary metric's suite-level result
+   leads the headline whatever its verdict.
 2. Every rate shows its `numerator/denominator`, and its missing
-   values when there are any: `75.0% (3/4, 1 missing)`. No bare
+   values when there are any: `75.0% (3/4, 1 missing)`. A suite-level
+   rate shows `<value> weighted over <T> tasks; <k>/<n> trials`, never
+   a bare `k/n` beside a weighted value it contradicts. No bare
    percentage appears anywhere.
 3. A confounded result names its confounds in its own row or
-   sentence, never in a footnote.
-4. An `insufficient` result shows the word, its denominators and the
-   `MIN_TRIALS_FOR_VERDICT` it needed; it never shows a delta as a
+   sentence, never in a footnote; a layer confound names its tasks and
+   request counts.
+4. An `insufficient` result shows the word and its `reason`, which
+   names the counts and what was needed; it never shows a delta as a
    finding.
-5. `within_noise` renders muted; `improved` and `regressed` render
-   with their direction; `changed` renders neutral.
-6. Behavioral outcomes are their own categories (Outcomes, above).
-7. Configured and observed values are never merged: a cell whose
+5. `within_noise` reads "no clear difference", with the delta's
+   interval and both sides' n, and renders muted; `improved` and
+   `regressed` render with their direction; `changed` renders neutral.
+6. Every verdict shows its `reason`.
+7. Behavioral outcomes are their own categories (Outcomes, above).
+8. Configured and observed values are never merged: a cell whose
    served model differs from its configured model shows both.
-8. Every figure leads to its source.
+9. Spread across tasks is shown as the summary's `advice` sentence,
+   never as raw variances.
+10. Every figure leads to its source.
 
 **Formats.** A rate is a percentage with one decimal; a difference of
 rates is in percentage points with one decimal and a sign. A p-value
 and a corrected value have two significant digits, and below 0.001
-read `< 0.001`. An interval is `[low, high]` in the summary's format.
-A duration is in seconds below 120 seconds and in minutes above. A
-cost is in US dollars with two decimals from one dollar up and four
-significant digits below. A count is an integer.
+read `< 0.001`. An interval is `[low, high]` in the summary's format;
+a summary without one says why, such as "no interval below 35 trials"
+for a `p90` under `MIN_TRIALS_FOR_P90_INTERVAL`. A duration is in
+seconds below 120 seconds and in minutes above. A cost is in US
+dollars with two decimals from one dollar up and four significant
+digits below. A count is an integer.
 
 ### Reports
 
-A report freezes a view so that it can be released, exported and
-shared. Its fields are spec 002's: its experiment, the comparisons it
-renders (complete ones of that experiment, at most
-`MAX_COMPARISONS_PER_REPORT`), its `document`, the view document as
-built at creation in format `examen.report/v1`, with its
-`document_digest`, its `narrative` (below), its `exports` (below) and
-`created_at`; its id has the prefix `rep_`.
+A report freezes the figures of an experiment so that they can be
+released, exported and shared. Its fields are spec 002's: its
+experiment, the comparisons it renders (final ones of that experiment,
+at most `MAX_COMPARISONS_PER_REPORT`), its `document`, its `narrative`
+(below), its `exports` (below) and `created_at`; its id has the prefix
+`rep_`. The `document`, format `examen.report/v1`, holds the sections
+above as built at creation from the grid and the comparisons it
+renders, each figure with its value, its display string formatted by
+the rules above and its source, so a report, its HTML export and its
+CSV agree with the console; `document_digest` pins it.
 
 Examen creates a report when an experiment reaches `complete`, with
-each candidate's comparison against the baseline when there is one,
-and on request for any set of the experiment's complete comparisons
-(`POST /experiments/{id}/reports`, spec 003).
-A report's `document` never changes. A later comparison, after a
-re-grade, appears in a new report. A report is deleted with its
-experiment (spec 007).
+each candidate's final automatic comparison, and on request for any
+set of the experiment's final comparisons (`POST
+/experiments/{id}/reports`, spec 003). A report's `document` never
+changes. A later comparison, after a re-grade, appears in a new report.
+A report is deleted with its experiment (spec 007).
 
 ### Narrative
 
-Tables, the grid, the gap map and verdicts render without any person.
-Prose that interprets them is a claim of a different kind, so it is
-released by a person and passes a mechanical linter first.
+Tables, the grid and verdicts render without any person. Prose that
+interprets them is a claim of a different kind, so it is released by a
+person and passes a mechanical linter first.
 
 **Drafting.** An owner asks for a draft naming a pinned model id
-(`POST /reports/{id}/draft`, spec 003). The
-draft is one structured call through Lux, under the experiment's
-budget and with the owner's identity, with a prompt fixed for each
-Examen release, `examen.narrative/v1`, whose digest is recorded. The
-drafter reads the report's `document` alone: names, figures, verdicts
-and confounds. It never reads evidence, a task's instruction or a
-judge's rationale. An owner may also write claims without a draft.
+(`POST /reports/{id}/draft`, spec 003). The draft is one structured
+call through Lux, on a Key the key source leases with the purpose
+`report` (spec 004), under the experiment's budget and with the
+owner's identity, with a prompt fixed for each Examen release,
+`examen.narrative/v1`, whose digest is recorded. The drafter reads the
+report's `document` alone: names, figures, verdicts, reasons and
+confounds. It never reads evidence, a task's instruction or a judge's
+rationale. An owner may also write claims without a draft.
 
 **Claims.** A narrative is a list of at most `NARRATIVE_MAX_CLAIMS`
 claims, at most `NARRATIVE_MAX_BYTES` in all:
 
 ```json
 {"section": "headline",
- "text": "Moving from model A to model B raised the suite pass rate by 12.0 pp [5.0, 19.0] (q = 0.003), from 70.0% (140/200) to 82.0% (164/200).",
+ "text": "Moving from model A to model B raised the suite pass rate by 12.0 pp [5.0, 19.0] (p = 0.003), from 70.0% weighted over 20 tasks; 140/200 trials to 82.0% weighted over 20 tasks; 164/200 trials.",
  "cites": [{"comparison": "cmp_01jab...", "metric": "sha256:...", "level": "suite"}]}
 ```
 
@@ -233,10 +272,10 @@ claims, at most `NARRATIVE_MAX_BYTES` in all:
 |---|---|
 | `no_citation` | the claim cites no result |
 | `unknown_citation` | it cites a result the report does not hold |
-| `headline_confounded` | a headline claim cites a result of a comparison that is not single-variable |
-| `confound_omitted` | a cited result has a confound the text does not name, by its field name or its display label |
-| `number_unsupported` | a number in the text is not, as formatted by this spec, a figure of a cited result: a summary's `value`, an interval bound, a delta, a delta interval bound, a `numerator`, a `denominator`, an `n`, a `p` or a `q` |
-| `rate_without_denominator` | a rate in the text lacks its `numerator/denominator` in the same claim |
+| `headline_confounded` | a headline claim cites a result of a comparison that is not single-variable, or a result with `missing` |
+| `confound_omitted` | a cited result has a confound the text does not name, by its name or its display label |
+| `number_unsupported` | a number in the text is not, as formatted by this spec, a figure of a cited result: a summary's `value`, an interval bound, a delta, a delta interval bound, a `numerator`, a `denominator`, an `n`, a task count, a `p` or a `q` |
+| `rate_without_denominator` | a rate in the text lacks its `numerator/denominator`, or for a suite-level rate its tasks and trials, in the same claim |
 | `verdict_contradicted` | the text states a direction, with a word from the linter's fixed list of words for increase, decrease, better and worse, for a result whose verdict is `within_noise` or `insufficient`, or the direction opposite to its verdict |
 | `insufficient_unstated` | a cited `insufficient` result is not called insufficient in the text |
 | `too_long` | the narrative exceeds `NARRATIVE_MAX_CLAIMS` or `NARRATIVE_MAX_BYTES` |
@@ -248,13 +287,12 @@ is recorded with every result it gives.
 /reports/{id}/narrative`, spec 003); the linter runs again on every
 edit. A narrative is released only with no finding (`POST
 /reports/{id}/release`), by a subject allowed `report.release` (spec
-004). Examen
-keeps the draft, the released text, a line-per-claim diff between
-them, the drafter's model and prompt digest, the linter version,
-`released_by` and `released_at`. A report holds at most one released
-narrative; releasing another supersedes it and keeps it in the
-history. A report without one shows "No released interpretation" where
-the narrative would be, and its exports carry the same line.
+004). Examen keeps the draft, the released text, a line-per-claim diff
+between them, the drafter's model and prompt digest, the linter
+version, `released_by` and `released_at`. A report holds at most one
+released narrative; releasing another supersedes it and keeps it in
+the history. A report without one shows "No released interpretation"
+where the narrative would be, and its exports carry the same line.
 
 ### Exports
 
@@ -270,18 +308,18 @@ value that is absent, and multiple values joined with `;`.
 | File | Columns |
 |---|---|
 | `grid.csv` | `task`, `task_digest`, `weight`, `candidate`, `candidate_digest`, `cell`, `state`, `metric`, `value`, `interval_low`, `interval_high`, `numerator`, `denominator`, `n`, `missing`, `verdict` |
-| `results.csv` | `comparison`, `variable`, `single_variable`, `metric`, `metric_name`, `level`, `task`, `candidate_value`, `candidate_low`, `candidate_high`, `candidate_numerator`, `candidate_denominator`, `candidate_n`, `reference_value`, `reference_low`, `reference_high`, `reference_numerator`, `reference_denominator`, `reference_n`, `delta`, `delta_kind`, `delta_low`, `delta_high`, `method`, `p`, `q`, `verdict`, `confounds` |
+| `results.csv` | `comparison`, `variable`, `single_variable`, `metric`, `metric_name`, `level`, `task`, `candidate_value`, `candidate_low`, `candidate_high`, `candidate_numerator`, `candidate_denominator`, `candidate_n`, `reference_value`, `reference_low`, `reference_high`, `reference_numerator`, `reference_denominator`, `reference_n`, `coverage`, `delta`, `delta_kind`, `delta_low`, `delta_high`, `method`, `p`, `q`, `verdict`, `reason`, `confounds` |
 | `outcomes.csv` | `cell`, `task`, `candidate`, `outcome`, `count` |
 | `costs.csv` | `candidate`, `cell`, `task`, `spend_usd`, `finished_trials`, `cost_per_trial`, `cost_low`, `cost_high`, `cost_per_success`, `judge_spend_usd` |
-| `gaps.csv` | `task`, `candidate`, `state`, `experiment`, `reason` |
-| `trends.csv` | `baseline`, `pinned_at`, `experiment`, `candidate`, `metric`, `value`, `low`, `high`, `step_verdict`, `step_q`, `step_confounds` |
+| `gaps.csv` | `task`, `candidate`, `state`, `experiment`, `reason`; once the gap map is built |
+| `trends.csv` | `baseline`, `pinned_at`, `experiment`, `candidate`, `metric`, `value`, `low`, `high`, `step_verdict`, `step_q`, `step_confounds`; once trends are built |
 
 Both are read through the API (`GET /reports/{id}` with a format, and
 a table for CSV) and written into the HTML bundle.
 
 **Static HTML bundle into Arca.** An export (`POST
 /reports/{id}/exports`, spec 003) writes, with the owner's identity,
-under `files/examen/reports/<report id>/<n>/`, `n` counting the
+under `files/evals/reports/<report id>/<n>/`, `n` counting the
 report's exports from 1:
 
 ```
@@ -296,26 +334,27 @@ request to any other origin, so it reads the same offline, from a
 download and in Arca's own file view. A figure's source in it is a link
 built on the installation's public address, `EXAMEN_PUBLIC_URL` (spec
 011), and plain text without one; following a link needs the viewer's
-own access. Every file is written
-create-only. Each export is recorded on the report as `{n, path,
-manifest_digest, exported_at, narrative_released}`.
+own access. Every file is written create-only. Each export is recorded
+on the report as `{n, path, manifest_digest, exported_at,
+narrative_released}`.
 
 ### Sharing
 
-By default only the owner reads an experiment, its comparisons, its
-live view and its reports.
+Sharing is a later build step than the console path (spec 003). By
+default only the owner reads an experiment, its comparisons and its
+reports.
 
 A **share** (spec 002) is a grant, by the owner, of read access to one
-owner on one report, or on one experiment with its live view and
+owner on one report, or on one experiment with its grid and
 comparisons. It is created through the API (spec 003), decided by the
 authorizer (spec 004), recorded, and revoked by the owner; a revocation
 holds from the authorizer's next answer.
 
 A grantee of a report reads its `document` and its released narrative:
-names, digests, figures, verdicts and confounds. A draft is never
-shared. The links from a figure to trials resolve only for a viewer
-allowed to read the experiment, and evidence bytes only for a viewer
-Arca allows.
+names, digests, figures, verdicts, reasons and confounds. A draft is
+never shared. The links from a figure to trials resolve only for a
+viewer allowed to read the experiment, and evidence bytes only for a
+viewer Arca allows.
 
 Examen has no anonymous reading and no link that works for whoever
 holds it. An HTML bundle in Arca is governed by Arca's grants and
@@ -326,35 +365,40 @@ an Arca grant or link.
 
 The constants of spec 002 this spec holds:
 `MAX_COMPARISONS_PER_REPORT`, `NARRATIVE_MAX_CLAIMS`,
-`NARRATIVE_MAX_BYTES`, `VIEW_REFRESH_INTERVAL`, `FALSE_DISCOVERY_RATE`,
-`CONFIDENCE_LEVEL` and `MIN_TRIALS_FOR_VERDICT`.
+`NARRATIVE_MAX_BYTES`, `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL`,
+`MIN_TRIALS_FOR_VERDICT`, `MIN_SUITE_COVERAGE` and
+`MIN_TRIALS_FOR_P90_INTERVAL`.
+
+## Build order
+
+| Step | What is built |
+|---|---|
+| first slice | what a console reads; the header, the headline, the grid, the verdict tables without the calibration column, outcomes, provenance differences and costs; the presentation rules |
+| agent judges and annotations | the calibration column |
+| static report exports | reports, their document, the narrative and its linter, the JSON, CSV and HTML exports |
+| the gap map, trends | those two sections and their CSV files |
+| shares | report and experiment shares |
 
 ## Not in this spec
 
 The statistics behind every figure (008). The routes' envelopes and
 errors (003), the action vocabulary and how grants are stored (004).
-The reference console, which ships apart from `examend` (011). Bar evaluations, which a
-report links to (009). Cross-experiment and cross-suite meta-reports,
-a public leaderboard, and narrative in languages other than English.
+The reference console, which ships apart from `examend` (011). Bar
+evaluations, which a report links to (009). Cross-experiment and
+cross-suite meta-reports, a public leaderboard, and narrative in
+languages other than English.
 
 ## Acceptance criteria
 
 | Criterion | Test that proves it |
 |---|---|
-| Every number in an experiment view and a comparison view is read from a stored comparison or the stored analysis, or is a count of stored records made by `examend`, and carries its source | `view.TestEveryFigureIsStoredAndSourced` |
-| The reference console holds no routine that computes a summary, an interval, a test or a verdict | `console.TestNoStatisticsInTheClient` |
-| A view answers `304` to its own `ETag` until a trial finishes or a grading is recorded, and a running cell shows its progress | `view.TestLiveViewVersioning` |
-| A confounded comparison never appears in the headline and is listed with its confounds | `view.TestHeadlineIsSingleVariableOnly` |
-| No rate in a view, a JSON export, a CSV export or an HTML bundle lacks its denominator | `view.TestEveryRateHasItsDenominator`, over the golden experiment |
-| Confounds appear in the row of each confounded result; an insufficient result shows its counts and no delta finding | `view.TestConfoundsInline`, `view.TestInsufficientRendering` |
-| A result of a metric a judge produces shows that judge version's calibration flag, alpha, interval and pair count | `view.TestCalibrationShown` |
-| Behavioral outcomes are separate columns and `infra_failed` trials are shown as excluded | `view.TestOutcomeColumns` |
-| The gap map marks every task and candidate pair of the suite version as `run`, `partial`, `parked` or `never_run`, with counts | `view.TestGapMap` |
+| Every number the console shows for an experiment and a comparison is a member of a grid, comparison, row or trial answer, read from a stored comparison or the stored analysis or a count of stored records made by `examend`, and carries its source | `view.TestEveryFigureIsStoredAndSourced` |
+| The reference console holds no routine that computes a summary, an interval, a test or a verdict, and reads a page again on a stream event, never on a timer | `console.TestNoStatisticsInTheClient`, `console.TestReadsOnStreamEvents` |
+| The headline leads with the primary metric's suite-level result whatever its verdict, with its interval and reason; a confounded comparison never appears in it and is listed with its tuple confounds; a result with `missing` is shown as not a finding; a layer confound in one task is named in the line and leaves the comparison in the headline | `view.TestHeadline` |
+| No rate in the console, a JSON export, a CSV export or an HTML bundle lacks its denominator, and a suite-level rate reads "weighted over T tasks; k/n trials" | `view.TestEveryRateHasItsDenominator`, over the golden experiment |
+| Confounds appear in the row of each confounded result with their tasks and counts; an insufficient result shows its reason and no delta finding; `within_noise` reads "no clear difference" with its delta interval and n | `view.TestConfoundsInline`, `view.TestInsufficientRendering`, `view.TestNoClearDifference` |
+| Every verdict is shown with its `reason`, and spread across tasks only as the advice sentence | `view.TestReasonsAndAdvice` |
+| Behavioral outcomes are separate columns, and `infra_failed`, `over_budget` and `canceled` trials are shown as excluded | `view.TestOutcomeColumns` |
 | Spend includes smoke, failed and retried trials and judge gradings, and matches the sum of the Lux stub's records | `view.TestCosts`, against the Lux stub |
-| Each linter code rejects its fixture claim and a compliant narrative passes; a narrative with any finding cannot be released | `narrative.TestLinter`, `narrative.TestReleaseNeedsACleanLint` |
-| The drafter's request holds the report document and no evidence, instruction or rationale | `narrative.TestDrafterReadsOnlyTheDocument`, with canary strings |
-| A release stores the draft, the released text, their diff, the model, the prompt digest, the linter version and the releaser; a report without a release says so in every export | `narrative.TestReleaseRecord` |
-| A report's `document` matches its digest and never changes; a re-grade yields a new report | `report.TestReportIsFrozen` |
-| The CSV files have exactly the columns of their table and read back to the document's values | `report.TestCSVColumnsAndRoundTrip` |
-| The HTML bundle is written under `files/examen/reports/<id>/<n>/` create-only with its manifest last, and `index.html` references no other origin and needs no script | `report.TestHTMLBundle`, against the Arca stub |
-| A subject without a share is refused a report; a share lets one subject read it; revoking it refuses again; no route serves a report anonymously | `report.TestSharing`, against a test authorizer |
+| A report's `document` matches its digest and never changes; a re-grade yields a new report; a report names only final comparisons | `report.TestReportIsFrozen` |
+| Later steps: the calibration column shows each judge's flag, alpha, interval and pair count; each linter code rejects its fixture claim and a compliant narrative passes, and a narrative with any finding cannot be released; the drafter reads only the document; a release stores its record; the CSV files have exactly their columns and read back; the HTML bundle is written under `files/evals/reports/<id>/<n>/` create-only with its manifest last and no other origin; the gap map marks every pair; sharing grants and revokes reading | `view.TestCalibrationShown`, `narrative.TestLinter`, `narrative.TestReleaseNeedsACleanLint`, `narrative.TestDrafterReadsOnlyTheDocument`, `narrative.TestReleaseRecord`, `report.TestCSVColumnsAndRoundTrip`, `report.TestHTMLBundle`, `view.TestGapMap`, `report.TestSharing` |

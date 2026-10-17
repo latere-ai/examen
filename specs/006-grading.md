@@ -39,13 +39,14 @@ produces a guessed value.
 | Kind | Runs | When | Reads | Costs |
 |---|---|---|---|---|
 | `check` | the task's command, in the trial's machine, run by the executor (spec 005) | after the agent ends, before the machine is released | the machine's files, the trial's transcript and final message | machine time; no model call of Examen's |
-| `model_judge` | one structured call through Lux, made by examend | after the trial is `done` | the trial's evidence through its references, at most `JUDGE_MAX_INPUT_BYTES` | one Lux call on the experiment's Budget, per attempt |
+| `model_judge` | one structured call through Lux, made by examend on a Key from the key source | after the trial is `done` | the trial's evidence through its references, at most `JUDGE_MAX_INPUT_BYTES` | one Lux call on the experiment's Budget, per attempt |
 | `agent_judge` | a session of a pinned Topos agent version, through the `topos` executor | after the trial is `done` | the trial's evidence, read-only | a session on the experiment's Budget |
 | `annotation` | a person, through the API | when the trial is queued for them | the trial's evidence, through Examen | none on the Budget |
 
 A trial is graded by its task's checks, the suite's `graders`, and,
 when the suite lists `declined`, the suite's decline judge. A trial that
-ended `infra_failed` or `canceled` is not graded. A cell is `grading` while
+is not finished, one that ended `infra_failed`, `over_budget` or
+`canceled`, is not graded. A cell is `grading` while
 every trial is `done` and some check run or judgment is not yet ended,
 and `complete` when every one has ended. Annotations never hold a cell:
 a person's answer may come days later, as a generation.
@@ -107,6 +108,18 @@ first, and the task's author orders them.
    `true` and exit 1 is `false`. A checker that passes on exit 0, such
    as Topos spec 025's `check.sh`, moves over unchanged this way.
 
+**The task's failure is a value; the check's failure is `error`.** A
+check that ran to its end reports what it found, however bad: tests
+that fail are `false`, a count of failures, a score of 0. That is the
+task failing, a measurement like any other. A check that could not do
+its job, because its own build broke, it crashed, or it could not read
+what it needed, fails itself: it exits with any status but 0, or with 1
+and something on stdout, and the run is `error`, which leaves the
+metric without a value for that trial (below). In the exit-status form
+exit 1 is the task's failure and any other exit the check's. A check
+author keeps the two apart, because analysis reads a value and never
+reads a missing one as `false`.
+
 | Metric type | JSON value | Rule |
 |---|---|---|
 | `binary` | `true` or `false` | |
@@ -133,36 +146,39 @@ value wrongly yields nothing, so it cannot report a convenient subset.
 The run's state, exit code and a developer's reason (such as
 `metrics.coverage: 1.4 is outside [0, 1]`) are recorded in a check run
 record of the trial's `checks` (spec 002), with a reference to its
-whole stdout and stderr in evidence. A smoke trial
-with any run not `ok` blocks its cell (spec 005). After smoke, a run
-that is not `ok` leaves its metrics without a value for that trial, and
-spec 008 counts missing values per cell and never reads one as `false`.
+whole stdout and stderr in evidence. A smoke trial with any run not
+`ok` blocks its cell (spec 005). After smoke, a run that is not `ok`
+leaves its metrics without a value for that trial, and spec 008 counts
+missing values per cell, never reads one as `false`, and names them on
+every result they touch.
 
 `CHECK_TIMEOUT` covers all of a trial's checks together: each check
 starts with what the earlier ones left of it, and is killed when it
 runs out. Checks run after every end of the agent's work but an
-infrastructure failure or a cancel, so the work a timed-out or
-over-budget agent left is graded. A check run's state never changes the
+infrastructure failure, a spend refusal or a cancel, so the work a
+timed-out agent left is graded. A check run's state never changes the
 trial's outcome, which is the agent's; a check that cannot start on
 every trial blocks the cell at its smoke trial instead.
 
 ### Model judges
 
-**The Key.** For each model judge of an experiment, examend applies one
-Lux Key as the owner (spec 004): `spec.budget` the experiment's Budget,
-`models` exactly the grader's `model`, `allowUnpriced` false,
-`zeroRetention` when the grader's `zero_retention` asks for it (spec
-002, covered by the digest), and the labels
-`examen.experiment` and `examen.grader` (the grader's id). The Key is
-disabled when the experiment is `complete` or `canceled`.
+**The Key.** For each model judge of an experiment, examend leases one
+Key from the key source with the purpose `judge` (spec 004): `models`
+exactly the grader's `model`, and the labels `examen.experiment` and
+`examen.grader` (the grader's id); the `lux` source names the
+experiment's Budget and allows no unpriced model. Which providers may
+keep what a judge sends is the key source's to decide, not the
+grader's: an installation's key endpoint may hold a judge's Key to the
+owner's own data terms. The Key is released when the experiment is
+`complete` or `canceled`.
 
 **The call.** One judgment is one call, through `pkg/llmdialect` to
 Lux's `lux` door, with the grader's `temperature`, at most
 `JUDGE_MAX_OUTPUT_TOKENS` of output, the model's default reasoning level
 unless the grader names a `reasoning` level, and
-`Lux-Labels: examen.trial=<trial>` with the underscore written as a
-period (spec 005). It offers one tool, `record_judgment`, whose input
-schema is the output schema below, and requires the model to call it.
+`Lux-Labels: examen.trial=<trial>`, the trial id verbatim (spec 005).
+It offers one tool, `record_judgment`, whose input schema is the output
+schema below, and requires the model to call it.
 
 **Input assembly.** The request is a deterministic function of the
 grader version and the evidence bytes, so the same evidence yields the
@@ -228,7 +244,7 @@ measurement per metric, with its `rationale`.
 | the response ended with the IR stop reason `refusal` | `refused` | no other | none |
 | no tool call, more than one, input that is not JSON or breaks the schema | `malformed` once the attempts are spent | `JUDGE_MAX_ATTEMPTS` in all | none |
 | Lux or the provider did not answer, or answered a transient error | stays `pending`; the job is queued again with backoff, and this does not count against `JUDGE_MAX_ATTEMPTS` | | |
-| Lux refused for spend (`budget_exhausted`, `spend_exceeded`) | `over_budget`; the cell parks `over_budget` | no other | none |
+| Lux refused for spend (`budget_exhausted`, `spend_exceeded`) | `over_budget`; the cell parks `over_budget`, and its retry grades the trial again (spec 005) | no other | none |
 | Lux refused the Key or the model (`model_not_allowed`, `model_not_found`, `model_unpriced`, `key_disabled`) | `gateway_refused` | no other | none |
 | an evidence digest did not match | `evidence_changed` | none sent | none |
 
@@ -336,9 +352,8 @@ changes it.
   owner's transcripts to that model's provider, and Examen ships no
   default judge model (spec 012). It calls its model for a trial whose
   outcome is `completed`; it records true without a call for the
-  outcome `declined`, and false without a call for `timed_out`,
-  `turn_limit` and `over_budget`, each a limit that stopped an agent
-  while attempting.
+  outcome `declined`, and false without a call for `timed_out` and
+  `turn_limit`, each a limit that stopped an agent while attempting.
 - **Changing the decline judge** makes a new suite version, and the
   cells' grader digests differ, so a comparison across the change
   carries the confound (spec 008).
@@ -356,7 +371,7 @@ changes it.
   judge's own run-to-run spread when its temperature is above 0, or
   fills judgments an outage left `pending`.
 - **A changed judge** (model, prompt, rubric, inputs, temperature,
-  preamble, `reasoning`, `zero_retention`) is a new grader version. Its
+  preamble, `reasoning`) is a new grader version. Its
   first grading of a trial is generation 1 under its own digest, and a
   comparison across two versions is a confound spec 008 computes from
   the tuple's grader digests.
@@ -391,9 +406,10 @@ same trials.
   `CALIBRATION_MIN_PAIRS` pairs or its alpha is below
   `CALIBRATION_MIN_AGREEMENT`. The flag is derived, recomputed whenever
   a measurement of m from J or an annotation of m arrives, and never
-  stored on a measurement. Every view and report that shows m from J
-  carries the flag, the alpha, its interval and the pair count (spec
-  010), and `GET /graders/{ref}/calibration` reads them (spec 003).
+  stored on a measurement. `GET /graders/{ref}/calibration` reads the
+  flag, the alpha, its interval and the pair count (spec 003), and a
+  console's and a report's calibration column shows them beside every
+  result of m from J, once that column is built (spec 010).
 - **A new version starts uncalibrated**: agreement of one judge version
   says nothing of another.
 
@@ -421,7 +437,7 @@ calibration (spec 010); the threats to judges (spec 012).
 
 | Criterion | Test that proves it |
 |---|---|
-| Each row of the check run state table yields its state and measurements, over recorded check runs | `check.TestRunStates` |
+| Each row of the check run state table yields its state and measurements, over recorded check runs; a check that reports failing tests yields a `false` value, and one that crashed yields `error` and no value | `check.TestRunStates`, `check.TestTaskFailureIsAValue` |
 | A JSON form output with a missing, unknown or mistyped metric, an out-of-range score, an unknown label, an extra member or more than `CHECK_MAX_OUTPUT_BYTES` yields no measurement at all and a `malformed` record naming the field | `check.TestMalformedYieldsNothing`, `check.FuzzParse` |
 | The exit-status form maps exit 0 to `true` and exit 1 to `false` for a grader of one `binary` metric, and is `error` for any other grader | `check.TestExitStatusForm` |
 | A check's environment carries the `EXAMEN_` variables and the grader's `env`, and never the trial's model key, on both executors | `check.TestEnvironment`, e2e tier |
@@ -431,7 +447,7 @@ calibration (spec 010); the threats to judges (spec 012).
 | No byte of evidence or of the task's instruction appears in the system content, and the boundary occurs in no input | `judge.TestEvidenceStaysInTheUserTurn`, `judge.FuzzBoundary` |
 | An answer with two tool calls, a missing metric, a `null` value, an out-of-range value or a rationale past `JUDGE_MAX_RATIONALE_BYTES` is retried up to `JUDGE_MAX_ATTEMPTS` and then `malformed`, with no measurement | `judge.TestMalformedAnswers`, against the stub Lux |
 | A refusal is `refused` with no second call; a spend refusal is `over_budget` and parks the cell; a refused model is `gateway_refused`; a transient failure leaves the judgment `pending` | `judge.TestJudgmentStates` |
-| A judge's Key draws on the experiment's Budget, names only the grader's model, allows no unpriced model, carries the labels, and is disabled when the experiment ends | `judge.TestJudgeKey` |
+| A judge's Key is leased from the key source with the purpose `judge`, names only the grader's model, carries the labels, and is released when the experiment ends; from the `lux` source it draws on the experiment's Budget and allows no unpriced model | `judge.TestJudgeKey` |
 | An evidence object whose digest changed ends the judgment `evidence_changed` and nothing is sent | `judge.TestEvidenceChanged` |
 | An agent judge session gets read-only inputs, network `none` and the narrowed tools, and its `judgment.json` is validated like a model judge's answer | `judge.TestAgentJudge`, against the stub Topos |
 | The annotation draw is a function of the grader and the trial alone, selecting close to `sample` of trials over a large set; an unanswered claim returns after `ANNOTATION_CLAIM_TTL` | `annotate.TestSampling`, `annotate.TestClaims` |

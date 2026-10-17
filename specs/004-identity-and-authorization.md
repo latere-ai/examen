@@ -1,12 +1,12 @@
 ---
-title: "Identity and authorization: verifying a caller, the action vocabulary, the authorizer with its limits and filters, the built-in owner policy, sharing, and acting as the owner toward Topos, Cella, Lux, Arca and Origo"
+title: "Identity and authorization: verifying a caller, the action vocabulary, the authorizer with its limits and filters, the built-in owner policy, sharing, acting as the owner toward Topos, Cella, Lux, Arca and Origo, and the key source that leases model Keys"
 status: drafted
 track: core
 depends_on:
   - specs/001-architecture.md
   - specs/002-objects.md
   - specs/003-api.md
-affects: [authorizer/, internal/access/, internal/owner/, internal/httpapi/, internal/execute/]
+affects: [authorizer/, internal/access/, internal/owner/, internal/keys/, internal/httpapi/, internal/execute/]
 effort: large
 created: 2026-10-17
 updated: 2026-10-17
@@ -27,8 +27,12 @@ on what it owns. Whose identity a trial's work carries is always the
 experiment's owner: every request Examen sends to a core for that work
 carries a short-lived token for the owner, which Examen obtains from a
 minter the operator provides or, on an installation run by one owner,
-receives from files that owner keeps. Examen never uses an identity of
-its own toward a core. It holds no accounts, roles or plans.
+receives from files that owner keeps. The Lux Keys that model judges,
+`cella` rollouts and narrative drafts call through come from a key
+source: Examen creates them at Lux as the owner when it runs on its
+own, or asks the installation for them when the installation keeps its
+own budgets. Examen never uses an identity of its own toward a core. It
+holds no accounts, roles or plans.
 
 ## Design
 
@@ -108,16 +112,17 @@ checks before the wire. Each action names one kind.
 | `Candidate` | `candidate.apply` | `PUT /candidates/{name}` | `owner`, `name`, `digest`, `candidate_kind`, `agent`, `image`, `model`, `reasoning` |
 | `Candidate` | `candidate.read` | `GET /candidates/{ref}`, `GET /candidates/{name}/versions` | id; `owner`, `name`, `digest`, `candidate_kind` |
 | `Candidate` | `candidate.list` | `GET /candidates` | `owner` |
-| `Experiment` | `experiment.create` | `POST /experiments` | `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `baseline`, `baseline_owner`, `mode`, `adopt` |
-| `Experiment` | `experiment.read` | `GET /experiments/{id}` and every route below it that reads, `GET /cells/{id}`, `GET /trials/{id}`, `GET /measurements/{id}`, `GET /comparisons/{id}` with its rows and its view, `POST /comparisons`; and the experiment each export, baseline pin or bar evaluation names | id; `owner`, `suite`, `state`, `mode`, `shared` |
+| `Experiment` | `experiment.create` | `POST /experiments` | id (minted before the question, so an authorizer can keep a record of the experiment it allows); `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `reference_candidate`, `baseline`, `baseline_owner`, `mode`, `adopt` |
+| `Experiment` | `experiment.read` | `GET /experiments/{id}` and every route below it that reads, `GET /cells/{id}`, `GET /trials/{id}`, `GET /measurements/{id}`, `GET /comparisons/{id}` with its rows, `POST /comparisons`; and the experiment each export, baseline pin or bar evaluation names | id; `owner`, `suite`, `state`, `mode`, `shared` |
 | `Experiment` | `experiment.list` | `GET /experiments`, `GET /comparisons` | `owner` |
-| `Experiment` | `experiment.update` | `PATCH /experiments/{id}`, `POST /experiments/{id}/close`, `POST /cells/{id}/gate` | id; `owner`, `suite`, `state`, `mode`, and what it changes: `trials` with `trials_total`, `parallelism`, `baseline` with `baseline_owner`, or the `cell` it gates |
+| `Experiment` | `experiment.update` | `PATCH /experiments/{id}`, `POST /experiments/{id}/close` | id; `owner`, `suite`, `state`, `mode`, and what it changes: `trials` with `trials_total`, `parallelism`, or the reference as `reference_candidate`, or `baseline` with `baseline_owner` |
+| `Experiment` | `cell.retry` | `POST /cells/{id}/retry` | id; `owner`, `suite`, `state`, `mode`, `cell`, `cell_state`, `parked_reason` |
 | `Experiment` | `experiment.cancel` | `POST /experiments/{id}/cancel` | id; `owner`, `suite`, `state` |
 | `Experiment` | `experiment.delete` | `DELETE /experiments/{id}` | id; `owner`, `suite`, `state`, `evidence` |
 | `Experiment` | `experiment.import` | `POST /experiments/{id}/imports` | id; `owner`, `suite`, `state`, `mode`, `task`, `candidate`, `executor`, `executor_ref` |
 | `Experiment` | `experiment.regrade` | `POST /experiments/{id}/regrade` | id; `owner`, `suite`, `state`, `grader`, `judge_models` |
 | `Experiment` | `experiment.share` | `PUT`, `DELETE` and `GET` of `/experiments/{id}/shares` | id; `owner`, `grantee` |
-| `Experiment` | `experiment.run` | Examen itself, before unattended work (below) | id; `owner`, `created_by`, `purpose`, `cell`, `executor`, `budget` |
+| `Experiment` | `experiment.run` | Examen itself, before unattended work (below) | id; `owner`, `created_by`, `state`, `purpose`, `cell`, `executor`, `budget` |
 | `Baseline` | `baseline.pin` | `PUT /suites/{suite}/baselines/{name}` | `owner`, `suite`, `suite_owner`, `name`, `experiment`, `candidate` |
 | `Baseline` | `baseline.read` | `GET` of a baseline, its history, and `GET /baselines/{id}` | id; `owner`, `suite`, `suite_owner`, `name`, `shared` |
 | `Baseline` | `baseline.list` | `GET /suites/{suite}/baselines` | `owner`, `suite`, `suite_owner` |
@@ -142,6 +147,12 @@ checks before the wire. Each action names one kind.
 
 `GET /openapi.yaml` asks nothing: it is a public document.
 
+`cell.retry` is an action of its own, so an authorizer can tell a
+retry from a change and a grant can name it, but it acts on the
+experiment and is decided as `experiment.update` is: an authorizer
+that lets a subject change an experiment lets it retry the
+experiment's cells, and the owner policy allows it to the owner.
+
 The shared envelope keeps two names for the resource itself:
 `resource.kind`, the kind of the table's first column, and
 `resource.id`, the id of a stored object, written "id" in the table. It
@@ -164,8 +175,12 @@ object's own `type` or `kind` is sent as `metric_type`, `grader_kind`,
 | `suite`, `suite_owner` | the experiment's suite digest and its owner |
 | `candidates`, `models`, `judge_models`, `executors` | the candidate digests; every model the candidates name; every model the suite's model judges name; the executors the candidates need, `topos` or `cella` |
 | `cells`, `trials`, `trials_total` | tasks × candidates; N; cells × N |
-| `baseline`, `baseline_owner` | the baseline's id and its owner |
-| `purpose`, `cell`, `executor` | on `experiment.run`: the work about to be done (below), its cell, and its executor |
+| `reference_candidate` | on `experiment.create` and `experiment.update`: the candidate digest the experiment's `reference` names, when it names a candidate |
+| `baseline`, `baseline_owner` | the baseline record's id and its owner, when the experiment's `reference` names a baseline; on a baseline action, the baseline's |
+| `state` | on a stored experiment: its state |
+| `purpose`, `executor` | on `experiment.run`: the work about to be done (below) and its executor |
+| `cell` | on `experiment.run` and `cell.retry`: the cell's id |
+| `cell_state`, `parked_reason` | on `cell.retry`: the cell's parked state, `blocked` or `over_budget`, and its `parked_reason` |
 | `grader` | on a re-grade and an annotation action: the grader version's digest |
 | `experiment` | on a report or annotation action: the experiment's id |
 | `experiments`, `all_generations`, `evidence` | on `export.create`: the experiments its filter names, and its `all_generations` and `evidence` (spec 002); on `experiment.delete`, `evidence` is the parameter of spec 007 |
@@ -333,7 +348,9 @@ an authorizer's is, and a token whose grants cannot be read is denied.
 
 ### Sharing
 
-A share is spec 002's record, `{id, owner, object, suite, baseline,
+Sharing is a later build step than the console path (spec 003); until
+it is built, an owner reaches only its own objects. A share is spec
+002's record, `{id, owner, object, suite, baseline,
 experiment, report, grantee, created_by, created_at}`, with the prefix
 `shr_`. An owner shares a suite it owns, a baseline it pinned, an
 experiment or a report with another owner through the routes of spec
@@ -346,8 +363,8 @@ until it is removed.
 | Share | The grantee may | The grantee may not |
 |---|---|---|
 | a suite | read every version of the suite, and every task, metric and grader those versions pin; name any version in its own experiments, whose work is then its own, on its own budget; pin baselines and apply bars of its own on the suite | apply a version under the name, share it on, or read the sharer's experiments, candidates, baselines or bars |
-| a baseline | read the baseline's records; name one as its experiment's baseline, so its comparisons are computed against the sharer's pinned cells | read the sharer's experiment, trials, measurements or evidence: a comparison carries the baseline side's summaries alone (spec 003) |
-| an experiment | read the experiment, its cells, trials, measurements, comparisons and live view (spec 010) | change, cancel, re-grade, delete or share it; evidence bytes are read only as Arca allows |
+| a baseline | read the baseline's records; name one as its experiment's `reference`, so its comparisons are computed against the sharer's pinned cells | read the sharer's experiment, trials, measurements or evidence: a comparison carries the baseline side's summaries alone (spec 003) |
+| an experiment | read the experiment, its grid, cells, trials, measurements and comparisons | change, cancel, retry, re-grade, delete or share it; evidence bytes are read only as Arca allows |
 | a report | read the report's document and its released narrative (spec 010) | read a draft, or the experiment and its trials |
 
 A baseline is used only by an experiment of the same suite, so a
@@ -376,6 +393,7 @@ holds no credential of any core.
 | an OIDC issuer, for discovery and keys | none | none |
 | the authorizer | the bearer in `EXAMEN_AUTHORIZER_TOKEN_FILE` | the installation's trust in Examen |
 | the minter | the bearer in `EXAMEN_MINTER_TOKEN_FILE` | the installation's trust in Examen |
+| the key endpoint, with the `endpoint` key source | the bearer in `EXAMEN_KEYS_TOKEN_FILE` | the installation's trust in Examen; the request names the owner and the experiment |
 | Topos, Cella, Lux, Arca, Origo | an owner token for that core's audience | the owner, on behalf of the subject below |
 | Postgres | the database URL (spec 011) | none |
 | the telemetry collector | the standard OpenTelemetry headers | none |
@@ -384,12 +402,12 @@ An owner token is asked for one piece of work, its **purpose**:
 
 | Purpose | When | Cores |
 |---|---|---|
-| `resolve` | an apply or an experiment create checks its pins and its budget (spec 003) | Topos (agent versions), Lux (models, the Budget), Origo (commits), Arca (workspace paths and digests), Cella (images) |
-| `trial` | a cell's rollouts: submitting, following, resizing and canceling them, and the Lux Key and Cella Secret of a `cella` rollout (spec 005) | Topos, Cella, Lux |
-| `judge` | a model judge's Lux Key and calls, an agent judge's Topos session, and the evidence either reads (spec 006) | Lux, Topos, Arca |
+| `resolve` | an experiment's create checks that every pin it uses exists, that each environment image passes Cella's admission, and its budget (spec 003) | Topos (agent versions), Lux (models, the Budget), Origo (commits), Arca (workspace paths and digests), Cella (images) |
+| `trial` | a cell's rollouts: submitting, following, resizing and canceling them, the cost check's lease, and the Cella Secret of a `cella` rollout with its leased Key (spec 005) | Topos, Cella, Lux |
+| `judge` | a model judge's calls through its leased Key, an agent judge's Topos session, and the evidence either reads (spec 006) | Lux, Topos, Arca |
 | `import` | reading a finished session or sandbox and its records (spec 005) | Topos, Cella, Lux, Arca |
 | `export` | writing a dataset (spec 007) | Arca |
-| `report` | a narrative draft's call and a report's HTML bundle (spec 010) | Lux, Arca |
+| `report` | a narrative draft's call through its leased Key, and a report's HTML bundle (spec 010) | Lux, Arca |
 
 The token's subject is the caller, for work done during a request, and
 the experiment's or export's `created_by` for work done later. Examen
@@ -398,15 +416,88 @@ experiment and purpose, keeps it in memory until `OWNER_TOKEN_RENEWAL`
 before its expiry, and never uses it longer than
 `OWNER_TOKEN_MAX_LIFETIME` after obtaining it.
 
-**Model access.** Lux's model doors take Keys. A Key Examen creates,
-for a `cella` rollout or for a model judge, is created at Lux's control
-plane with a Lux owner token and names the experiment's Budget, so its
-`owner` is the owner, the owner is its writer, and every call through it
-is metered against the experiment. Examen never assigns an owner on a
-create made with its own identity. A Key's value is held in memory for
-the calls it serves, and for a `cella` trial in the Cella Secret that
-carries it; it is never written to Postgres, an event, a log line or an
-error, and the Key is deleted when its work ends (specs 005 and 006).
+**Model access.** Lux's model doors take Keys. Examen's own calls, a
+model judge's, a `cella` rollout's through its Lux Secret, and a
+narrative draft's, go through Keys it leases from the **key source**,
+an interface of `internal/keys` with two implementations (below). A
+`topos` trial's Keys are not Examen's: Topos issues them to its
+sessions (spec 005, R10).
+
+```go
+package keys
+
+// A Source leases the Lux Keys an experiment's own calls go through.
+type Source interface {
+	// Lease answers one Key for work of one experiment.
+	Lease(ctx context.Context, r Request) (Lease, error)
+	// Release ends a lease: the Key stops serving. Releasing a Key
+	// already released is no error.
+	Release(ctx context.Context, keyID string) error
+}
+
+// Request names whose work a Key is for and what it may call.
+type Request struct {
+	Owner      string            // the experiment's owner
+	Subject    string            // on whose behalf: the caller, or the experiment's created_by
+	Experiment string            // the exp_ id
+	Purpose    string            // "trial", "judge" or "report"
+	Models     []string          // the only models the Key may call
+	Labels     map[string]string // the Key's labels (spec 005)
+	TTL        time.Duration     // the longest the work can last
+}
+
+// Lease is one Key and what is left to spend through it.
+type Lease struct {
+	Value     string    // the Key's value, held in memory only
+	ID        string    // the Key's id at Lux
+	Expires   time.Time // when the Key stops serving
+	Remaining int64     // micro-units: the smallest remainder across every Budget the Key draws on
+	Currency  string
+}
+```
+
+| Source | Used when | `Lease` | `Release` | `Remaining` |
+|---|---|---|---|---|
+| `lux` | `EXAMEN_KEYS_URL` is unset: Examen runs on its own | creates a Key at Lux's control plane with a Lux owner token of the request's purpose: `spec.budget` the experiment's Budget, `models`, `allowUnpriced` false, the labels and a `ttl`, so the Key's `owner` is the owner and the owner is its writer | deletes the Key | the experiment's Budget's `status.remaining`, read as the owner |
+| `endpoint` | `EXAMEN_KEYS_URL` is set: the installation keeps its own budgets | asks the installation's key endpoint (below) | `DELETE {EXAMEN_KEYS_URL}/{key id}` with the same bearer | what the endpoint answers: the smallest remainder across every Budget the Key draws on, such as the experiment's, a wallet that pays for it and a budget line above them |
+
+With `endpoint`, Examen writes no Key and no Budget at Lux: the
+installation creates, scopes and ends them, so no experiment bypasses a
+cap a budget owner set there, and it decides each Key's data terms,
+such as whether a provider that keeps what it is sent may serve a
+judge. With `lux`, a Key takes Lux's defaults for data terms. Examen
+never assigns an owner on a create made with its own identity. A Key's
+value is held in memory for the calls it serves, and for a `cella`
+trial in the Cella Secret that carries it; it is never written to
+Postgres, an event, a log line or an error, and the Key is released
+when its work ends (specs 005 and 006).
+
+**The key endpoint.** The `endpoint` source posts one request per
+lease:
+
+```json
+POST {EXAMEN_KEYS_URL}
+Authorization: Bearer <the content of EXAMEN_KEYS_TOKEN_FILE>
+
+{ "owner": "https://issuer.example|9ab3",
+  "subject": "https://issuer.example|9ab3",
+  "experiment": "exp_01jb…", "purpose": "judge",
+  "models": ["<the grader's model id>"],
+  "labels": { "examen.experiment": "exp_01jb…", "examen.grader": "grd_01jb…" },
+  "ttl": 86400 }
+```
+
+| Answer | During a request | In unattended work |
+|---|---|---|
+| `200` with `{key, key_id, expires_at, remaining, currency}` | used | used |
+| `402`: no Budget the Key would draw on has money left | `422 budget_refused` | the cell parks `over_budget`, `parked_reason` `budget_exhausted` |
+| `403`, optionally with `{reason}` | `403 forbidden`, the reason as `details.reason`, `key_refused` when absent | the cell parks `blocked`, `parked_reason` the reason or `key_refused` |
+| anything else, a body that does not parse or lacks a member, an expiry already past, or no answer within `authz.Timeout`, after one retry on a connection failure | `503 owner_tokens_unavailable`, `details.reason` `key_source`, retryable | the work waits and is tried again; nothing parks for an outage |
+
+The endpoint should scope the Key to `models`, carry `labels`, and let
+it serve no longer than `ttl`; Examen holds a Key until its expiry and
+never past it. Neither the endpoint's address nor its bearer nor a byte
+of a Key is in an error.
 
 **Inside a trial** Examen places no token. A Topos trial reaches models
 and its machine with the credentials Topos gives its sessions; a
@@ -414,8 +505,8 @@ and its machine with the credentials Topos gives its sessions; a
 egress gateway substitutes for a placeholder at the last hop.
 
 **Attribution check.** Where a core's answer names the owner it
-recorded for what Examen created, such as a Lux Key's `owner`, Examen
-compares it with the experiment's owner. A mismatch deletes or ends the
+recorded for what Examen created, such as the `owner` of a Key the
+`lux` source created, Examen compares it with the experiment's owner. A mismatch deletes or ends the
 object, and the cell parks `blocked` with `parked_reason`
 `owner_mismatch`.
 
@@ -448,7 +539,7 @@ Authorization: Bearer <the content of EXAMEN_MINTER_TOKEN_FILE>
 | `owner` | the owner the work is for |
 | `subject` | the subject on whose behalf it happens: the caller, or the experiment's or export's `created_by` |
 | `audience` | the core's audience, from `EXAMEN_TOPOS_AUDIENCE`, `EXAMEN_CELLA_AUDIENCE`, `EXAMEN_LUX_AUDIENCE`, `EXAMEN_ARCA_AUDIENCE` or `EXAMEN_ORIGO_AUDIENCE` |
-| `claims` | `examen: {experiment, purpose}`, for the minter to place on the token; `experiment` is absent for a `resolve` of an apply |
+| `claims` | `examen: {experiment, purpose}`, for the minter to place on the token where its issuer can (above) |
 | `ttl` | the lifetime asked: `OWNER_TOKEN_MAX_LIFETIME`, in seconds |
 | `token`, `expires_in` | the answer: the token and its lifetime in seconds |
 
@@ -456,16 +547,31 @@ The minter's obligations, which the cores and not Examen check: the
 token is addressed to `audience` alone and verifies against that core's
 issuers; its identity is `subject` acting in `owner`'s context, as the
 installation's issuer writes a context, and for a personal owner the two
-are one; it carries `claims` verbatim, so the core's authorizer, which
-receives every verified claim, can attribute the call to the experiment
-and refuse a token whose experiment it knows has ended; it lasts no
+are one; it carries `claims` verbatim when the installation's issuer
+can place them, so the core's authorizer, which receives every verified
+claim, can attribute the call to the experiment and refuse a token whose
+experiment it knows has ended. An issuer that cannot place claims mints
+a plain token for the subject, and the installation attributes the call
+through its own experiment record and the labels Examen sets on what it
+creates (spec 005); Examen behaves the same either way. It lasts no
 longer than `ttl`; and the minter answers `403` for an owner and subject
 it does not let Examen act for.
+
+A `403` may carry a body `{"reason": "sign_in_not_kept"}`: the minter
+mints from a sign-in the subject left with the installation for work
+they started, and it keeps none for this subject's work, as for a
+client whose sign-in the installation does not keep. Because work the
+subject started may run long after they leave, Examen asks the minter
+at an experiment's create (the `resolve` purpose), so an experiment
+whose later work could not be attributed is refused before it exists.
+Any other reason, or none, reads as `owner_token_refused`. The request
+and the `200` answer are otherwise as above.
 
 | Minter answer | During a request | In unattended work |
 |---|---|---|
 | `200` with `token` and `expires_in` | used | used |
-| `403` | `403 forbidden`, `details.reason` `owner_token_refused` | the cell parks `blocked`, `parked_reason` `owner_token_refused`; an export fails with the same reason |
+| `403` with reason `sign_in_not_kept` | `403 sign_in_not_kept` | the cell parks `blocked`, `parked_reason` `sign_in_not_kept`; an export fails with the same reason |
+| `403` otherwise | `403 forbidden`, `details.reason` `owner_token_refused` | the cell parks `blocked`, `parked_reason` `owner_token_refused`; an export fails with the same reason |
 | anything else, or no answer within `authz.Timeout`, after one retry on a connection failure as `authz.Retryable` judges it | `503 owner_tokens_unavailable`, retryable | the work waits and is tried again; nothing parks for an outage |
 
 A minted token is opaque to Examen, which reads none of its claims. It
@@ -505,9 +611,11 @@ Examen asks `experiment.run`. The question's subject is the experiment's
 `created_by`, its issuer and `sub` apart, and its claims are empty,
 since Examen holds no token of that subject: an authorizer decides it
 from its own state, as it decides a scheduled start it did not see a
-person make. The resource is the stored experiment with `purpose`,
-`cell` and `executor`. The answer is cached for its `ttl`, since it
-carries an id, so a cell's trials do not each ask.
+person make, such as whether `created_by` still belongs to the owner's
+context and whether the experiment has ended. The resource is the
+stored experiment with its `state`, `purpose`, `cell` and `executor`.
+The answer is cached for its `ttl`, since it carries an id, so a cell's
+trials do not each ask.
 
 | Answer | The step |
 |---|---|
@@ -520,16 +628,18 @@ stops, ends its work within one `ttl`, without Examen deciding.
 
 ### What a handler depends on
 
-Three interfaces of `internal/access` and `internal/owner`, and a
-handler cannot tell what is behind any of them. One turns a bearer into
-a caller: the subject, its issuer and `sub` apart, and every verified
-claim. One answers a question with a decision: allow or deny, the
-reason, the limits, the filter. One answers an owner token for an owner,
-a subject, an audience, an experiment and a purpose, from the minter,
-from the token files, or not at all. Every route is written the same
+Four interfaces of `internal/access`, `internal/owner` and
+`internal/keys`, and a handler cannot tell what is behind any of them.
+One turns a bearer into a caller: the subject, its issuer and `sub`
+apart, and every verified claim. One answers a question with a
+decision: allow or deny, the reason, the limits, the filter. One
+answers an owner token for an owner, a subject, an audience, an
+experiment and a purpose, from the minter, from the token files, or not
+at all. One leases a Key for an experiment and a purpose, from Lux or
+from the installation's key endpoint. Every route is written the same
 way: authenticate, build the resource from the request and the stored
 object, ask, act within the decision, and reach a core only through an
-owner token.
+owner token or a leased Key.
 
 The routes are kept as data, one row per route of spec 003 with the
 action and the fields it sends, held to spec 003 and to `authorizer` by
@@ -612,11 +722,23 @@ is Arca's. Deciding by an object's content beyond the fields sent.
   carries Examen's authorizer or minter bearer, and none carries a
   caller's bearer.
 - A canary planted as a minted token, a token file's content and a Lux
-  Key's value is found only in requests to the core it belongs to, and
-  in no response, log line, span, event, error or database row.
-- A minter `403` parks the cell `blocked` with `owner_token_refused`; a
-  minter outage parks nothing, and the work resumes when the minter
-  answers.
+  Key's value, from either key source, is found only in requests to the
+  core it belongs to, and in no response, log line, span, event, error
+  or database row.
+- A minter `403` parks the cell `blocked` with `owner_token_refused`,
+  and with the reason `sign_in_not_kept` refuses a create `403
+  sign_in_not_kept` and parks unattended work `blocked` with
+  `sign_in_not_kept`; a minter outage parks nothing, and the work
+  resumes when the minter answers.
+- With the `endpoint` key source, no request to Lux creates or deletes a
+  Key or a Budget, every Key Examen uses comes from the endpoint and is
+  released when its work ends, and a `402` parks the cell `over_budget`;
+  with the `lux` source, every Key names the experiment's Budget, only
+  the requested models and no unpriced model, and is deleted at its
+  work's end.
+- `experiment.run` carries the experiment's `state`, and `cell.retry`
+  reaches the authorizer as its own action with the cell's parked state
+  and reason.
 - A deny of `experiment.run` parks the cell `canceled` with
   `run_denied` and starts no trial; an outage holds the work.
 - A Key whose recorded owner differs from the experiment's owner is

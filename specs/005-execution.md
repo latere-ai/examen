@@ -1,5 +1,5 @@
 ---
-title: "Execution: the executor contract, the topos and cella executors, smoke trials and the cost gate, the work queue, retries, timeouts, cancellation, adoption, imported trials, and where cost and provenance are read"
+title: "Execution: the executor contract, the topos and cella executors, smoke trials and the cost check, the work queue, retries and retrying a parked cell, timeouts, cancellation, adoption, imported trials, and where cost and provenance are read"
 status: drafted
 track: core
 depends_on:
@@ -24,9 +24,10 @@ back what happened. This spec fixes the executor contract and the two
 executors: `topos` for a candidate of kind `topos`, and `cella` for a
 candidate of kind `image`. It also fixes what examend owns around them:
 the work queue that spreads an experiment's parallelism across its
-cells, the smoke trials and the cost gate, retries of infrastructure
-failures with their lineage, timeouts, cancellation, adoption of trials
-an identical cell already ran, trials imported from sessions and
+cells, the smoke trials and the cost check, retries of infrastructure
+failures with their lineage, what happens when a Budget runs out,
+retrying a parked cell, timeouts, cancellation, adoption of trials an
+identical cell already ran, trials imported from sessions and
 sandboxes Examen did not start, and where each trial's cost and its
 sent and observed provenance are read.
 
@@ -47,9 +48,9 @@ bound and one key. A cell has at most three kinds:
 
 | Rollout | Key | Trials |
 |---|---|---|
-| smoke | `<cell id>.smoke` | indices 0 to `SMOKE_TRIALS` - 1 |
+| smoke | `<cell id>.smoke`, and `<cell id>.smoke.<round>` when a cell's retry runs its smoke again, rounds counting from 1 | indices 0 to `SMOKE_TRIALS` - 1 |
 | main | `<cell id>.main` | every remaining index up to N - 1 |
-| retry | `<cell id>.retry.<round>` | one new trial for each trial of the previous rollouts that ended `infra_failed` with retries left; rounds count from 1 |
+| retry | `<cell id>.retry.<round>` | one new trial for each trial of the previous rollouts that ended `infra_failed` with retries left, or, at a cell's retry, for each index without a finished trial; rounds count from 1 |
 
 A cell with N at most `SMOKE_TRIALS` has no main rollout. An adopted
 cell (below) runs only the indices adoption did not fill.
@@ -61,7 +62,7 @@ moment the smoke replica ends, before the smoke trial is graded and the
 estimate made, and its `replicas` cannot grow for a retry. Separate
 rollouts need nothing from either core for smoke or retries. A cell
 therefore keeps a list of rollouts, its `rollouts` (spec 002), each
-`{key, kind, executor, handle, parallelism, state}`: `queued` until the
+`{key, kind, executor, handle, parallelism, key_id, state}`: `queued` until the
 work queue gives it a share, `submitting`, `submitted` with its handle,
 and `ended` once every trial of it is `done`. An agent judge's rollouts
 (spec 006) are kept in the same list.
@@ -113,13 +114,15 @@ A `Rollout` carries:
 | `Checks` | []resolved check grader | in the task's order: the grader digest, `command`, `workdir`, `env`, `files` |
 | `Candidate` | resolved candidate | the `topos` or `image` object, every field pinned |
 | `Budget` | string | the experiment's Lux Budget |
-| `Evidence` | `{Owner, Prefix}` | the Arca space and the folder `files/examen/experiments/<experiment id>/cells/<cell id>/trials`, under which trial `t` writes `<Prefix>/<t>/` in spec 007's layout |
+| `Lease` | lease | for a `cella` rollout: the Lux Key leased from the key source for it (spec 004); absent for a `topos` rollout, whose sessions get their Keys from Topos (R10) |
+| `Evidence` | `{Owner, Prefix}` | for a `cella` rollout: the Arca space and the folder `files/evals/experiments/<experiment id>/cells/<cell id>/trials`, under which trial `t` writes `<Prefix>/<t>/` in spec 007's layout; absent for a `topos` rollout, whose sessions keep their evidence in their own folders (R9) |
 | `Labels` | map | `examen.experiment`, `examen.cell`, `examen.rollout`; each trial adds `examen.trial` and `examen.index` |
 
 The prefix `examen.` is reserved for these labels; spec 003 refuses it
-on any `metadata` key a client supplies. The executor writes the labels to every
-object it causes to exist: Topos session metadata, Cella labels, Lux Key
-labels.
+on any `metadata` key a client supplies. The executor writes the labels
+to every object it causes to exist: Topos session metadata, Cella
+labels, Lux Key labels. Every value is written verbatim: a trial's is
+its id, `tri_01j…`, underscore included.
 
 A `Report` is `{Ended bool, Trials []TrialReport, Unattributed
 Usage}`: one trial report per submitted trial, in the submitted order,
@@ -132,12 +135,12 @@ trial carried (below). A `TrialReport` carries:
 | `ExecutorRef` | the Topos session id or the replica's sandbox name; `trial.executor_ref` |
 | `State` | `pending`, `running`, `checking`, `done` |
 | `Outcome` | once `done`: one of spec 002's outcomes |
-| `Failure` | for `infra_failed` and `canceled`: `{code, detail}`, a stable code and a developer's detail |
+| `Failure` | for `infra_failed`, `over_budget` and `canceled`: `{code, detail}`, a stable code and a developer's detail |
 | `Sent` | each model request as the executor's records show it was sent: `{at, model, reasoning, lux_request}` |
 | `Lux` | where Lux's records of the trial are: `{keys []string, request_label string}` (below) |
 | `Executor` | what the executor's own records add to `observed`: per request `{lux_request, usage, cost_micro}` from Topos, the agent's exit code and the wall times from Cella |
 | `Checks` | one `CheckRun` per check, in order: `{grader, state, exit_code, stdout, stdout_size, stdout_sha256, stderr_tail, duration}`, `stdout` at most `CHECK_MAX_OUTPUT_BYTES` and the size and digest of the whole; a check that did not run to its end does not change the trial's outcome; spec 006 turns it into measurements |
-| `Evidence` | each object written to Arca, as spec 007's evidence ref: its kind, name, path, SHA-256 digest computed while writing, size, and Arca's checksum |
+| `Evidence` | each evidence object, as spec 007's evidence ref: its kind, name, path, SHA-256 digest computed while writing, size, and Arca's `checksum` and `checksum_kind`; for a `topos` trial, the objects its session keeps in its own folder, as the rollout reports them (R9) |
 | `StartedAt`, `AgentEndedAt`, `EndedAt` | the agent's first step, the agent's end, and the trial's end after its checks and evidence |
 | `Tuple` | on an imported trial only: the provenance tuple read from the records |
 
@@ -181,13 +184,14 @@ A trial ends `done` with one outcome. The rules both executors follow:
 | `declined` | the provider ended the agent's last response with a refusal (the IR stop reason `refusal`) | no |
 | `timed_out` | the task's `timeout` passed while the agent ran | no |
 | `turn_limit` | the harness stopped the agent at a bound other than time or money: `max_turns`, the model's output limit, or a stop for repeating a failing call | no |
-| `over_budget` | Lux refused a request for spend (`budget_exhausted`, `spend_exceeded`) | no |
+| `over_budget` | Lux refused a request for spend (`budget_exhausted`, `spend_exceeded`): a Budget the trial's Key draws on, or the wallet behind it, ran out | not automatically: the cell parks `over_budget` (below), and its retry runs the index again |
 | `infra_failed` | the trial could not be run to an outcome for a reason outside the agent: the machine could not start or was lost, the gateway did not answer or rejected the request, the workspace could not be delivered, the machine was lost during the checks, evidence could not be written, the deadline below passed | yes, up to `MAX_INFRA_RETRIES` |
-| `canceled` | the experiment was canceled before the trial ended | no |
+| `canceled` | the experiment was canceled, or the trial's cell parked, before the trial ended | not automatically: a cell's retry runs the index again |
 
 The executor sets the outcome once and examend never changes it
-(rule 4). A `canceled` trial, like an `infra_failed` one, is not a
-finished trial and is excluded from analysis (spec 002). The outcome
+(rule 4). A `canceled` or `over_budget` trial, like an `infra_failed`
+one, is not a finished trial and is excluded from analysis (spec 002):
+how much money was left says nothing about the agent. The outcome
 `declined` is the executor's hard signal only; the metric `declined`,
 which also covers an agent that refused or gave up in its own words, is
 the decline judge's (spec 006), and the judge never changes the outcome.
@@ -208,31 +212,39 @@ on, and acting twice changes nothing the first act did not.
 | Job | Does |
 |---|---|
 | `submit` | submits one rollout; the rollout's row moves `submitting` to `submitted` with its handle |
-| `report` | calls `Report` for one submitted rollout every `REPORT_INTERVAL`, applies it, and enqueues what follows: grading of each trial that reached `done` (spec 006), the gate, a retry round, the cell's next state |
-| `gate` | the cost gate after a cell's smoke trials are graded |
+| `report` | calls `Report` for one submitted rollout every `REPORT_INTERVAL`, applies it, and enqueues what follows: grading of each trial that reached `done` (spec 006), the cost check, a retry round, parking on a spent Budget, the cell's next state |
+| `cost_check` | the cost check, after a cell's smoke trials are graded and at a cell's retry |
 | `resize` | sets a rollout's parallelism to its share |
 | `watch` | the deadlines below, every `REPORT_INTERVAL` |
 | `cancel` | cancels an experiment's open rollouts |
 | `usage` | reads Lux's records of a trial `USAGE_SETTLE_DELAY` after it ended |
 
-Cells advance in id order, and an experiment's smoke rollouts are
-submitted before any main rollout, so every cell is smoke-tested before
-any spends at scale. A retry rollout goes ahead of a main rollout not yet
-submitted, since it finishes a cell already running.
+Cells advance task by task, in the suite's order, and an experiment's
+smoke rollouts are submitted before any main rollout, so every cell is
+smoke-tested before any spends at scale. Within a task, the
+candidates' cells advance together (below). A retry rollout goes ahead
+of a main rollout not yet submitted, since it finishes a cell already
+running.
 
 ### Parallelism across cells
 
 An experiment's `parallelism` bounds its trials running or checking at
-once, across all its cells. examend divides it among the experiment's
-open rollouts in queue order: each takes the smaller of the trials it
-has not finished and what is left, and a rollout that gets none waits
-unsubmitted. On every `report`, the shares are computed again and a
-rollout whose share changed gets a `Resize`, never below 1 once
-submitted, since a SandboxSet's `parallelism` has that floor. A trial counts against the
+once, across all its cells. examend deals it to the experiment's open
+rollouts one trial at a time: tasks in the suite's order, and within a
+task round robin across its cells' open rollouts in the experiment's
+candidate order, until the parallelism is dealt or no rollout has an
+unfinished trial left. Each core starts a rollout's trials in index
+order (R2), so trial `i` of each candidate's cell for a task runs
+alongside trial `i` of the others, and two cells a comparison within
+one experiment reads share one time window. A rollout's share is what
+it was dealt, and one dealt nothing waits unsubmitted. On every
+`report`, the shares are dealt again and a rollout whose share changed
+gets a `Resize`, never below 1 once submitted, since a SandboxSet's
+`parallelism` has that floor. A trial counts against the
 bound from its submission until it is `done`, pending trials included,
 so the cores never hold more admitted trials than the experiment allows.
 
-### Smoke trials and the cost gate
+### Smoke trials and the cost check
 
 A cell runs its smoke rollout first and is `smoking` until the last
 attempt at every smoke index is `done`, retries included, and graded by
@@ -243,39 +255,77 @@ every grader of kind `check`, `model_judge` and `agent_judge`
    attempt ended `infra_failed`, when a check run of a smoke trial did
    not end `ok` (spec 006), or when a judgment of a smoke trial ended
    in any state but `ok`, `refused` or `over_budget` (spec 006).
-   `parked_reason`
-   names the trial, the check or grader, and the code. An agent
-   behavior outcome (`completed`, `declined`, `timed_out`,
+   `parked_reason` names the trial, the check or grader, and the code.
+   An agent behavior outcome (`completed`, `declined`, `timed_out`,
    `turn_limit`) never blocks.
-2. **Over budget in smoke.** A smoke trial `over_budget`, or a judgment
-   of one `over_budget`, parks the cell `over_budget`.
-3. **The estimate.** Per trial, the estimate is the largest, over the
+2. **The estimate.** Per trial, the estimate is the largest, over the
    smoke trials, of the trial's cost plus the cost of its grading, both
    from Lux's records. The cell's estimate is that times the trials
    left to run times `COST_ESTIMATE_MARGIN`.
-4. **The remainder.** Examen reads the Budget's `status.remaining` from
-   Lux at that moment, as the owner, and subtracts the outstanding
-   estimate of every other cell of the same Budget admitted past its
-   gate and not `complete`: its per-trial estimate times its trials not
-   yet `done` times `COST_ESTIMATE_MARGIN`. This is admission
-   bookkeeping recomputed from trial states, not a spend ledger: spend
-   is only ever read from Lux.
-5. **The gate.** The cell's estimate above the remainder parks it
-   `over_budget` with `parked_reason` naming both figures; otherwise its
-   main rollout is queued. A parked `over_budget` cell is gated again
-   only when the owner asks (`POST /cells/{id}/gate`, spec 003).
+3. **The remainder.** examend leases the cell's Key from the key source
+   with the purpose `trial`, as the owner on behalf of `created_by`
+   (spec 004), and reads its `remaining`: the smallest remainder across
+   every Budget the Key draws on, which for the `lux` source is the
+   experiment's Budget's `status.remaining` at that moment. A `cella`
+   cell keeps the lease as its main rollout's Key; a `topos` cell
+   releases it at once, since Topos issues its sessions' Keys under the
+   same Budgets (R10). From the remainder examend subtracts the
+   outstanding estimate of every other cell of the same Budget admitted
+   past its cost check and not `complete`: its per-trial estimate times
+   its trials not yet `done` times `COST_ESTIMATE_MARGIN`. This is
+   admission bookkeeping recomputed from trial states, not a spend
+   ledger: spend is only ever read from Lux.
+4. **The check.** A cell whose estimate is above the remainder parks
+   `over_budget`, with `parked_reason` naming both figures, and its
+   lease is released; otherwise its main rollout is queued. A parked
+   cell resumes only through a retry (below).
 
 A smoke trial whose cost Lux cannot price (a record with `priced`
 false) blocks the cell with `model_unpriced`: an estimate with an
-unknown term would pass any gate. The Budget must be `hard: true`; a
-soft Budget is refused when the experiment is applied, since it bounds
-nothing. A Budget's window may reset during an experiment and raise the
-remainder; the gate reads it as it stands.
+unknown term would pass any check. With the `lux` key source, the
+experiment's Budget must exist, the owner must be able to draw on it,
+and it must be `hard: true`; a soft Budget is refused when the
+experiment is applied, since it bounds nothing. With the `endpoint`
+source the installation answers for its Budgets, and examend records
+the Budget it was given (spec 004). A Budget's window may reset during
+an experiment and raise the remainder; the check reads it as it stands.
 
 Examen sets no per-trial spend cap of its own. A cap derived from the
 smoke cost would cut off a trial that is legitimately dearer than the
-smoke trial and record it `over_budget`, which biases the cell; the
-Budget's hard limit is the bound.
+smoke trial, and excluding it would bias the cell toward cheap trials;
+the Budget's hard limit is the bound.
+
+### A Budget that runs out
+
+A trial that ends `over_budget`, smoke or not, or a judgment that ends
+`over_budget` (spec 006), parks its cell `over_budget` as soon as a
+report or the judgment shows it: examend cancels the cell's open
+rollouts, so its trials not yet `done` end `canceled`, and
+`parked_reason` names the trial and Lux's code. The `over_budget` trial
+is excluded from analysis like an infrastructure failure (spec 002),
+and nothing about it is retried automatically, since every attempt
+would meet the same empty Budget. The cell waits for someone to refill
+the Budget and retry it.
+
+### Retrying a parked cell
+
+`POST /cells/{id}/retry` (spec 003, `cell.retry`) takes a cell parked
+`blocked` or `over_budget` back to the step that parked it:
+
+- **A cell blocked by its smoke trials, or parked before they were all
+  graded,** runs them again: a new trial
+  for each smoke index, `retry_of` naming the last attempt, in the
+  rollout `<cell id>.smoke.<round>`, and then the steps above.
+- **Any other parked cell** first runs the cost check again, over the
+  trials it has left to run. Past it, every index that holds no
+  finished trial gets a new trial, `retry_of` naming the last attempt,
+  in the cell's next retry rollout; an `infra_failed` index that had
+  used its retries is run again too.
+
+The trials a retry adds do not count against `MAX_INFRA_RETRIES`,
+which bounds the automatic retries of one round of work. A retry that
+parks again records the new reason; the earlier trials stay with their
+outcomes and lineage.
 
 ### Retries and lineage
 
@@ -286,8 +336,9 @@ in the cell's next retry rollout. The retried trial stays, with its
 outcome, failure code and evidence, and is excluded from analysis; the
 chain of `retry_of` is its lineage. A trial whose index has used its
 retries stays `infra_failed`, is also excluded from analysis, and
-leaves the cell one result short of N; spec 008 reads what that does to
-verdicts. No other outcome is retried.
+leaves the cell one result short of N until a retry of the cell (above)
+runs it again; spec 008 reads what that does to verdicts. No other
+outcome is retried automatically.
 
 ### Timeouts
 
@@ -310,8 +361,8 @@ canceled ends `canceled`; what it wrote to Arca stays and is referenced.
 No grading starts after the cancel, and grading jobs already queued for
 the experiment are dropped. A judge call already sent completes and its
 measurement is kept. Spend after a cancel is bounded by how fast each
-core stops: the `cella` executor disables the rollout's Lux Key in the
-same job, and the `topos` executor relies on R13 below.
+core stops: the `cella` executor releases the rollout's Key to the key
+source in the same job, and the `topos` executor relies on R13 below.
 
 ### Restarts and resubmission
 
@@ -326,8 +377,10 @@ resubmission never re-mints a trial.
 
 ### Adoption
 
-With `adopt` true, a cell may take trials an identical cell already
-ran instead of running them again.
+Adoption is a later build step than the console path; the design is
+kept here so the first slice leaves room for it. With `adopt` true, a
+cell may take trials an identical cell already ran instead of running
+them again.
 
 - **Identical** is an equal provenance tuple, every field of it, grader
   digests included, within the same owner. Trials are never adopted
@@ -345,6 +398,10 @@ ran instead of running them again.
   trials of its own, indexed from 0. When `a` is at least
   `SMOKE_TRIALS`, the cell has no smoke rollout and its per-trial
   estimate is the largest adopted trial's cost plus grading cost.
+- **A different window.** Adopted trials ran before the experiment's
+  own, so they do not share its time window: a comparison that reads
+  them carries the confound `window` on the tasks they cover (spec
+  008).
 
 ### Imported trials
 
@@ -364,22 +421,23 @@ built after the executed path (spec 001, decision 10).
   session or sandbox not yet ended is refused.
 - **Provenance from a Topos session:** `agent.digest`, the model and
   reasoning level from the session's `model` and its
-  `session.model_changed` events, the agent version's tools, the
-  machine's image, the repositories from the first `session.machine`.
+  `session.model_changed` events, the agent version's tools, and from
+  the first `session.machine` the repositories and the machine's image
+  digest, which R14 adds to that event.
   **From a Cella sandbox:** `status` image digest, the command, the
   labels, the exit. examend compares the tuple with the one the named
   task and candidate give; a field that differs, or that the records do
   not pin, refuses the import as spec 003's `provenance_mismatch`, and
   nothing is stored. Otherwise the trial joins the experiment's cell of
   that tuple at its next index, and the first import of a tuple creates
-  its cell (spec 002); a cell takes imports until it holds N. Topos records
-  a machine's image by name today, so an imported session's environment
-  is unpinned until R14.
+  its cell (spec 002); a cell takes imports until it holds N. Today
+  `session.machine` names the image by tag alone, so an imported
+  session's environment is unpinned, and refused as such, until R14.
 - **Evidence is where it already is.** Examen copies nothing. A Topos
   session's evidence is its log, referenced by session id, last
   sequence and the SHA-256 of the log's canonical JSONL through that
-  sequence, read through Topos as the owner; and the objects of its
-  folder in Arca when it keeps one. A Cella sandbox's evidence is the
+  sequence, read through Topos as the owner; and the objects of its own
+  folder in Arca when it keeps one, referenced where they are. A Cella sandbox's evidence is the
   Arca folder the import names. Every digest is taken at import, so a
   later change is detected (spec 012).
 - **Cost** is read from Lux by the session's key ids when Topos reports
@@ -402,8 +460,8 @@ label that marks this trial's records. The `usage` job reads `GET
 /v1/requests` with `key=` for each id over the trial's time range,
 `USAGE_SETTLE_DELAY` after the trial ended, follows `next_cursor` to
 the end, and keeps the records whose `requestLabels` carry the label
-when one is named. A request label value cannot hold `_`, so the trial
-id is written with its underscore as a period: `examen.trial=tri.01j...`.
+when one is named. The label's value is the trial id verbatim:
+`examen.trial=tri_01j…`.
 
 The trial's cost is the sum of its records' `cost.amount`, in the
 Budget's currency. Lux's figure is the authority (spec 001, decision 5).
@@ -430,14 +488,17 @@ of the decline judge (spec 006).
 | `turns` | `topos`: the agent's responses on the session's own thread; `cella`: the trial's Lux records with status `ok`, since an image agent's threads cannot be told apart |
 | `tool_calls` | `topos`: every `agent.tool_use` of the session, on every thread; `cella`: absent, since nothing records it |
 
-No built-in is filled for an `infra_failed` or `canceled` trial.
+No built-in is filled for a trial that is not finished: an
+`infra_failed`, `over_budget` or `canceled` one, or one a retry
+replaced.
 
 ### The `topos` executor
 
 One rollout is one Topos rollout: one session per trial, each in its
 own Cella machine, unattended, ending when its one turn ends, its
 checks run in the machine before the machine is released, and its
-evidence written to Arca.
+evidence kept in the session's own folder in Arca, which the rollout
+reports by path and digest.
 
 **Mapping.**
 
@@ -453,7 +514,7 @@ evidence written to Arca.
 | `Task.timeout` | `limits.turn_timeout`; `limits.max_age` is set to the trial's deadline | carried by R1 |
 | `Task.max_turns` | none: the harness has no step bound | R7 |
 | `Checks` | none | R8 |
-| `Evidence` | a session keeps files in a folder of an Arca-compatible files API only when the authorizer's allow names one | R9 |
+| evidence | a session keeps files in a folder of an Arca-compatible files API only when the authorizer's allow names one | R9 |
 | `Budget` | each session's two Lux keys are minted by the installation's authorizer, with a budget it chooses | R10 |
 | `Labels` | session `metadata`, at most 32 pairs, listable by `metadata.<key>=<value>` | built |
 | unattended, one turn | `attended` false (a question is answered at once as unanswered), `end_on_idle` true | built |
@@ -462,9 +523,11 @@ evidence written to Arca.
 | the level of each request | folded today from the session's `model` and its `session.model_changed` events: one trial is one turn, and the level standing at a request's `fold_seq` is the level it carried | built |
 | cancel | `user.interrupt`, then `POST /sessions/{id}/end` `{reason: canceled}`, since `end` refuses a running session | R13 |
 
-Until R1 exists, the executor finds a rollout's sessions by
-`metadata.examen.rollout=<key>` on the session list, which works today
-and is the fallback a restart uses if a handle is ever lost.
+Each session of a rollout carries the rollout's id, and the executor
+finds a rollout's sessions by it, through the rollout's report (R12).
+Until R1 exists, it finds them by `metadata.examen.rollout=<key>` on
+the session list, which works today and is the fallback a restart uses
+if a handle is ever lost.
 
 **Outcomes.**
 
@@ -507,8 +570,9 @@ R1 to R14:
    as unanswered, as `attended` false does today, and a call that would
    wait for a confirmation is refused as a person's deny would be.
 2. **Parallelism.** At most the rollout's parallelism of its sessions run
-   at once; the rest wait unstarted and hold no machine. The bound can
-   be raised and lowered while the rollout runs.
+   at once; the rest wait unstarted and hold no machine, and start in
+   index order. The bound can be raised and lowered while the rollout
+   runs.
 3. **Model and reasoning at create.** The rollout names a model and a
    reasoning level that override the agent version's for every session,
    from the first request; the version and its digest are unchanged.
@@ -539,24 +603,26 @@ R1 to R14:
    check's exit code, the first bytes of its stdout up to a bound the
    caller gives, the tail of its stderr, its duration, and whether it
    started, timed out or was not run are recorded in the session's log.
-9. **Evidence to Arca.** The rollout names an Arca space and a folder;
-   each session writes, once and with the owner's identity, under
-   `<folder>/<trial id>/`: its log as JSONL, its final message, the
-   task's evidence paths, and each check's whole stdout and stderr. It
-   records each object's path, SHA-256 and size. A write that fails
+9. **Evidence in the session's folder.** Each session keeps, once and
+   with the owner's identity, in its own folder in Arca: its log as
+   JSONL, its final message, the task's evidence paths, and each
+   check's whole stdout and stderr. The report names each object's
+   path, SHA-256 and size, and Examen references them where they are;
+   nothing is copied to a folder the caller names. A write that fails
    fails the session with a code of its own.
 10. **The Budget.** Every model request of the rollout's sessions and of
-    their sandboxes draws on the Lux Budget the rollout names, through
-    Keys carrying the rollout's labels and the session's, and the
-    report names each session's Key ids. A session never runs on a Key
-    outside that Budget, and never on a Key that allows an unpriced
-    model.
+    their sandboxes draws on the Lux Budget the rollout names, and on
+    any Budget the installation adds above it, through Keys carrying
+    the rollout's labels and the session's, and the report names each
+    session's Key ids. A session never runs on a Key outside that
+    Budget, and never on a Key that allows an unpriced model.
 11. **The request join.** Each `model.request` records the
     `Lux-Request-Id` of the response it read.
-12. **One report.** One read answers every session of the rollout: its
-    id, trial id and index, status, stop reason, `session.error` code,
-    Key ids, the times its turn started and ended and its checks
-    started and ended, its check results, and its evidence objects.
+12. **One report.** One read answers every session of the rollout, each
+    carrying the rollout's id: its id, trial id and index, status, stop
+    reason, `session.error` code, Key ids, the times its turn started
+    and ended and its checks started and ended, its check results, and
+    its evidence objects with their paths and digests.
 13. **Cancel.** One call stops the rollout: every running session's turn
     is interrupted and the session ended `canceled`, no waiting session
     starts, and the rollout's Keys stop serving at once. The same call
@@ -590,7 +656,7 @@ two images, which Cella does not design. The tuple carries both digests.
 | the tools Volume | owner and examend build | `examen-trial`, a static binary, filled from the trial driver image whose digest the examend build pins; `shared-read` |
 | the agent Volume | owner and candidate image digest | the candidate's image; `shared-read`; named from the digest, so every rollout of that candidate reuses it |
 | the results Volume | rollout | `shared-read`, `retain` true until every replica is exported, then deleted |
-| the rollout's Lux Key | rollout | `spec.budget` the experiment's Budget, `models` the candidate's model alone, `allowUnpriced` false, the rollout's labels, a `ttl` of the rollout's longest possible life; applied by examend as the owner |
+| the rollout's Lux Key | rollout | leased from the key source with the purpose `trial` (spec 004): `models` the candidate's model alone, the rollout's labels, a `ttl` of the rollout's longest possible life; the `lux` source names the experiment's Budget and allows no unpriced model. examend leases it before submitting: at the cost check for the main rollout, at submission for the others. Its id, never its value, is kept as the rollout's `key_id` (spec 002), so it is released at the rollout's end after a restart too |
 | the Lux Secret | rollout | the Key's value as a Cella Secret scoped to Lux's host, mounted under the candidate's key variable |
 | the Arca Secret | rollout | a token of the owner for Arca, scoped to Arca's host, lasting the export's life; Secrets are not refreshed, so its life is bounded; mounted only in the export sandbox, which runs no agent code |
 | Arca read links | trial | one per folder a replica reads (an `arca` workspace, the checks' `files`), on exactly that folder, expiring at the trial's deadline |
@@ -720,8 +786,10 @@ completion command and results collection (Cella spec 020), Volumes
 with an image source (Cella spec 019), and the `workspace.git` source.
 Secrets with egress substitution and the exec route
 (`POST /v1/sandboxes/{id}/exec`) exist. Cancel is the set's `stop`,
-followed by disabling the rollout's Key; Resize is the set's mutable
-`parallelism`.
+followed by releasing the rollout's Key; Resize is the set's mutable
+`parallelism`. The rollout's content, for contract rule 1, leaves out
+its `Lease`: a restarted examend that resubmits a set already created
+gets its handle, and the Lux Key in the set's Secret serves on.
 
 ### Limits
 
@@ -733,8 +801,9 @@ The constants of spec 002 this spec holds: `SMOKE_TRIALS`,
 
 ## Not in this spec
 
-The routes that apply, cancel, re-gate and import (spec 003); acting as
-the owner toward Topos, Cella, Lux and Arca (spec 004); turning check
+The routes that apply, cancel, retry a cell and import (spec 003);
+acting as the owner toward Topos, Cella, Lux and Arca, and the key
+source (spec 004); turning check
 runs and evidence into measurements, and every judge (spec 006); the
 shape of an evidence reference, the provenance layers' storage and the
 evidence layout's record format (spec 007); what lost indices do to a
@@ -751,19 +820,22 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 | A report that moves a trial backward, or changes a `done` trial, is not applied and is logged as an executor fault | `execute.TestReportsOnlyMoveForward` |
 | An examend killed after `Submit` returned and before the handle was stored, then restarted, holds one rollout and the same trial ids | `TestRestartResubmitsUnderTheSameKey`, e2e tier |
 | A smoke trial that ends `infra_failed` after its retries, or whose check is `malformed`, parks the cell `blocked` naming the trial and the code; one that ends `timed_out` does not | `queue.TestSmokeBlocks` |
-| A cell whose estimate exceeds the Budget's remainder less the other admitted cells' outstanding estimates parks `over_budget` with both figures and starts no main trial | `queue.TestCostGate`, over a stub Lux Budget |
+| A cell whose estimate exceeds the smallest remainder its lease reports, less the other admitted cells' outstanding estimates, parks `over_budget` with both figures and starts no main trial; the remainder is the lease's, from either key source | `queue.TestCostCheck`, over a stub Lux Budget and a stub key endpoint |
+| A trial that ends `over_budget` mid-rollout parks its cell `over_budget`, cancels the cell's open rollouts, is excluded from analysis and is not retried automatically | `queue.TestBudgetRunsOut` |
+| A retry of a cell parked `over_budget` runs the cost check again and then every index without a finished trial, with `retry_of` and outside `MAX_INFRA_RETRIES`; a retry of a cell blocked by its smoke runs new smoke trials | `queue.TestRetryParkedCell` |
 | A smoke trial with an unpriced record blocks with `model_unpriced`, and an experiment naming a soft Budget is refused at apply | `queue.TestUnpricedBlocks`, `TestSoftBudgetRefused` |
-| An experiment's trials running or pending never exceed its `parallelism` across its cells, and shares are resized as rollouts finish | `queue.TestParallelismAcrossCells` |
-| Only `infra_failed` is retried, as a new trial with the same index and `retry_of`, at most `MAX_INFRA_RETRIES` times per index; the retried trial stays readable and is excluded from analysis | `queue.TestRetriesAndLineage` |
+| An experiment's trials running or pending never exceed its `parallelism` across its cells, shares are resized as rollouts finish, and a task's cells are dealt trials round robin, so their trials of one index run in one window | `queue.TestParallelismAcrossCells`, `queue.TestCandidatesInterleave` |
+| Only `infra_failed` is retried automatically, as a new trial with the same index and `retry_of`, at most `MAX_INFRA_RETRIES` times per index; the retried trial stays readable and is excluded from analysis | `queue.TestRetriesAndLineage` |
 | A trial past its deadline is canceled and recorded `infra_failed` with `deadline_passed`; a pending trial past `TRIAL_START_TIMEOUT` with free parallelism with `not_started` | `queue.TestDeadlines` |
-| Canceling an experiment cancels every open rollout, ends unfinished trials `canceled`, starts no grading, and disables the `cella` rollout's Key in the same job | `queue.TestCancel` |
-| With `adopt`, a cell with an equal tuple of the same owner adopts at most N adoptable trials of the most recent complete source cell, runs only the rest, and skips smoke when at least `SMOKE_TRIALS` were adopted; a cell of another owner, an older trial than `ADOPTION_MAX_AGE`, an imported or `infra_failed` trial is never adopted | `queue.TestAdoption` |
+| Canceling an experiment cancels every open rollout, ends unfinished trials `canceled`, starts no grading, and releases the `cella` rollout's Key in the same job | `queue.TestCancel` |
+| Adoption, when built: with `adopt`, a cell with an equal tuple of the same owner adopts at most N adoptable trials of the most recent complete source cell, runs only the rest, and skips smoke when at least `SMOKE_TRIALS` were adopted; a cell of another owner, an older trial than `ADOPTION_MAX_AGE`, an imported or `infra_failed` trial is never adopted | `queue.TestAdoption` |
 | An imported Topos session yields a trial with `imported` true, its tuple read from the records, no checks, and evidence digests taken at import; the first import of a tuple creates its cell and later ones join it; a tuple field that differs from the named task's and candidate's or is unpinned refuses it as `provenance_mismatch`; a session not ended is refused | `topos.TestImport` |
 | A trial's cost is the sum of Lux's records for its Key ids, and for its request label when the Key is shared; spend without a label is the rollout's unattributed usage; a difference from Topos's own figure is logged | `luxread.TestCostFromRecords` |
 | `sent` and `observed` join per request by the Lux request id | `luxread.TestLayersJoinByRequestID` |
-| Each built-in metric is filled as its row says, and none for an `infra_failed` or `canceled` trial | `execute.TestBuiltinMetrics` |
+| Each built-in metric is filled as its row says, and none for a trial that is not finished | `execute.TestBuiltinMetrics` |
+| Every label value is written verbatim, the trial id with its underscore | `execute.TestLabelsVerbatim` |
 | Each row of the `topos` outcome table maps as written | `topos.TestOutcomes`, over recorded session logs |
-| A `topos` rollout's sessions are found by `metadata.examen.rollout` when the handle is missing | `topos.TestFindsSessionsByLabel` |
-| A `cella` rollout applies the SandboxSet above, with the environment image as the template, the candidate's image and the tools mounted read-only, one Key and one Secret, and one variant per trial | `cella.TestSetFromRollout` |
+| A `topos` rollout's sessions are found by its rollout id, and by `metadata.examen.rollout` when the handle is missing; a `topos` trial's evidence refs point into its session's folder, and Examen copies nothing | `topos.TestFindsSessionsByRollout`, `topos.TestFindsSessionsByLabel`, `topos.TestEvidenceStaysInTheSessionFolder` |
+| A `cella` rollout applies the SandboxSet above, with the environment image as the template, the candidate's image and the tools mounted read-only, one Key leased from the key source and one Secret, and one variant per trial | `cella.TestSetFromRollout` |
 | The trial driver runs the agent, stops every process the agent left before the first check, runs the checks without the key variable, idles until the checks end, and marks every forwarded request with the trial's label | `cmd/examen-trial.TestDriver`, on the native Cella driver |
 | Each row of the `cella` outcome table maps as written, and a collected replica's evidence lands under its trial's folder with its SHA-256 | `cella.TestOutcomes`, `cella.TestExport` |

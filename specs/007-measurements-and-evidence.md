@@ -1,5 +1,5 @@
 ---
-title: "Measurements and evidence: the append-only measurement store and its current values, the configured, sent and observed layers of a trial, evidence references into the owner's Arca space, retention, and dataset export"
+title: "Measurements and evidence: the append-only measurement store and its current values, the configured, sent and observed layers of a trial, evidence references into the owner's Arca space, where each kind of evidence lives, retention, and dataset export"
 status: drafted
 track: core
 depends_on:
@@ -30,8 +30,10 @@ loop reads.
 
 Examen holds rows and references. The bytes of a transcript, a file or
 a check's output live in Arca, in the space of the experiment's owner,
-written with the owner's identity (spec 004). Examen never copies
-evidence into its own database.
+written with the owner's identity (spec 004): a `topos` trial's in its
+session's own folder, everything else under the owner's reserved
+folder `files/evals/`. Examen never copies evidence into its own
+database, nor out of a session's folder.
 
 ## Design
 
@@ -90,8 +92,8 @@ when:
   integer; `duration` a non-negative number of seconds; `cost` a
   non-negative number of US dollars; `label` one of `labels`. NaN and
   infinities are refused for every numeric type;
-- its trial is not `done`, or its outcome is `infra_failed` or
-  `canceled`.
+- its trial is not a finished trial (spec 002): not `done`, or ended
+  `infra_failed`, `over_budget` or `canceled`, or retried.
 
 **Append-only.** A trigger on the table raises on every `UPDATE`, and
 on a `DELETE` while the measurement's trial row still exists. The
@@ -147,7 +149,9 @@ WHERE m.cell = $1 AND m.metric = ANY($3);
 
 A comparison reads a point in time and records exactly what it read,
 one row per measurement, so that it can be recomputed after later
-generations have been appended:
+generations have been appended. A provisional comparison, `final`
+false, replaces its rows in the transaction that recomputes it; once
+`final` is true its rows never change (spec 008):
 
 ```sql
 CREATE TABLE comparison_inputs (
@@ -160,8 +164,8 @@ CREATE TABLE comparison_inputs (
 Which grader each side of a comparison is read at, when the two sides
 ran different suite versions, is spec 008's.
 
-**Built-in measurements.** When a trial reaches `done` with an outcome
-other than `infra_failed` and `canceled`, Examen writes generation 1 of
+**Built-in measurements.** When a finished trial reaches `done`,
+Examen writes generation 1 of
 grader `builtin` with every built-in metric of spec 002 but `declined`,
 from the trial's outcome and its observed layer: `completed` is true
 when the outcome is `completed` or `declined`, and `cost_usd`,
@@ -192,7 +196,7 @@ keeps the three layers apart and never merges them.
 
 | Layer | Fields | Source | Kept on |
 |---|---|---|---|
-| configured | the provenance tuple of spec 002: `candidate.kind`, `agent_or_image_digest`, `model`, `reasoning`, `tools`, `task_hash`, `environment_digest`, `workspace_ref`, `grader_digests` | resolved by Examen when the experiment is applied, from the candidate, the task and the suite | the cell's `tuple`; not copied onto trials |
+| configured | the provenance tuple of spec 002: `candidate.kind`, `agent_or_image_digest`, `program`, `model`, `reasoning`, `tools`, `task_hash`, `environment_digest`, `workspace_ref`, `grader_digests` | resolved by Examen when the experiment is applied, from the candidate, the task and the suite | the cell's `tuple`; not copied onto trials |
 | sent | `requests`: the number of model requests the trial's agent made; `by_setting`: a list of `{model, reasoning, requests}`, one entry per distinct pair, sorted by `model` and then `reasoning` | the executor, from the agent's request records (spec 005 fixes how each executor captures them) | the trial's `sent` |
 | observed | `served`: a list of `{model, requests}`, the model Lux records as having served each request, sorted by `model`; `input_tokens`, `output_tokens`, `reasoning_tokens`, `cost_usd`; `turns`, `tool_calls`; `duration` | Lux's usage records of the trial's requests for `served`, the token counts and `cost_usd`; the executor for `turns` and `tool_calls`; Examen for `duration`, as `agent_ended_at` less `started_at` | the trial's `observed` |
 
@@ -220,31 +224,32 @@ referenced from the trial's `evidence` list by an **evidence ref**:
 | `kind` | enum | one of the kinds below |
 | `name` | string | for `file`, the workspace-relative path the task's `evidence` names; for `check_output`, the file within the check's folder; empty otherwise |
 | `owner` | subject | the Arca space, which is the experiment's owner |
-| `path` | string | the object's path in that space, beginning `files/examen/` |
+| `path` | string | the object's path in that space: within the session's own folder for a `topos` trial's evidence, and under `files/evals/` for everything else (Evidence layout, below) |
 | `digest` | string | `sha256:` and the hex of the SHA-256 of the object's bytes, computed by the writer while writing |
 | `size` | int | bytes |
 | `content_type` | string | as written |
-| `arca_checksum` | object | `{kind, value}` exactly as Arca answered the write: `kind` is `sha256` or `etag` |
+| `checksum`, `checksum_kind` | string, string | Arca's checksum of the object and its kind, exactly as Arca answers them: `checksum_kind` is `sha256` or `etag` |
 | `grader`, `generation` | grader digest, int | for `judge_rationale`: the grading it belongs to |
 | `written_at` | time | |
 
-`digest` and `arca_checksum` are both kept because Arca checksums an
-object it assembled from upload parts by the store's ETag, not by
-SHA-256. A ref is checked cheaply against Arca's checksum, without
-reading the bytes, and fully against `digest`.
+`digest` and `checksum` are both kept because Arca checksums an object
+it assembled from upload parts by the store's ETag, not by SHA-256. A
+ref is checked cheaply against Arca's checksum, without reading the
+bytes, and fully against `digest`.
 
 | Kind | Holds | Written by | When |
 |---|---|---|---|
-| `transcript` | the agent's whole event log: a Topos session's log, or an image agent's output stream | the executor | when the agent ends |
-| `final_message` | the agent's last message, as text | the executor | when the agent ends |
-| `requests` | one JSON line per model request: the request id, the model and reasoning sent, the model served, the token counts and the cost | the executor | when the agent ends |
-| `file` | one workspace file the task's `evidence` names, as it stood after the agent ended | the executor | before the checks run |
-| `check_output` | for each check: `result.json`, the output document of spec 006, and `stdout.txt` and `stderr.txt` | the executor | after the checks |
+| `transcript` | the agent's whole event log: a Topos session's log, or an image agent's output stream | the executor's core: the Topos session, or the `cella` trial driver | when the agent ends |
+| `final_message` | the agent's last message, as text | the executor's core | when the agent ends |
+| `requests` | one JSON line per model request: the request id, the model and reasoning sent, the model served, the token counts and the cost | the `cella` trial driver; a Topos session's requests are in its log | when the agent ends |
+| `file` | one workspace file the task's `evidence` names, as it stood after the agent ended | the executor's core | before the checks run |
+| `check_output` | for each check: `result.json`, the output document of spec 006, and `stdout.txt` and `stderr.txt` | the executor's core | after the checks |
 | `judge_rationale` | for each judge grading: the digest of the inputs the judge read, its whole structured answer and its rationale | Examen for a model judge; Examen, from the judge session's final answer, for an agent judge | when the grading is recorded |
 
-**Writes are create-only.** Every evidence object is written with
-`If-None-Match: *`, so a path holds one content for its whole life and
-a retried trial or grading never overwrites another's evidence. An
+**Writes are create-only.** Every evidence object is written once, with
+`If-None-Match: *` where Examen or the trial driver writes it, so a
+path holds one content for its whole life and a retried trial or
+grading never overwrites another's evidence. An
 object above Arca's inline size (Arca's `ARCA_INLINE_BYTES`) is written
 through Arca's uploads. The executor contract of spec 005 carries this
 requirement.
@@ -267,27 +272,30 @@ a measurement or a trial.
 
 ### Evidence layout
 
-Everything Examen and its executors write for an owner lives under
-one fixed root of the owner's space, `files/examen/`. The root is
-fixed so that an Arca authorization endpoint can recognize it and
-shape writes there.
+A `topos` trial's evidence stays in its session's own folder, where
+the session kept it (spec 005, R9): the rollout reports each object's
+path and digest, and the trial's refs point there. Everything Examen
+writes for an owner, and everything a `cella` trial writes, lives under
+one reserved folder of the owner's space, `files/evals/`. The folder is
+fixed so that an Arca authorization endpoint can recognize it, reserve
+it, and name Examen as a writer there.
 
 ```
-files/examen/
+files/evals/
   experiments/<experiment id>/
     experiment.json                   the experiment as applied, with its suite,
                                       candidates, tasks, metrics and graders
     cells/<cell id>/
       cell.json                       the cell and its resolved provenance tuple
       trials/<trial id>/
-        transcript.jsonl
+        transcript.jsonl              a cella trial's, as the trial driver wrote them
         final_message.txt
         requests.jsonl
         files/<workspace-relative path>
         checks/<grader hex>/result.json
         checks/<grader hex>/stdout.txt
         checks/<grader hex>/stderr.txt
-        judges/<grader hex>/<generation>/rationale.json
+        judges/<grader hex>/<generation>/rationale.json   every trial's
   exports/<export id>/                Dataset export, below
   reports/<report id>/<n>/            spec 010
 ```
@@ -298,11 +306,13 @@ files/examen/
   task whose `evidence` names an absolute path or a path containing
   `..` is refused.
 - A retried trial is a new trial with its own id and its own folder.
+- A `topos` trial's folder here holds only `judges/`.
 - Examen writes `experiment.json` once, when the experiment is
   applied, and each `cell.json` once, when the cell is created, so the
-  tree is readable without Examen's database. The executor writes each trial's folder except
-  `judges/`; Examen tells it each trial's prefix in the rollout
-  (spec 005). Examen writes `judges/`, `exports/` and `reports/`.
+  tree is readable without Examen's database. The `cella` trial driver
+  writes each `cella` trial's folder except `judges/`, under the prefix
+  the rollout names (spec 005). Examen writes `judges/`, `exports/` and
+  `reports/`.
 
 ### Retention
 
@@ -325,7 +335,7 @@ two parameters and asks the authorizer for `experiment.delete` (spec
 
 | Parameter | Values | Effect |
 |---|---|---|
-| `evidence` | `keep`, `trash`, `purge`; required, with no default | `keep` leaves the Arca folder; `trash` deletes `files/examen/experiments/<id>/` recursively into Arca's trash; `purge` deletes it permanently |
+| `evidence` | `keep`, `trash`, `purge`; required, with no default | `keep` leaves the Arca folder; `trash` deletes `files/evals/experiments/<id>/` recursively into Arca's trash; `purge` deletes it permanently. A `topos` trial's evidence in its session's folder belongs to the session and is left to Topos's and Arca's rules |
 | `baselines` | `refuse` (default), `delete` | what happens when a baseline record names the experiment |
 
 The deletion is refused, naming what blocks it, when:
@@ -361,7 +371,7 @@ An export writes trials, with their outcome, measurements and evidence
 refs, as JSON lines into the owner's Arca space, in a versioned format
 a training loop reads without Examen. In the build order, dataset
 export follows the console path: the comparisons of spec 008 shown in
-the console view of spec 010.
+a console as spec 010 fixes.
 
 **The request.** Creating an export (`POST /exports`, spec 003) asks
 `export.create` (spec 004) and takes the request fields of spec 002's
@@ -374,7 +384,7 @@ dataset export:
 | `filter.experiments` | experiment ids, at most `MAX_EXPORT_EXPERIMENTS` |
 | `filter.candidates` | candidate digests |
 | `filter.tasks` | task digests |
-| `filter.outcomes` | trial outcomes; by default every outcome except `infra_failed` and `canceled` |
+| `filter.outcomes` | trial outcomes; by default every outcome except `infra_failed`, `over_budget` and `canceled` |
 | `filter.metrics` | at most `MAX_EXPORT_CONDITIONS` conditions `{metric, op, value}`, `op` one of `>=`, `<=`, `>`, `<`, `=`, `!=`, evaluated on current values; a trial whose value is missing fails the condition; `label` and `binary` metrics take only `=` and `!=` |
 | `include_imported` | include imported trials; default true |
 | `all_generations` | also write every earlier generation of each measurement; default false |
@@ -406,7 +416,7 @@ A metric's name is unique per owner, and one trial belongs to one
 suite version, so the keys of `measurements` never collide in one
 record.
 
-**The files.** Under `files/examen/exports/<export id>/`:
+**The files.** Under `files/evals/exports/<export id>/`:
 
 ```
 records-00000.jsonl ... records-NNNNN.jsonl   at most EXPORT_RECORDS_PER_FILE lines each
@@ -489,11 +499,11 @@ operator's.
 | A suite in which two graders other than annotation graders produce one metric for one task is refused at apply, naming both | `store.TestOneProducerPerMetric` |
 | A late Lux record appends the next `builtin` generation with every built-in metric Examen fills, and generation 1 is unchanged; `declined` is never written under `builtin` | `store.TestBuiltinsAppendAGeneration` |
 | Two annotators' first answers to one trial each take generation 1, and an annotation-only metric's current value is their consensus | `store.TestAnnotatorGenerations` |
-| A comparison recomputed after a re-grade from its recorded inputs gives byte-identical results | `analysis.TestRecomputeFromRecordedInputs` |
+| A final comparison recomputed after a re-grade from its recorded inputs gives byte-identical results, and a provisional one's recorded inputs are replaced with each recompute | `analysis.TestRecomputeFromRecordedInputs` |
 | A trial's configured, sent and observed layers are filled from the cell, the executor and Lux respectively, and `cost_usd` equals the sum of Lux's records for the trial | `store.TestProvenanceLayers`, against the Lux stub |
 | A trial whose evidence object is missing, or whose size or checksum differs from its ref, is marked `infra_failed` with `evidence_unverified` | `evidence.TestIntakeVerification`, against the Arca stub |
 | A second write to an evidence path fails and the first content stays | `evidence.TestWritesAreCreateOnly` |
-| Every path an experiment writes is under `files/examen/experiments/<id>/` in the layout above, and a task naming an absolute or `..` evidence path is refused | `evidence.TestLayout`, `evidence.TestEvidencePathRefused` |
+| Every path Examen or a `cella` trial writes for an experiment is under `files/evals/experiments/<id>/` in the layout above, a `topos` trial's refs point into its session's folder, and a task naming an absolute or `..` evidence path is refused | `evidence.TestLayout`, `evidence.TestEvidencePathRefused` |
 | Deleting an experiment without `evidence` is refused; one that is running, named by a baseline, or adopted from is refused naming the blocker; a permitted deletion removes the rows and comparisons and trashes or purges the folder as asked, and its bar evaluations stay readable | `retention.TestDeleteExperiment`, against the Arca stub |
 | An export writes records sorted by trial id in files of at most `EXPORT_RECORDS_PER_FILE`, the side files, and the manifest last with every file's digest; two identical requests write identical record files | `export.TestExportLayout`, `export.TestExportIsDeterministic` |
 | Each filter field and each condition operator selects exactly the matching trials, and a missing value fails a condition | `export.TestFilters` |

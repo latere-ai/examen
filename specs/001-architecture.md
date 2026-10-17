@@ -19,7 +19,8 @@ define tasks, the metrics that matter, and the graders that measure
 them. You name the agent configurations to compare and how many trials
 each gets. Examen asks the cores that already run agents and sandboxes
 to execute the trials, records every measurement with everything that
-conditioned it, and compares the results with a baseline: per metric,
+conditioned it, and compares each candidate with a reference, a pinned
+baseline or another candidate of the same experiment: per metric,
 improved, regressed, or within noise, with the confounds named.
 
 Examen is one of a family of open cores, and it is thin on purpose. It
@@ -34,10 +35,13 @@ else:
   and every trial's checks run in its Cella machine.
 - [Lux](https://github.com/latere-ai/lux) carries every model call. An
   experiment's spend is one Lux Budget, its cost comes from Lux's
-  records, and a model judge is one call through Lux.
-- [Arca](https://github.com/latere-ai/arca) keeps the evidence and the
-  exported datasets. [Origo](https://github.com/latere-ai/origo) holds
-  the repositories a task starts from.
+  records, and a model judge is one call through Lux on a Key from
+  Examen's key source.
+- [Arca](https://github.com/latere-ai/arca) keeps the evidence: a Topos
+  trial's in its session's own folder, and everything Examen writes in
+  the owner's reserved folder `files/evals/`, exported datasets
+  included. [Origo](https://github.com/latere-ai/origo) holds the
+  repositories a task starts from.
 - An authorizer you write decides who may do what, with the contract
   of [`pkg/authz`](https://github.com/latere-ai/pkg).
 
@@ -67,24 +71,25 @@ configuration. An **experiment** runs a suite against candidates; each
 task × candidate pair is a **cell**, the unit of comparison, and its
 **trials** are one agent attempt each. A cell's trials execute as
 **rollouts**: a smoke rollout, the main rollout, and retry rollouts. A
-grader turns a trial into **measurements**. A
-**baseline** pins an experiment's measurements as the reference; a
-**comparison** classifies each metric's change against it; a **bar**
-fails a release when a change crosses it.
+grader turns a trial into **measurements**. An experiment's
+**reference** is a **baseline**, which pins an earlier experiment's
+measurements, or one of its own candidates, the first by default; a
+**comparison** classifies each metric's change of a candidate against
+it; a **bar** fails a release when a change crosses it.
 
 ```mermaid
 flowchart TB
   subgraph Examen
     S[Suite: tasks, metrics, graders] --> X[Experiment: candidates × tasks × N]
     X --> C[Cells]
-    M[Measurements] --> CMP[Comparison vs baseline]
+    M[Measurements] --> CMP[Comparison vs reference]
     CMP --> BAR[Bars]
     CMP --> R[Reports, dataset export]
   end
   C -->|Topos agent candidate: rollouts| T[Topos: one session per trial]
   C -->|image candidate: one set per rollout| CE[Cella: SandboxSet, one replica per trial]
   T -->|machine| CE
-  T -->|checks run in the machine before the session ends| EV[(Arca: evidence)]
+  T -->|checks run in the machine before the session ends| EV[("Arca: session folders and files/evals/")]
   CE --> EV
   T -->|model calls| L[Lux: one budget per experiment]
   CE --> L
@@ -100,35 +105,42 @@ flowchart TB
    every pinned reference, asks the authorizer whether the owner may
    run it, and expands the cells.
 2. **Budget.** The experiment names one Lux Budget. Every model call its
-   trials and judges make is metered against it, through keys issued
-   under it. Examen keeps no spend ledger of its own.
+   trials and judges make is metered against it, through Keys that
+   Examen's key source leases or that Topos issues its sessions. Examen
+   keeps no spend ledger of its own.
 3. **Smoke.** Each cell first runs `SMOKE_TRIALS` trials as its smoke
-   rollout. A cell whose
-   smoke trial fails for a reason other than the agent's own behavior
-   parks as blocked. The smoke cost estimates the cell's full cost; if
-   the estimate for the remaining trials exceeds what the budget has
-   left, the cell parks and says so.
-4. **Rollouts.** For each cell past its gate, Examen submits the main
-   rollout to the executor for the candidate's kind: the remaining
-   trials, a parallelism bound, the task, its checks, the budget, and
-   where evidence goes. Trials that failed for an infrastructure reason
+   rollout. A cell whose smoke trial fails for a reason other than the
+   agent's own behavior parks as blocked. The smoke cost estimates the
+   cell's full cost; if the estimate for the remaining trials exceeds
+   the smallest remainder the key source reports, the cell parks and
+   says so.
+4. **Rollouts.** For each cell past its cost check, Examen submits the
+   main rollout to the executor for the candidate's kind: the remaining
+   trials, a parallelism bound, the task, its checks, the budget, and,
+   for a `cella` rollout, where evidence goes. A task's cells are dealt
+   trials round robin, so candidates compared within one experiment run
+   in one time window. Trials that failed for an infrastructure reason
    run again in retry rollouts.
 5. **Trials.** Topos or Cella runs each trial to its end, runs the
-   task's checks inside the trial's Cella machine, writes the evidence
-   to Arca, and reports the trial: outcome, the measurements the checks
-   produced, what was sent and what served, cost.
+   task's checks inside the trial's Cella machine, keeps the evidence
+   in Arca, and reports the trial: outcome, the measurements the checks
+   produced, what was sent and what served, where the evidence is,
+   cost.
 6. **Judges.** Graders that need judgment run over the stored evidence
    after the trial: a model judge as one structured call through Lux,
    an agent judge as a session of a pinned Topos agent, and the decline
    judge that decides whether the agent declined. Each appends
    measurements.
-7. **Analysis.** Measurements aggregate per cell. Comparisons with the
-   baseline classify every metric, bars are evaluated, and reports
-   render.
+7. **Analysis.** Measurements aggregate per cell. Each candidate is
+   compared with the experiment's reference progressively as trials
+   finish, and finally at completion; bars are evaluated on final
+   comparisons, and reports render.
 
 Infrastructure failures retry up to `MAX_INFRA_RETRIES` with lineage
-recorded. Nothing else is retried: an agent that declines, gives up or
-times out produced a result.
+recorded. Nothing else is retried automatically: an agent that
+declines, gives up or times out produced a result, and a trial stopped
+because a Budget ran out is excluded and parks its cell until someone
+refills the Budget and retries the cell.
 
 ## Executors
 
@@ -152,7 +164,7 @@ on purpose:
 | Topos's task suite and release bar (Topos spec 025): tasks with checkers, a pinned model, a threshold of baseline less noise, a Lux budget | Moves onto Examen. Topos's tasks become an Examen suite and its release check calls an Examen bar. Topos keeps no evaluation machinery of its own |
 | Topos's review and graded iteration (Topos spec 031): critic and grader threads that send work back until it passes | Stays in Topos. It improves work inside one session; Examen measures finished trials. An agent judge may be built on it |
 | Cella's SandboxSet (Cella spec 020), "the unit a rollout or an evaluation asks for" | Stays in Cella. Examen's `cella` executor is its caller |
-| Lux Budgets and usage records | Stay in Lux. Examen names a budget and reads cost |
+| Lux Budgets and usage records | Stay in Lux. Examen names a budget, takes Keys from its key source, and reads cost |
 | Agon's adversarial review | Stays a library. An agent judge may use it |
 | Instruction tests: measuring a change to an agent's instructions | Become Examen experiments whose variable is the agent version |
 | The model router's evaluation set, a training loop's evaluation gate | Become Examen suites and bars; a training loop reads Examen's dataset export |
@@ -183,28 +195,47 @@ Each decision names the alternative it rejects.
    single-variable comparison. *Rejected:* deriving a Topos agent
    version per model, which changes the digest and confounds every
    model comparison. The Topos rollout must accept the override.
-5. **One Lux Budget per experiment.** *Rejected:* a spend ledger in
-   Examen, which duplicates Lux's and disagrees with it.
-6. **Executors write a trial's evidence to Arca, and Examen writes its
-   own records there: the experiment and cell manifests and judge
-   rationale. Examen keeps references and digests.** *Rejected:*
-   Examen copying evidence.
+5. **One Lux Budget per experiment, and Keys from a key source.** Every
+   model call is metered against the experiment's Budget. The Keys
+   Examen's own calls need come from a key source: the `lux` source
+   creates them at Lux as the owner when Examen runs on its own, and
+   the `endpoint` source asks an installation that keeps its own
+   budgets, which then writes every Key and Budget itself and reports
+   the smallest remainder the cost check reads. *Rejected:* a spend
+   ledger in Examen, which duplicates Lux's and disagrees with it; and
+   Examen writing Keys in an installation that keeps its own budgets,
+   which would let an experiment bypass a cap a budget owner set there.
+6. **A Topos trial's evidence stays in its session's own folder, and
+   Examen's own records go to the owner's reserved folder
+   `files/evals/`.** The Topos rollout reports each object's path and
+   digest, and Examen references them where they are. The experiment
+   and cell manifests, judge rationale, a `cella` trial's evidence,
+   dataset exports and report bundles live under `files/evals/`.
+   Examen keeps references and digests. *Rejected:* Examen copying
+   evidence out of a session's folder, which makes two copies to keep
+   consistent and two places to delete.
 7. **Statistics are part of the contract, not a report option.** N is
-   declared before a cell runs. No verdict before
-   `MIN_TRIALS_FOR_VERDICT` finished trials. Noise comes from
-   within-cell spread. Binary metrics use exact tests, continuous
-   metrics permutation or bootstrap intervals, and each comparison is
-   corrected for multiple comparisons in two families: the task family,
-   every task-level result of the comparison, for every metric of the
-   suite, that has a p-value; and the suite family, every suite-level
-   result of the comparison that has a p-value. Each family is
-   corrected by Benjamini and Hochberg's procedure at
-   `FALSE_DISCOVERY_RATE`. *Rejected:* raw deltas with a fixed
-   threshold, which over-report.
+   declared before a cell runs. No task-level verdict before
+   `MIN_TRIALS_FOR_VERDICT` finished trials, and no suite-level verdict
+   below `MIN_SUITE_COVERAGE`. Noise comes from within-cell spread.
+   Binary task-level results use Boschloo's exact unconditional test on
+   a fixed grid, numeric ones a permutation test of their declared
+   aggregate, and intervals are Wilson and Newcombe for rates,
+   bootstrap-t for means and exact order-statistic intervals for
+   quantiles. Each comparison's p-values form two parts: the primary
+   metric's suite-level result, one pre-declared test reported without
+   correction, and one family of every other result, corrected by
+   Benjamini and Hochberg's procedure at `FALSE_DISCOVERY_RATE`.
+   *Rejected:* raw deltas with a fixed threshold, which over-report;
+   and correcting the primary result with every task-level result,
+   which makes the result a release rests on depend on how many tasks
+   and metrics a suite lists.
 8. **Confounds are computed, never asserted.** Every tuple field that
    differs besides the declared variable is a confound, and only
-   single-variable comparisons are headlined. *Rejected:* trusting the
-   label a person gives a comparison.
+   single-variable comparisons are headlined; what was sent and what
+   served are confounds of the tasks they affect, and missing values of
+   the results they touch. *Rejected:* trusting the label a person
+   gives a comparison.
 9. **Judges are pinned and grades are generations.** Changing a judge's
    model, prompt or rubric makes a new grader version; re-grading
    appends a generation and never overwrites. Human annotations are
@@ -231,13 +262,15 @@ Each decision names the alternative it rejects.
     *Rejected:* arbitrary URLs, which cannot be pinned or authorized.
 16. **The first consumer is people comparing agents in a console.** The
     first slice is the path a comparison needs: suites, candidates and
-    experiments, the `topos` executor, checks and model judges, the
-    analysis, and a read API a console renders from without computing
-    any statistic itself. Bars, dataset export, agent judges,
-    annotations, imported trials and the `cella` executor follow.
-    *Rejected:* a training loop or the release bar first, which
-    exercises the same core but leaves people without a way to compare
-    agents.
+    experiments with an automatic comparison against their reference,
+    the `topos` executor, checks and model judges, the analysis, and a
+    read API, the paged grid, comparison rows and the progress stream,
+    that a console renders from without computing any statistic itself.
+    Bars, dataset export, agent judges, annotations, imported trials,
+    the `cella` executor, adoption, label tests, the gap map, trends,
+    shares and reports follow (specs/README.md). *Rejected:* a training
+    loop or the release bar first, which exercises the same core but
+    leaves people without a way to compare agents.
 
 ## Service shape
 
@@ -251,14 +284,14 @@ client and any console use the same API. Spec 011 covers distribution.
 | Spec | Fixes |
 |---|---|
 | 002 Objects | every object, its fields, states, identifiers and limits |
-| 003 API | the contract a client codes against, and its errors |
-| 004 Identity and authorization | the authorizer contract, actions, the built-in owner policy, sharing, acting as the owner |
-| 005 Execution | the executor contract, the `topos` and `cella` executors, smoke, budget, retries, cancellation, imported trials |
+| 003 API | the contract a client codes against, its errors, and the event sink |
+| 004 Identity and authorization | the authorizer contract, actions, the built-in owner policy, sharing, acting as the owner, the key source |
+| 005 Execution | the executor contract, the `topos` and `cella` executors, smoke and the cost check, retries and retrying a parked cell, cancellation, imported trials |
 | 006 Grading | checks, model judges, agent judges, annotations, the decline judge, generations, calibration |
-| 007 Measurements and evidence | the measurement store, provenance layers, evidence references, retention, dataset export |
-| 008 Analysis | aggregation, noise floors, tests, multiple comparisons, confounds, baselines, verdicts, trends |
-| 009 Bars | bar rules, evaluation, release use, alerts |
-| 010 Reports | the console view, what a report shows, export, sharing |
+| 007 Measurements and evidence | the measurement store, provenance layers, evidence references and where evidence lives, retention, dataset export |
+| 008 Analysis | aggregation and intervals, tests, the primary result and the corrected family, confounds, automatic comparisons, verdicts and reasons, trends |
+| 009 Bars | bar rules, evaluation, release use, bar events |
+| 010 Reports | what a console reads and shows, the report document, export, sharing |
 | 011 Distribution | the binary, configuration, Postgres, upgrades, versioning |
 | 012 Security | untrusted task content, judges reading hostile output, cost exhaustion, evidence privacy |
 
@@ -268,15 +301,21 @@ client and any console use the same API. Spec 011 covers distribution.
   loop for a trial; every trial is executed through an executor.
 - A check's measurements arrive from the executor; Examen never executes
   task or check code.
-- An experiment without a budget, or whose budget cannot cover a cell's
-  estimate after its smoke trial, starts no trial in that cell.
+- An experiment without a budget, or whose smallest remainder cannot
+  cover a cell's estimate after its smoke trial, starts no trial in
+  that cell past the smoke.
+- With the `endpoint` key source, Examen creates no Key or Budget at
+  Lux.
 - Comparing two models on one agent version yields a single-variable
   comparison.
+- An experiment with no baseline compares every candidate with its
+  first, and shows verdicts while it runs.
 - With `MIN_TRIALS_FOR_VERDICT - 1` finished trials in a cell, every
-  verdict for that cell is `insufficient`.
-- A comparison of many metrics and tasks reports verdicts after the
-  correction of its two families at `FALSE_DISCOVERY_RATE`, and the
-  uncorrected values are readable beside them.
+  task-level verdict for that cell is `insufficient`.
+- A comparison of many metrics and tasks reports its primary metric's
+  suite-level result uncorrected and every other verdict after one
+  correction at `FALSE_DISCOVERY_RATE`, and the uncorrected values are
+  readable beside them.
 - Re-grading with a changed judge appends a generation; earlier ones
   are unchanged.
 

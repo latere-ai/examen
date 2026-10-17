@@ -41,27 +41,29 @@ issuer and the open cores it composes, and needs no other service.
 | `cmd/examend/` | the binary: `serve`, `migrate`, `version`; the e2e tier sits beside the function `serve` runs |
 | `cmd/examen-trial/` | the trial driver that runs in a `cella` replica, built into the trial driver image whose digest the build pins (spec 005) |
 | `api/` | public: `openapi.yaml` (spec 003), embedded for the server to serve |
-| `authorizer/` | public: the action vocabulary, the limits of an allow, and the minter's request and answer (spec 004) |
+| `authorizer/` | public: the action vocabulary, the limits of an allow, the minter's request and answer, and the key endpoint's request and answer (spec 004) |
 | `internal/access/` | verification, the authorizer client, the owner policy |
 | `internal/owner/` | the owner token source: the minter client and the token files |
-| `internal/httpapi/` | routes, errors, the event stream |
+| `internal/keys/` | the key source: the `lux` and `endpoint` implementations (spec 004) |
+| `internal/httpapi/` | routes, errors, the progress stream |
 | `internal/store/` | the store over Postgres, and `migrations/` |
 | `internal/queue/` | the work queue and its leases (spec 005) |
 | `internal/execute/` | the executor contract and the `topos` and `cella` executors; `internal/luxread/` reads Lux's records (spec 005) |
 | `internal/grade/`, `internal/calibrate/` | checks, judges, annotations and calibration (spec 006) |
 | `internal/evidence/`, `internal/export/` | evidence references and dataset export (spec 007) |
 | `internal/analysis/` | the analysis (spec 008) |
-| `internal/bar/`, `internal/events/` | bars, and the event log's delivery to the sink (spec 009) |
-| `internal/view/`, `internal/report/`, `internal/narrative/` | views, reports and the narrative linter (spec 010) |
+| `internal/bar/` | bars (spec 009) |
+| `internal/events/` | the sink events' signing and delivery, under the delivery lease (spec 003) |
+| `internal/view/`, `internal/report/`, `internal/narrative/` | the report document, reports and the narrative linter (spec 010) |
 | `internal/config/` | configuration, read once into one typed value |
 | `internal/id/` | prefixed, time-ordered identifiers (spec 002) |
 | `internal/version/` | the build's version, commit and date, stamped by the linker |
-| `test/stubs/` | a stub issuer, authorizer and minter, and stubs of Topos, Cella, Lux, Arca and Origo |
+| `test/stubs/` | a stub issuer, authorizer, minter and key endpoint, and stubs of Topos, Cella, Lux, Arca and Origo |
 | `deploy/base/`, `deploy/examples/generic/` | manifests with no host or account in them, and an example installation under `example.com` |
-| `docs/` | running it, the configuration reference, the API guide, writing an authorizer and a minter |
+| `docs/` | running it, the configuration reference, the API guide, writing an authorizer, a minter and a key endpoint |
 
 The public packages are `api` and `authorizer`, which a client, an
-authorizer and a minter import. Go, current release, no cgo. Community
+authorizer, a minter and a key endpoint import. Go, current release, no cgo. Community
 files: `LICENSE` (Apache-2.0), `SECURITY.md`, `CODE_OF_CONDUCT.md`,
 `CONTRIBUTING.md`, `CHANGELOG.md`.
 
@@ -109,10 +111,11 @@ on stderr that names what failed.
 
 `serve` starts in this order: configuration, telemetry, the database
 pool, the schema check, the issuers, the authorizer probe (spec 004),
-the owner token source, the listener; and only then does `/readyz`
-answer `200`. Its first log lines say which token source is in use (the
-minter, the token files of `EXAMEN_SOLE_OWNER`, or none), who decides
-(the authorizer or the owner policy), and which cores are configured.
+the owner token source, the key source, the listener; and only then
+does `/readyz` answer `200`. Its first log lines say which token source
+is in use (the minter, the token files of `EXAMEN_SOLE_OWNER`, or
+none), which key source (`lux` or `endpoint`), who decides (the
+authorizer or the owner policy), and which cores are configured.
 
 ### Configuration
 
@@ -131,7 +134,7 @@ configuration, and `examend` reads none of them.
 |---|---|---|
 | `EXAMEN_ADDR` | `:8080` | this spec |
 | `EXAMEN_BASE_PATH` | `/v1` | spec 003 |
-| `EXAMEN_PUBLIC_URL` | none: bar evaluations and events carry no `links`, and a report bundle's sources are not links | specs 009 and 010 |
+| `EXAMEN_PUBLIC_URL` | none: bar evaluations and events carry no `links`, and a report bundle's sources are not links | specs 003, 009 and 010 |
 | `EXAMEN_LOG_LEVEL` | `info`; or `debug`, `warn`, `error` | this spec |
 | `EXAMEN_DATABASE_URL` | none; required | this spec |
 | `EXAMEN_DATABASE_POOL_URL` | none: `serve` opens `EXAMEN_DATABASE_URL` | this spec |
@@ -143,6 +146,8 @@ configuration, and `examend` reads none of them.
 | `EXAMEN_MINTER_TOKEN_FILE` | none; required with `EXAMEN_MINTER_URL` | spec 004 |
 | `EXAMEN_SOLE_OWNER` | none | spec 004 |
 | `EXAMEN_OWNER_TOKEN_DIR` | none; required with `EXAMEN_SOLE_OWNER` | spec 004 |
+| `EXAMEN_KEYS_URL` | none: the `lux` key source, which creates Keys at Lux as the owner | spec 004 |
+| `EXAMEN_KEYS_TOKEN_FILE` | none; required with `EXAMEN_KEYS_URL` | spec 004 |
 | `EXAMEN_TOPOS_URL` | none: candidates of kind `topos` and agent judges are refused | spec 005 |
 | `EXAMEN_CELLA_URL` | none: candidates of kind `image` are refused | spec 005 |
 | `EXAMEN_CELLA_ENVIRONMENT` | none; required with `EXAMEN_CELLA_URL`: the `queued` Cella Environment a SandboxSet runs in | spec 005 |
@@ -155,8 +160,8 @@ configuration, and `examend` reads none of them.
 | `EXAMEN_ARCA_AUDIENCE` | `arca` | spec 004 |
 | `EXAMEN_ORIGO_AUDIENCE` | `origo` | spec 004 |
 | `EXAMEN_WORKERS` | `20`: work items one replica runs at once | spec 005 |
-| `EXAMEN_EVENTS_URL` | none: events are journaled acknowledged and nothing is sent | spec 009 |
-| `EXAMEN_EVENTS_SECRET_FILE` | none; required with `EXAMEN_EVENTS_URL`: a file holding one signing secret, or two separated by a comma while one is rotated, reread when it changes | spec 009 |
+| `EXAMEN_EVENTS_URL` | none: sink events are journaled acknowledged and nothing is sent | spec 003 |
+| `EXAMEN_EVENTS_SECRET_FILE` | none; required with `EXAMEN_EVENTS_URL`: a file holding one signing secret, or two separated by a comma while one is rotated, reread when it changes | spec 003 |
 | the variables `pkg/otel` reads | the SDK's own | this spec |
 
 A refusal for a core that is not configured is `422
@@ -184,17 +189,18 @@ the variable or the condition, in each of these cases:
 | a required variable is missing | `EXAMEN_DATABASE_URL` and `EXAMEN_OIDC_ISSUERS` always; the others as the table says |
 | a value does not parse | the line names the variable |
 | `EXAMEN_MINTER_URL` and `EXAMEN_SOLE_OWNER` are both set | two token sources would make it unclear whose token a request carries (spec 004) |
-| `EXAMEN_EVENTS_URL` without `EXAMEN_EVENTS_SECRET_FILE`, the secret without the URL, or an `http://` events URL whose host is not loopback | events would go unsigned, nowhere, or readable on the way (spec 009) |
+| `EXAMEN_EVENTS_URL` without `EXAMEN_EVENTS_SECRET_FILE`, the secret without the URL, or an `http://` events URL whose host is not loopback | events would go unsigned, nowhere, or readable on the way (spec 003) |
+| `EXAMEN_KEYS_URL` without `EXAMEN_KEYS_TOKEN_FILE`, or the token file without the URL | a key endpoint takes a bearer, and a bearer with no endpoint means the installation believes Examen asks it for Keys while Examen would create them itself (spec 004) |
 | a token file is missing, unreadable or empty | the endpoint or core it is for requires a bearer |
-| the authorizer, minter or a core URL is not `https` and its host is not loopback | each carries a bearer, and an owner token over plain HTTP is readable on the way |
+| the authorizer, minter, key endpoint or a core URL is not `https` and its host is not loopback | each carries a bearer, and an owner token or a Key over plain HTTP is readable on the way |
 | the database does not answer, or its schema fails the check below | the server cannot serve what it cannot store |
 | the authorizer allows the probe | spec 004 |
 
 ### Postgres and migrations
 
 Postgres holds every object of spec 002, the work queue (spec 005), the
-event log and the idempotency keys (spec 003), and the shares (spec
-004). Evidence stays in Arca. Any Postgres release that its project
+event log, the delivery lease and the idempotency keys (spec 003), and
+the shares (spec 004). Evidence stays in Arca. Any Postgres release that its project
 still supports is accepted.
 
 Migrations are SQL files in `internal/store/migrations/`, numbered,
@@ -228,8 +234,9 @@ transaction mode, so the replicas' pools do not each claim the
 database's connections. The store uses nothing such a pooler loses: no
 session-level advisory lock, no `LISTEN`, and no state kept on a
 connection between transactions. The queue claims work with row locks
-inside one transaction, and a progress stream polls the event log (spec
-003).
+inside one transaction, sink event delivery runs under a lease row
+taken in a transaction, and a progress stream polls the event log
+(spec 003).
 
 **The compatibility rule.** Each migration is additive, or is preceded
 by one release that writes both shapes, so a replica of release N and a
@@ -260,8 +267,8 @@ the base path, with no token:
 | `/readyz` | `200` when ready; otherwise `503` with the failing check's name and error. The checks: `database`, the pool answers and the schema check holds; `draining`, which fails from the stop signal on |
 | `/version` | `{version, commit, build_time}` as the linker stamped them; the release workflow compares `version` with the tag |
 
-Readiness does not depend on the authorizer, the minter, the issuers or
-the cores. Their outage fails the requests that need them with a `503`
+Readiness does not depend on the authorizer, the minter, the key
+endpoint, the issuers or the cores. Their outage fails the requests that need them with a `503`
 and holds unattended work (spec 004), and taking a replica out of
 rotation would not bring them back.
 
@@ -295,6 +302,7 @@ joins the core's trace. Each work item is a span carrying
 | `examen_queue_depth` | gauge | `work` |
 | `examen_authorizer_calls_total`, `examen_authorizer_call_seconds` | counter, histogram | `result`: `allow`, `deny`, `error` |
 | `examen_minter_calls_total`, `examen_minter_call_seconds` | counter, histogram | `audience`, `result`: `token`, `refused`, `error` |
+| `examen_key_leases_total` | counter | `source` (`lux`, `endpoint`), `purpose`, `result`: `leased`, `refused`, `exhausted`, `error` |
 | `examen_core_requests_total` | counter | `core`, `class` (`2xx`, `4xx`, `5xx`, `error`) |
 | `examen_streams_open` | gauge | none |
 
@@ -371,7 +379,8 @@ host.
 | Postgres | everything | `serve` does not start |
 | an OpenID Connect issuer, any | the callers' tokens | `serve` does not start |
 | an owner token source: a minter, or `EXAMEN_SOLE_OWNER` with its token files | every request to a core (spec 004) | metrics, graders without judges, and reads; nothing that resolves a pin at a core |
-| Lux | budgets, Keys, model judges, cost | no experiment can be created |
+| Lux | budgets, model judges, cost; with the `lux` key source, the Keys Examen creates | no experiment can be created |
+| a key endpoint | Keys from an installation that keeps its own budgets (spec 004) | the `lux` key source: Examen creates its Keys at Lux as the owner |
 | Topos, itself running sessions in Cella | candidates of kind `topos`, agent judges | those are refused |
 | Cella | candidates of kind `image` | those are refused |
 | Arca | `arca` workspaces, evidence for judges, exports | those are refused |
@@ -379,11 +388,12 @@ host.
 | an authorizer | organizations as owners, annotators and services acting for others, limits | the owner policy (spec 004) |
 
 One person can run Examen for themselves with `EXAMEN_SOLE_OWNER` and
-their own tokens in files, the owner policy, and the cores they already
-run. A multi-owner installation adds a minter and, for anything beyond
-owners acting on their own objects, an authorizer; both are endpoints
-the operator writes against the public package `authorizer`, and
-`docs/` holds a minimal one of each.
+their own tokens in files, the owner policy, the `lux` key source, and
+the cores they already run. A multi-owner installation adds a minter
+and, for anything beyond owners acting on their own objects, an
+authorizer, and an installation that keeps its own budgets adds a key
+endpoint; each is an endpoint the operator writes against the public
+package `authorizer`, and `docs/` holds a minimal one of each.
 
 `deploy/base` holds a Deployment of two replicas, its Service, the
 account it runs as, a disruption budget, a network policy, and the
@@ -394,8 +404,8 @@ Secrets that hold the token files, and a pooler. Every host is under
 read-only root file system, no capability, the runtime's default seccomp
 profile and no token of the cluster's API. Egress is allowed to the
 resolver, the pooler and the database, the issuer, the authorizer, the
-minter, each configured core and the telemetry collector, as the overlay
-names them.
+minter, the key endpoint, each configured core, the event sink and the
+telemetry collector, as the overlay names them.
 
 `make run` builds `examend`, runs `migrate` and then `serve` against a
 local Postgres in the developer's container runtime, with
@@ -441,7 +451,7 @@ log (spec 007). The text of `SECURITY.md` (spec 012).
 - `/livez` answers `200` while the process runs; `/readyz` answers `503`
   naming `database` when the database is lost and naming `draining`
   after the stop signal, and answers `200` while the authorizer, the
-  minter and every core are down; `/version` reports what `examend
+  minter, the key endpoint and every core are down; `/version` reports what `examend
   version` prints.
 - On the stop signal a replica fails readiness, closes its streams,
   completes an open request within `SHUTDOWN_GRACE`, and exits 0.

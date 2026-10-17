@@ -36,19 +36,21 @@ other specs refer to them by name.
 | experiment | one execution of a suite against candidates | |
 | cell | one task × one candidate in an experiment; the unit of comparison | |
 | trial | one attempt by a candidate at a task | Topos's retired word "run"; a trial of a Topos agent is one Topos session |
-| finished trial | a trial whose outcome is neither `infra_failed` nor `canceled` and that was not retried; the trials analysis counts | a trial in state `done`, which may have failed or been canceled |
+| finished trial | a trial whose outcome is none of `infra_failed`, `over_budget` and `canceled` and that was not retried; the trials analysis counts | a trial in state `done`, which may have failed, run out of budget or been canceled |
 | rollout | one submission of some of a cell's trials to its executor: the smoke rollout, the main rollout, retry rollouts, and an agent judge's rollouts (specs 005 and 006) | a deployment rollout, or a rollout identity |
 | measurement | one value of one metric for one trial, from one grader generation | |
-| baseline | a record that pins one candidate's cells in one complete experiment as the reference; a baseline's name identifies a lineage of records | |
+| baseline | a record that pins one candidate's cells in one complete experiment as a reference; a baseline's name identifies a lineage of records | |
+| reference | what a candidate's cells are compared with: a baseline, or another candidate of the same experiment; an experiment's `reference` is its first candidate unless it names another | |
 | comparison | the per-metric verdicts of a candidate's cells against a reference | |
 | verdict | `improved`, `regressed`, `changed`, `within_noise` or `insufficient`, per metric | |
 | changed | the verdict of a significant change in a metric whose direction is `none`, which is neither better nor worse | `improved` and `regressed`, which need a direction |
 | bar | a rule on a comparison that passes or fails | a lateregate gate |
 | bar evaluation | one bar version applied to one comparison, recorded with what it read | |
-| share | an owner's grant to another owner of a suite, a baseline, an experiment or a report | |
+| share | an owner's grant to another owner of a suite, a baseline, an experiment or a report; a word of Examen's own | an Arca share of files |
 | dataset export | trials with their measurements and evidence references, written as records into the owner's Arca space | an export of a report |
-| report | a frozen copy of an experiment's view, with the narrative its owner released | the live view, which changes while an experiment runs |
-| event | one entry of an experiment's event log | a telemetry event |
+| report | a frozen document of an experiment's grid and comparisons, with the narrative its owner released | the API's answers, which change while an experiment runs |
+| event | one entry of an experiment's event log; a sink event is also delivered to the installation's event sink (spec 003) | a telemetry event |
+| key source | what leases the Lux Keys that model judges, `cella` rollouts and narrative drafts call through: `lux` or `endpoint` (spec 004) | the Keys Topos issues its own sessions |
 
 ## Identifiers
 
@@ -95,7 +97,13 @@ names a suite, every version of it, by its owner and name.
 
 Two grader digests are reserved and name no applied version:
 `builtin`, Examen's filling of the built-in metrics from the trial
-record, and `builtin:decline`, the built-in decline judge.
+record, and `builtin:decline`, the built-in decline judge. Each
+built-in metric (below) has the reserved metric digest
+`builtin:<name>`, such as `builtin:cost_usd`, which also names no
+applied version: a suite names it in `metrics` to include that metric,
+and every reference to a built-in metric uses it. Metric and grader
+digests are read in their own places, so `builtin:declined`, a metric,
+and `builtin:decline`, a grader, never meet.
 
 **Metadata.** Every object that has `metadata` (task, candidate,
 experiment, bar evaluation) holds at most `METADATA_MAX_PAIRS` pairs of
@@ -110,10 +118,13 @@ else. The last column names the spec that explains its use.
 
 | Constant | Value | Meaning | Spec |
 |---|---|---|---|
-| `DEFAULT_TRIALS` | 5 | trials per cell when an experiment names no N | 002 |
+| `DEFAULT_TRIALS` | 10 | trials per cell when an experiment names no N | 002 |
 | `MAX_TRIALS_PER_CELL` | 1000 | the most trials one cell may declare | 002 |
 | `SMOKE_TRIALS` | 1 | trials a cell runs before the rest | 005 |
-| `MIN_TRIALS_FOR_VERDICT` | 5 | finished trials, holding a current value of the metric, each side needs before a verdict other than `insufficient` | 008 |
+| `MIN_TRIALS_FOR_VERDICT` | 5 | finished trials, holding a current value of the metric, each side of a task-level result needs before a verdict other than `insufficient` | 008 |
+| `MIN_TRIALS_PER_TASK_IN_SUITE` | 2 | finished trials, holding a current value of the metric, each side needs for a task to be included in a suite-level result | 008 |
+| `MIN_SUITE_COVERAGE` | 0.8 | the share of the suite's weight a suite-level result must include before a verdict other than `insufficient` | 008 |
+| `MIN_TRIALS_FOR_P90_INTERVAL` | 35 | valued trials below which a `p90` summary and its delta carry no interval | 008 |
 | `MAX_INFRA_RETRIES` | 2 | retries of a trial that failed for an infrastructure reason | 005 |
 | `MAX_CELLS_PER_EXPERIMENT` | 2000 | tasks × candidates in one experiment | 003 |
 | `MAX_TASKS_PER_SUITE` | 1000 | tasks in one suite version | 002 |
@@ -129,8 +140,8 @@ else. The last column names the spec that explains its use.
 | `TRIAL_START_TIMEOUT` | 1 hour | how long a trial may stay pending while its rollout runs fewer trials than its parallelism | 005 |
 | `REPORT_INTERVAL` | 15 seconds | how often an open rollout is reported | 005 |
 | `USAGE_SETTLE_DELAY` | 2 minutes | the wait after a trial ends before Lux's records of it are read | 005 |
-| `COST_ESTIMATE_MARGIN` | 1.5 | the factor a cell's cost estimate is multiplied by at the gate | 005 |
-| `ADOPTION_MAX_AGE` | 30 days | the oldest trials a new experiment may adopt instead of re-running | 005 |
+| `COST_ESTIMATE_MARGIN` | 1.5 | the factor a cell's cost estimate is multiplied by at the cost check | 005 |
+| `ADOPTION_MAX_AGE` | 30 days | the oldest trials a new experiment may adopt instead of re-running, once adoption is built | 005 |
 | `CHECK_MAX_OUTPUT_BYTES` | 64 KiB | the stdout of one check examend reads, and the stderr tail a check run record keeps; the whole of both stays in evidence | 006 |
 | `JUDGE_MAX_INPUT_BYTES` | 512 KiB | evidence one model judge call may read | 006 |
 | `JUDGE_MAX_OUTPUT_TOKENS` | 4096 | the output one model judge call may produce | 006 |
@@ -147,21 +158,22 @@ else. The last column names the spec that explains its use.
 | `FALSE_DISCOVERY_RATE` | 0.05 | the rate the multiple-comparison correction holds | 008 |
 | `CONFIDENCE_LEVEL` | 0.95 | the level of every reported interval | 008 |
 | `BOOTSTRAP_RESAMPLES` | 10,000 | resamples of every bootstrap interval | 008 |
-| `PERMUTATION_RESAMPLES` | 10,000 | relabelings of a Monte Carlo permutation test | 008 |
+| `PERMUTATION_RESAMPLES` | the larger of 10,000 and ceil(20 · m / `FALSE_DISCOVERY_RATE`), with m the number of p-values in the test's family, 1 for the primary metric's suite-level result | relabelings of a Monte Carlo permutation test | 008 |
 | `PERMUTATION_EXACT_MAX` | 100,000 | the most relabelings a permutation test enumerates instead of sampling | 008 |
+| `BOSCHLOO_GRID_POINTS` | 1000 | points of the fixed grid of nuisance values over which Boschloo's test takes its largest p-value | 008 |
 | `TIE_TOLERANCE` | 1e-9 | relative tolerance when a test compares a probability or a discrepancy with the observed one | 008 |
-| `MAX_TREND_POINTS` | 100 | baseline records one trend reads | 008 |
+| `MAX_TREND_POINTS` | 100 | baseline records one trend reads, once trends are built | 008 |
 | `MAX_RULES_PER_BAR` | 128 | rules in one bar version | 009 |
 | `BAR_POLL_INTERVAL` | 15 seconds | how often `examen bar check --wait` reads the experiment and the evaluation | 009 |
-| `ALERT_TIMEOUT` | 10 seconds | how long one event delivery attempt waits for the sink | 009 |
-| `ALERT_BACKOFF_MIN` | 1 second | the first delivery retry delay | 009 |
-| `ALERT_BACKOFF_MAX` | 5 minutes | the longest delivery retry delay | 009 |
-| `ALERT_RETRY_WINDOW` | 24 hours | how long an event is retried before it is dropped | 009 |
-| `SIGNATURE_MAX_AGE` | 5 minutes | the oldest signature time a sink accepts | 009 |
+| `DELIVERY_TIMEOUT` | 10 seconds | how long one sink event delivery attempt waits for the sink | 003 |
+| `DELIVERY_BACKOFF_MIN` | 1 second | the first delivery retry delay | 003 |
+| `DELIVERY_BACKOFF_MAX` | 5 minutes | the longest delivery retry delay | 003 |
+| `DELIVERY_RETRY_WINDOW` | 24 hours | how long a sink event is retried before it is dropped | 003 |
+| `DELIVERY_LEASE` | 30 seconds | how long a replica holds the delivery lease row before another may take it | 003 |
+| `SIGNATURE_MAX_AGE` | 5 minutes | the oldest signature time a sink accepts | 003 |
 | `MAX_COMPARISONS_PER_REPORT` | 64 | comparisons one report renders | 010 |
 | `NARRATIVE_MAX_CLAIMS` | 40 | claims in one narrative | 010 |
 | `NARRATIVE_MAX_BYTES` | 32 KiB | the text of one narrative | 010 |
-| `VIEW_REFRESH_INTERVAL` | 10 seconds | how often a console reads a live view again | 010 |
 | `DEFAULT_PAGE_SIZE` | 50 | items in a page when `limit` is absent | 003 |
 | `MAX_PAGE_SIZE` | 200 | the largest `limit` | 003 |
 | `MAX_REQUEST_BYTES` | 4 MiB | the longest request body examend reads | 003 |
@@ -192,12 +204,13 @@ A named, typed quantity a suite is measured on.
 | `unit` | string | for display, such as `s` or `USD` |
 | `description` | string | for people |
 
-**Built-in metrics** exist for every owner, with these types,
-aggregates and directions:
+**Built-in metrics** exist for every owner under the reserved digests
+`builtin:<name>` (Identifiers, above), with these types, aggregates
+and directions:
 
 | Metric | Type | Aggregate | Direction | Value |
 |---|---|---|---|---|
-| `completed` | `binary` | `rate` | `higher_is_better` | the agent ended its work itself: outcome `completed` or `declined` |
+| `completed` | `binary` | `rate` | `none` | the agent ended its work itself: outcome `completed` or `declined`. Ending is not success, and declining is ending, so it has no direction; a task's success is a check metric |
 | `declined` | `binary` | `rate` | `lower_is_better` | the agent refused the task, said it would not or could not do it, or stopped without attempting it, as the decline judge decides (spec 006) |
 | `cost_usd` | `cost` | `mean` | `lower_is_better` | the trial's cost from Lux's records, in USD |
 | `duration` | `duration` | `median` | `lower_is_better` | `agent_ended_at` less `started_at`, in seconds |
@@ -205,8 +218,7 @@ aggregates and directions:
 | `turns`, `tool_calls` | `count` | `median` | `none` | the agent's responses and tool calls, from the executor's records |
 
 Examen fills every built-in metric but `declined` from the trial record,
-with grader `builtin`, for every trial whose outcome is neither
-`infra_failed` nor `canceled` (spec 005). `declined` is a measurement
+with grader `builtin`, for every finished trial (spec 005). `declined` is a measurement
 the decline judge produces (spec 006). A trial's outcome is set once,
 by its executor, and is final: the decline judge never changes it.
 
@@ -222,14 +234,14 @@ refused.
 | `kind` | enum | `check`, `model_judge`, `agent_judge`, `annotation` |
 | `produces` | []metric digest | the metrics it fills |
 | `check` | object | for `check`: `command` ([]string, run in the trial's machine), `workdir`, `env`, and `files` (optional: an owner's Arca path and its content digest, delivered read-only to the check). Output contract in spec 006 |
-| `model_judge` | object | for `model_judge`: `model` (a pinned model id), `prompt` (text), `rubric` (text), `inputs` (which evidence it reads: `transcript`, `final_message`, named `files`), `temperature`, `reasoning` (optional: the reasoning level the call names; the model's default when absent), `zero_retention` (bool: its Lux Key allows only providers that keep nothing), `preamble` (Examen's judge preamble, pinned at apply) |
+| `model_judge` | object | for `model_judge`: `model` (a pinned model id), `prompt` (text), `rubric` (text), `inputs` (which evidence it reads: `transcript`, `final_message`, named `files`), `temperature`, `reasoning` (optional: the reasoning level the call names; the model's default when absent), `preamble` (Examen's judge preamble, pinned at apply). Which providers may keep what a judge sends is the key source's, not the grader's (spec 004) |
 | `agent_judge` | object | for `agent_judge`: `agent` (a pinned Topos agent version digest), `inputs`, `instructions`, `preamble` (Examen's agent judge preamble, pinned at apply) |
 | `annotation` | object | for `annotation`: `instructions` for the person, `sample` (the fraction of trials to queue) |
 
 A grader's digest covers every field above. Changing a judge's model,
-prompt, rubric, inputs, temperature, reasoning, preamble or
-`zero_retention` therefore makes a new grader version, and its
-measurements are a new generation (spec 006).
+prompt, rubric, inputs, temperature, reasoning or preamble therefore
+makes a new grader version, and its measurements are a new generation
+(spec 006).
 
 **One producer per metric.** For each task of a suite version, each
 metric the suite lists has at most one producer that is not an
@@ -249,7 +261,7 @@ One versioned unit of work.
 | `name` | string | unique per owner; a suite version refuses two tasks of one name |
 | `instruction` | text | the first message the agent receives |
 | `workspace` | object | where the trial starts: `none`, `origo` (a repository and a full commit id), or `arca` (an owner's path and its content digest) |
-| `environment` | object | the Cella sandbox template the trial runs in, pinned by image digest, with its resources and network policy |
+| `environment` | object | the Cella sandbox template the trial runs in, pinned by image digest, with its resources and network policy; the image must be one Cella's admission accepts, checked when an experiment that uses the task is created (spec 003) |
 | `checks` | []grader digest | graders of kind `check`, run in order after the agent ends |
 | `timeout` | duration | the trial's wall time, at most `MAX_TRIAL_TIMEOUT`; `DEFAULT_TRIAL_TIMEOUT` when unset |
 | `max_turns` | int | optional bound on the model responses of the agent's own thread; the `topos` executor needs a step bound Topos does not have today (spec 005, requirement R7), and the `cella` executor passes it as advice |
@@ -266,9 +278,9 @@ An owned set of tasks with what they are measured by.
 |---|---|---|
 | `name` | string | unique per owner |
 | `tasks` | []task digest | at most `MAX_TASKS_PER_SUITE`, no two with one name |
-| `metrics` | []metric digest | at most `MAX_METRICS_PER_SUITE`, built-ins included by reference |
+| `metrics` | []metric digest | at most `MAX_METRICS_PER_SUITE`; a built-in metric is included by naming its reserved digest `builtin:<name>` |
 | `graders` | []grader digest | judges and annotation queues applied to every trial, beside each task's checks |
-| `primary_metric` | metric digest | the metric a report leads with |
+| `primary_metric` | metric digest | the metric a report leads with; its suite-level result is one pre-declared test, outside the corrected family (spec 008) |
 | `weights` | map | task digest to a finite number at least 0; a task it does not list weighs 1, and at least one task weighs more than 0 (spec 008) |
 | `decline_judge` | grader digest | optional: a grader of kind `model_judge` that produces only `declined` and reads `final_message` and `transcript`; absent, the built-in decline judge `builtin:decline` (spec 006) |
 
@@ -317,8 +329,8 @@ One execution of a suite against candidates.
 | `trials` | int | N per cell, declared before any cell runs; `DEFAULT_TRIALS` when unset, at most `MAX_TRIALS_PER_CELL` |
 | `budget` | string | the Lux Budget every model call of this experiment is metered against |
 | `parallelism` | int | `DEFAULT_PARALLELISM` when unset, at most `MAX_PARALLELISM` |
-| `baseline` | baseline id | optional; the baseline record its comparisons use |
-| `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE` (spec 005) |
+| `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset |
+| `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE`; a later build step (spec 005) |
 | `mode` | enum | `execute` (the default): Examen runs every cell; `import`: Examen runs no trial, and each cell is made from the resolved provenance tuple of the first trial imported into it (below) |
 | `state` | enum | below |
 | `created_by` | subject | the subject that created it (spec 004) |
@@ -328,6 +340,13 @@ One execution of a suite against candidates.
 States: `pending` → `running` → `grading` → `complete`, and
 `canceled` from any state before `complete`. An experiment is
 `complete` when every cell is `complete` or parked.
+
+**The automatic comparison.** Every candidate other than the reference
+is compared with the reference without being asked: progressively,
+while trials finish and gradings arrive, as a comparison with `final`
+false, and once more at completion with `final` true (spec 008). A
+first experiment with no baseline therefore has comparisons, a
+headline and grid verdicts from its first candidate.
 
 **Mode `import`.** No cell exists at create. Each imported trial names
 a task and a candidate of the experiment; its provenance tuple is
@@ -350,16 +369,21 @@ mode `import`; never written by a client.
 | `task` | task digest | |
 | `candidate` | candidate digest | |
 | `tuple` | object | the provenance tuple, resolved |
-| `rollouts` | []object | every submission of the cell's trials to its executor, each `{key, kind, executor, handle, parallelism, state}`: `kind` is `smoke`, `main`, `retry` or `judge` (an agent judge's, spec 006); `state` is `queued`, `submitting`, `submitted` or `ended` (spec 005) |
-| `adopted` | []trial id | trials of an identical earlier cell that this cell reads as its own (spec 005) |
+| `rollouts` | []object | every submission of the cell's trials to its executor, each `{key, kind, executor, handle, parallelism, key_id, state}`: `kind` is `smoke`, `main`, `retry` or `judge` (an agent judge's, spec 006); `key_id` the id of a `cella` rollout's leased Lux Key, never its value; `state` is `queued`, `submitting`, `submitted` or `ended` (spec 005) |
+| `adopted` | []trial id | trials of an identical earlier cell that this cell reads as its own, once adoption is built (spec 005) |
 | `state` | enum | below |
-| `parked_reason` | string | when parked |
+| `parked_reason` | string | when parked: a stable code, such as `owner_token_refused`, `sign_in_not_kept`, `run_denied`, `owner_mismatch` or `model_unpriced`, with the figures or the trial behind it |
 
 States: `pending` → `smoking` → `running` → `grading` → `complete`.
-Parking states: `blocked` (the smoke trial failed for an
-infrastructure or compatibility reason), `over_budget` (the estimate
-exceeds the budget's remainder), `canceled`. A cell of an experiment in
-mode `import` starts `running` and has no `smoking`.
+Parking states: `blocked` (a smoke trial failed for an infrastructure
+or compatibility reason, or a core, the minter or the attribution
+check refused the cell's work), `over_budget` (the cost estimate
+exceeds the smallest remainder the key source reports, or a trial or a
+judgment of the cell was refused because a Budget it draws on ran out),
+and `canceled`. A cell parked `blocked` or `over_budget` resumes only
+through a retry (`cell.retry`, spec 003); a `canceled` cell never
+resumes. A cell of an experiment in mode `import` starts `running` and
+has no `smoking`.
 
 ## Trial
 
@@ -372,8 +396,8 @@ One attempt by a candidate at a task.
 | `executor_ref` | string | the Topos session id or the Cella sandbox name |
 | `state` | enum | `pending`, `running`, `checking`, `done` |
 | `outcome` | enum | once `done`, below |
-| `failure` | object | for `infra_failed` and `canceled`: `{code, detail}`, a stable code and a developer's detail |
-| `retry_of` | trial id | when this trial retries an infrastructure failure |
+| `failure` | object | for `infra_failed`, `over_budget` and `canceled`: `{code, detail}`, a stable code and a developer's detail |
+| `retry_of` | trial id | when this trial retries an earlier one: an infrastructure failure, or an index a cell's retry runs again (spec 005) |
 | `sent` | object | what was sent: the model and reasoning settings of each request, from the executor (spec 007) |
 | `observed` | object | what happened: the model that served, token usage including reasoning, cost, from the executor's and Lux's records (spec 007) |
 | `checks` | []object | one check run record per check of the task, in order: `{grader, state, exit_code, reason, duration, stdout_size, stdout_sha256, stderr_tail}`, `state` one of spec 006's check run states |
@@ -388,15 +412,18 @@ One attempt by a candidate at a task.
 | `declined` | the provider ended the agent's last response with a refusal |
 | `timed_out` | the task's `timeout` passed while the agent ran |
 | `turn_limit` | the harness stopped the agent at a bound other than time or money: the task's `max_turns`, the model's output limit, or a stop for repeating a failing call |
-| `over_budget` | Lux refused a request for spend |
+| `over_budget` | Lux refused a request for spend: a Budget the trial's Key draws on, or the payer's wallet behind it, ran out |
 | `infra_failed` | the trial could not be run to an outcome for a reason outside the agent |
-| `canceled` | the experiment was canceled before the trial ended |
+| `canceled` | the experiment was canceled, or the trial's cell parked, before the trial ended |
 
 The executor sets the outcome once, and it is final (spec 005). Only
-`infra_failed` is retried, up to `MAX_INFRA_RETRIES`. A trial that is
-retried, and an `infra_failed` or `canceled` trial, is not a finished
-trial: it is excluded from analysis with its lineage kept. Every other
-outcome is a result.
+`infra_failed` is retried automatically, up to `MAX_INFRA_RETRIES`. An
+`over_budget` trial is not retried automatically: it parks its cell
+`over_budget`, and a retry of the cell runs its index again (spec 005).
+A trial that is retried, and an `infra_failed`, `over_budget` or
+`canceled` trial, is not a finished trial: it is excluded from analysis
+with its lineage kept, since an outcome that says how much money was
+left says nothing about the agent. Every other outcome is a result.
 
 ## Measurement
 
@@ -443,9 +470,11 @@ comparison can be reproduced. An experiment names one record by its id.
 
 ## Comparison
 
-The per-metric verdicts of a candidate's cells against a reference.
-Computed by Examen (spec 008); never written by a client, and never
-changed once complete: computing again makes a new comparison.
+The per-metric results of a candidate's cells against a reference.
+Computed by Examen (spec 008); never written by a client. A comparison
+whose `final` is false is provisional: Examen recomputes it in place,
+keeping its id, as trials finish and gradings arrive. Once `final` is
+true it never changes, and computing again makes a new comparison.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -453,18 +482,20 @@ changed once complete: computing again makes a new comparison.
 | `candidate` | candidate digest | |
 | `baseline` | baseline id | the reference, when it is a baseline |
 | `reference_candidate` | candidate digest | the reference, when it is another candidate of the same experiment; exactly one of `baseline` and `reference_candidate` is set |
+| `automatic` | bool | true for the comparison Examen keeps of a candidate against its experiment's `reference`; false for one computed on request (spec 003) |
 | `state` | enum | `computing`, `complete`, `failed` |
+| `final` | bool | true once both sides are final: every declared trial of each side is `done` and graded; false while a figure can still change |
 | `variable` | []tuple field | what the comparison intends to vary |
-| `confounds` | []string | every tuple field or layer that differs besides `variable`, computed: the union of its results' |
-| `single_variable` | bool | `confounds` is empty |
+| `single_variable` | bool | no tuple field besides `variable` differs on any paired task (spec 008); layer confounds and missing values are scoped to the results they affect and leave it unchanged |
+| `confounds` | []string | the name of every confound of its results, computed: the union of its results' `confounds` names |
 | `results` | []result | per metric and task, and per metric over the suite; below |
 | `unpaired_tasks` | object | `{candidate_only, reference_only}`, task names held by one side alone |
-| `candidate_suite` | object | per metric, the candidate's own suite-level summary over every task of its suite with weight greater than zero, whatever the reference holds |
+| `candidate_suite` | object | per metric, the candidate's own suite-level summary over the tasks of its suite with weight greater than zero, whatever the reference holds |
 | `windows` | object | for each side, the earliest `started_at` and the latest `ended_at` of the trials it read |
 | `verdict_counts` | object | per metric, the number of task-level results with each verdict |
-| `correction` | object | `{method, task_family, suite_family}`: the correction applied, `benjamini_hochberg`, and how many p-values each family held |
+| `correction` | object | `{method, primary, family}`: the correction applied, `benjamini_hochberg`; `primary`, the digest of the metric whose suite-level result is tested alone and reported uncorrected; and `family`, how many p-values the one corrected family held (spec 008) |
 | `analysis_version` | string | `examen.analysis/v1` |
-| `parameters` | object | the values of `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL`, `MIN_TRIALS_FOR_VERDICT`, `BOOTSTRAP_RESAMPLES`, `PERMUTATION_RESAMPLES`, `PERMUTATION_EXACT_MAX` and `TIE_TOLERANCE` it was computed with |
+| `parameters` | object | the values it was computed with of `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL`, `MIN_TRIALS_FOR_VERDICT`, `MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`, `MIN_TRIALS_FOR_P90_INTERVAL`, `BOOTSTRAP_RESAMPLES`, `PERMUTATION_EXACT_MAX`, `BOSCHLOO_GRID_POINTS` and `TIE_TOLERANCE`, and `PERMUTATION_RESAMPLES` as resolved for the primary result and for the family |
 | `inputs_digest` | string | the digest of its inputs document (spec 008) |
 | `seed` | string | the root seed, hex |
 | `computed_at` | time | |
@@ -473,21 +504,30 @@ A **result** is one row of `results`:
 
 | Member | Meaning |
 |---|---|
-| `level` | `task`, over one task's cells, or `suite`, over the paired tasks |
+| `level` | `task`, over one task's cells, or `suite`, over the paired tasks it includes |
 | `metric`, `metric_name`, `direction` | the metric's digest, name and direction |
 | `task`, `task_digests` | on a `task` result: the task's name, and each side's task digest |
 | `candidate`, `reference` | the two sides' summaries, below |
-| `delta`, `delta_kind` | the change, candidate less reference, and its kind: `difference`, `shift` or `total_variation` |
-| `delta_interval` | the delta's interval at `CONFIDENCE_LEVEL` |
-| `noise_floor` | half the width of `delta_interval` |
-| `method`, `exact`, `resamples` | the test; whether it enumerated every relabeling; how many relabelings it enumerated or drew |
+| `delta`, `delta_kind` | the change, candidate less reference, and its kind: `difference`, or for a `label` metric `per_label`, an object from each label to the difference of its proportions |
+| `delta_interval` | the delta's interval at `CONFIDENCE_LEVEL`, for `per_label` an object from each label to its interval; absent where spec 008 computes none |
+| `method`, `exact`, `resamples` | the test, `boschloo_exact`, `permutation` or `stratified_permutation`, and `chi_square_permutation` once label tests are built (spec 008); whether it enumerated every case; how many relabelings it enumerated or drew, absent for `boschloo_exact` |
 | `seed` | this result's derived seed, hex |
-| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE` |
-| `verdict` | one of the verdicts of the glossary |
-| `confounds` | the tuple fields and layers besides `variable` that differ: on a task result for that task's cells, on a suite result for any paired task's |
+| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE`; on the primary metric's suite-level result, which is not corrected, `q` equals `p` |
+| `verdict` | one of the verdicts of the glossary; absent on a result of a `label` metric, which is descriptive until label tests are built (spec 008) |
+| `reason` | one plain sentence saying why the verdict is what it is, such as "p = 0.048; q = 0.19 after correcting 40 results at 5%" or "task t3 has 3 trials; 5 needed" (spec 008) |
+| `left_out` | on a `suite` result: each task of weight above zero that the result does not include, `{task, why, candidate, reference}`, `why` either `unpaired` or `too_few_trials`, with each side's valued trials |
+| `confounds` | the result's confounds, below: on a task result for that task's cells, on a suite result for the tasks it includes |
 
 An `insufficient` result carries both summaries and no `p`, `q` or
 `delta_interval`.
+
+A **confound** is one entry of a result's `confounds`:
+
+| Member | Meaning |
+|---|---|
+| `name` | a tuple field besides `variable`; a layer, `observed.model`, `sent.model` or `sent.reasoning`; `missing`; or, once adoption is built, `window` (spec 008) |
+| `tasks` | on a suite result, the task names it applies to |
+| `candidate`, `reference` | per side, for a layer the number of requests it covers, and for `missing` the number of finished trials without a value; absent for a tuple field and for `window` |
 
 A **summary** describes one metric over one set of trials, a cell or a
 candidate's tasks:
@@ -500,12 +540,11 @@ candidate's tasks:
 | `numerator` | for `rate`: the finished trials whose value is true |
 | `denominator` | the finished trials holding a current value of the metric |
 | `missing` | `n` less `denominator` |
-| `interval` | `[low, high]` at `CONFIDENCE_LEVEL`; absent when spec 008 computes none |
-| `noise_floor` | half the width of `interval` |
+| `interval` | `[low, high]` at `CONFIDENCE_LEVEL`; absent where spec 008 computes none, such as a `p90` of fewer than `MIN_TRIALS_FOR_P90_INTERVAL` values |
 | `mean`, `sd`, `min`, `max` | for a numeric metric, whatever its aggregate |
 | `distribution`, `mode` | for a label metric: each label's count and proportion, and the mode |
-| `tasks`, `coverage`, `within_variance`, `between_variance` | at suite level: the tasks summarized, the share of the suite's weight they hold, and the two variances (spec 008) |
-| `excluded` | the trials of the set not counted in `n`, by reason: `retried`, `infra_failed`, `canceled`, `not_done` |
+| `tasks`, `coverage`, `advice` | at suite level: the number of tasks included, the share of the suite's weight they hold, and one sentence saying whether more trials or more tasks would narrow the interval more (spec 008); the tasks left out are named in the result's `left_out` |
+| `excluded` | the trials of the set not counted in `n`, by reason: `retried`, `infra_failed`, `over_budget`, `canceled`, `not_done` |
 | `final` | true once every declared trial of the set is `done` and graded; false while the figure can still change |
 
 ## Bar
@@ -518,6 +557,7 @@ A rule on a comparison that passes or fails.
 | `suite` | object | the suite, every version of it: `{owner, name}` |
 | `rules` | []object | at most `MAX_RULES_PER_BAR`; each: `metric` (a metric digest), exactly one of `no_regression` (true: fails on any `regressed` verdict for the metric in its scope), `at_least` and `at_most` (a value the candidate's suite-level summary must hold), and for `no_regression` a `scope`: `all` (the default), `suite` or `tasks` (spec 009) |
 | `require_single_variable` | bool | fails when the comparison is confounded |
+| `allow_partial` | bool | false by default: a bar fails `incomplete` when any task of the suite is left out of a suite-level result it reads; true lets a result covering at least `MIN_SUITE_COVERAGE` stand (spec 009) |
 
 A bar's owner is the owner that applied it, which may differ from its
 suite's owner when the suite is shared with it (spec 004).
@@ -541,13 +581,14 @@ result, and immutable once complete.
 | `metadata` | map | at most `METADATA_MAX_PAIRS`, attached by the caller, such as a commit, a ref and a CI run |
 | `created_by` | subject | the subject that asked |
 | `completed_at` | time | |
-| `links` | object | computed when read and never stored: absolute links to the evaluation, its comparison and the comparison's console view, built on the installation's public address (spec 003) |
+| `links` | object | computed when read and never stored: absolute links to the evaluation, its comparison and the comparison's page in a console, built on the installation's public address (spec 003) |
 
 Its owner is the bar's owner.
 
 ## Share
 
-An owner's grant to another owner (spec 004).
+An owner's grant to another owner (spec 004). Shares are a later build
+step than the console path (spec 003).
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -572,7 +613,7 @@ records into the owner's Arca space (spec 007).
 | `all_generations` | bool | also write every earlier generation of each measurement; default false |
 | `evidence` | enum | `reference` (the default) or `copy` (spec 007) |
 | `state` | enum | `pending`, `writing`, `complete`, `failed` |
-| `path` | string | the export's folder: `files/examen/exports/<export id>/` in the owner's space |
+| `path` | string | the export's folder: `files/evals/exports/<export id>/` in the owner's space |
 | `records` | int | the records written |
 | `manifest` | object | `{path, digest}` of its manifest, set at `complete` |
 | `error` | object | when `failed`: an error object of spec 003 |
@@ -581,13 +622,13 @@ records into the owner's Arca space (spec 007).
 
 ## Report
 
-A frozen copy of an experiment's view (spec 010).
+A frozen document of an experiment's grid and comparisons (spec 010).
 
 | Field | Type | Meaning |
 |---|---|---|
 | `experiment` | experiment id | |
 | `comparisons` | []comparison id | complete comparisons of that experiment, at most `MAX_COMPARISONS_PER_REPORT` |
-| `document` | object | the view document as built at creation, format `examen.report/v1`; never changes |
+| `document` | object | the report document of spec 010 as built at creation, format `examen.report/v1`; never changes |
 | `document_digest` | string | `sha256:` of its canonical JSON |
 | `narrative` | object | `{claims, findings, linter_version, draft, released, history}`: the claims as last edited and the linter's findings on them; the draft with its `model` and `prompt_digest`; the released narrative with its claims, its diff against the draft, `linter_version`, `released_by` and `released_at`; and every narrative released before it |
 | `exports` | []object | each static export: `{n, path, manifest_digest, exported_at, narrative_released}` |
@@ -595,16 +636,19 @@ A frozen copy of an experiment's view (spec 010).
 ## Event
 
 One entry of an experiment's event log (spec 003), written in the same
-transaction as the change it reports.
+transaction as the change it reports. The **sink events**,
+`experiment.completed`, `experiment.canceled`, `cell.parked`,
+`bar.passed` and `bar.failed`, are also delivered to the installation's
+event sink (spec 003).
 
 | Field | Type | Meaning |
 |---|---|---|
 | `experiment` | experiment id | the log it belongs to |
 | `seq` | int | its position in that log, from 1 |
-| `type` | enum | `experiment`, `cell`, `trial`, `graded`, `comparison` (spec 003), `bar.passed`, `bar.failed` (spec 009) |
+| `type` | enum | `experiment`, `cell`, `trial`, `graded`, `comparison`, `experiment.completed`, `experiment.canceled`, `cell.parked` (spec 003), `bar.passed`, `bar.failed` (spec 009) |
 | `data` | object | what changed, by type (specs 003 and 009) |
 | `at` | time | when the change happened, which is the event's `created_at` |
-| `delivery` | enum | for `bar.passed` and `bar.failed`: `pending`, `acknowledged` or `dropped` (spec 009) |
+| `delivery` | enum | for a sink event: `pending`, `acknowledged` or `dropped` (spec 003) |
 
 Its owner is the experiment's owner, and for a bar event the bar
 evaluation's owner.
