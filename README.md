@@ -1,12 +1,17 @@
 # Examen
 
-**A service that runs experiments on agents.** Describe a task once,
-name the agents, models and environments to try it with, and say how
-many times each combination runs. Examen starts every run through the
-services that already run agents, sandboxes and model calls, grades
-what each run produced, and reports outcomes you can compare: every
-number comes with its noise, and every comparison names what else
-differed besides the thing you meant to change.
+**A service that runs experiments on agents and on programs built on
+models.** Describe a task once, with the inputs it gives and the
+outputs you expect, name the systems to try it with and the models and
+environments to try them on, and say how many times each combination
+runs. A system under test can be an agent, a program in an image, such
+as a vendor's command-line agent or an HTTP client of an API that uses
+models, or a configuration of your own evaluation harness. Examen
+starts every run through the services that already run agents,
+sandboxes and model calls, or hands it to your harness, grades what
+each run produced, and reports outcomes you can compare: every number
+comes with its noise, and every comparison names what else differed
+besides the thing you meant to change.
 
 The name is Latin for the tongue of a balance, the pointer that shows
 which way it tips.
@@ -17,34 +22,58 @@ which way it tips.
 
 ## What it is for
 
-Whenever a model, an agent's instructions or its tools change, the same
-question comes back: did the change move what the agent does on the
-tasks you care about? Examen makes that loop declarative:
+Whenever a model, an agent's instructions or tools, or a program's
+configuration change, the same question comes back: did the change
+move what the system does on the tasks you care about? Examen makes
+that loop declarative:
 
 - **Rollouts, not anecdotes.** Each combination runs N times, and the
   run-to-run spread is measured, so a difference within the noise is
   reported as noise.
 - **Comparisons that say what they compare.** Every run is pinned to its
-  full conditioning context: the agent version, the model and what
-  actually served, the environment and the task. When two results
-  differ in more than one of those, the report says so.
+  full conditioning context: the agent version or program image and
+  configuration, the model and what actually served, the versions of
+  the services it called, the environment and the task. When two
+  results differ in more than one of those, the report says so.
+- **Expected outputs scored without a model.** Built-in comparators
+  score an output against a reference answer, by exact match, numeric
+  tolerance, set overlap, text overlap or field-level precision and
+  recall, and the system under test never sees the reference.
 - **Graders you can trust over time.** A model-based judge is pinned to
   its model and prompt; changing either makes a new judge, and
   re-grading never overwrites an earlier grade.
 - **Budgets that hold.** Every suite has a spending cap, and each
   combination is probed once before it is run N times.
-- **Evidence kept.** Transcripts, workspaces and request records stay
-  available for the analysis nobody planned.
+- **Evidence kept.** Transcripts, workspaces, outputs and request
+  records stay available for the analysis nobody planned.
+- **External harnesses.** A harness of your own can lease trials and
+  submit what it produced, or bring the runs of a study it already
+  made; Examen grades the outputs and marks what it can only take on
+  trust.
+- **Open-ended answers, measured.** A judge can label what each run
+  did in its own words; a taxonomy you keep, versioned, groups those
+  labels, and Examen tests whether two candidates' label distributions
+  differ and how often each fixes on one answer.
+- **Results you can share.** Publish a report, a suite others can run
+  with the results submitted to it, or a dataset, as immutable
+  versions: for the people you invite, for anyone with the link, or
+  listed once your installation approves. You choose how much of the
+  runs' content goes with it, a secret scan runs first, and you can
+  withdraw a version at any time.
 
 Each run with its grades is also one scored trajectory, so the same
 rollouts can feed a training loop.
 
 ## What it is not
 
-Not a benchmark dataset, not a leaderboard, and not an agent runtime,
-sandbox or model gateway. Examen calls those through their APIs. Who may
-run what is answered by an authorizer you write, or by a built-in policy
-that lets an owner act on their own suites.
+Not a benchmark dataset and not a leaderboard: a published benchmark
+groups results its data cannot tell apart instead of ranking them. Not
+an agent runtime, sandbox, model gateway or HTTP client of the APIs it
+evaluates. Examen calls the services that run things through their
+APIs, and an API under evaluation is called by a program inside a
+sandbox, never by Examen itself. Who may run what is answered by an
+authorizer you write, or by a built-in policy that lets an owner act on
+their own suites.
 
 ## License
 

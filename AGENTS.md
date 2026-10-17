@@ -7,6 +7,7 @@
 - Write in audience language: documents aim at user value and usage, the API surface aims at builder precision, code comments aim at technical precision.
 - This repository is public. No Latere hostname, token, or internal reference anywhere but as a default or an example. The hosted plane that builds on it lives elsewhere and is one consumer among any.
 - A measurement is the thing this service exists to get right. A number in a report traces to the trials and grades it came from, a comparison states its confounds, and a claim that a figure is unaffected by something is proven by a test.
+- Examen executes nothing and calls no host a task or candidate names: an API under evaluation is called by a program inside a trial's sandbox. A system under test never receives a task's references.
 - Trials execute with the owner's identity and budget, never the service's own. No path starts a session, a model call or a write that is not attributed to the experiment's owner; model Keys come from the key source, and an installation that keeps its own budgets writes them itself.
 - Relevant latere projects and shared components (latere.ai/x/pkg/*) are in ../
 - Every sentence is written for one reader (user, contributor, developer) and the register follows the reader; an error has one code, one fixed user sentence in `message`, and one developer detail in a separate field. The rule and the review checklist: https://github.com/latere-ai/pkg/blob/main/docs/writing/registers.md

@@ -1,0 +1,477 @@
+---
+title: "Publishing: the one definition of sharing, from share grants to links and listings; reports, benchmarks and datasets published as immutable snapshots with an evidence level and a secret scan; evidence served through Arca read-only links; reads without sign-in; benchmark submissions and a results table grouped where the data cannot tell entries apart; withdrawal, pause and attribution"
+status: drafted
+track: core
+depends_on:
+  - specs/001-architecture.md
+  - specs/002-objects.md
+  - specs/003-api.md
+  - specs/004-identity-and-authorization.md
+  - specs/005-execution.md
+  - specs/007-measurements-and-evidence.md
+  - specs/008-analysis.md
+  - specs/010-reports.md
+affects: [internal/publish/, internal/httpapi/, internal/access/, cmd/examen-scan/, api/]
+effort: large
+created: 2026-10-17
+updated: 2026-10-17
+author: changkun
+---
+
+# Publishing
+
+## Overview
+
+People share what Examen measured so that others can read it, run it
+again or build on it: an experiment's comparisons, a suite others can
+run with the results submitted to it, the trials behind a study. This
+spec is the one definition of sharing in Examen. It fixes the three
+ways to share, in the words people already meet for anything shared:
+**only people invited**, which is the share
+grant of one owner to another; **anyone with the link**; and **listed**
+for everyone, which only a listing the installation approves can do.
+
+What is shared without a grant is never a live object. It is a
+**publication**: a report, a benchmark or a dataset, published as
+immutable versions, each a snapshot with a digest. A version carries
+the evidence level its owner chose, and before it carries any trial
+content a secret scan runs over that content in a Cella sandbox.
+Evidence is served through Arca read-only links that Examen creates for
+exactly the published subset and revokes when the version is
+withdrawn. A reader who does not sign in reads a published version
+through the public routes, by its link or its public id, and the
+authorizer is asked about every such read with no subject.
+
+The objects are spec 002's (publication, publication version,
+submission, share), the routes and errors spec 003's, the actions spec
+004's. This spec fixes what they do.
+
+## Design
+
+### Three ways to share
+
+| Way | Visibility | Who reads | How |
+|---|---|---|---|
+| Only people invited | `private` | the owner and the owners it invites | a share grant per owner (below); every object Examen keeps is `private` to its owner until shared |
+| Anyone with the link | `unlisted` | anyone who holds the publication's link, without signing in | the link token (Links, below) |
+| Listed | `public` | anyone, and the publication appears in the listings | an approved listing (Listing, below) |
+
+`private` is the default for every owner, a person or an organization.
+A share grant reaches live objects; a link and a listing reach only
+published versions. The words are spec 002's `visibility` values, and
+an installation that shares other things with the same three keeps one
+vocabulary for its people.
+
+### Only people invited: share grants
+
+A share (spec 002) grants one owner reading, and for a suite or a
+benchmark using, of one object. An owner shares a suite it owns, a
+baseline it pinned, an experiment or a publication through the routes
+of spec 003. A share names a suite or baseline by name, so it covers
+every record of that name, those made after it included, until it is
+removed.
+
+| Share | The grantee may | The grantee may not |
+|---|---|---|
+| a suite | read every version of the suite, and every task, metric, grader and taxonomy those versions use; name any version in its own experiments, whose work is then its own, on its own budget; pin baselines and apply bars of its own on the suite | apply a version under the name, share it on, or read the sharer's experiments, candidates, baselines or bars |
+| a baseline | read the baseline's records; name one as its experiment's `reference`, so its comparisons are computed against the sharer's pinned cells | read the sharer's experiment, trials, measurements or evidence: a comparison carries the baseline side's summaries alone (spec 003) |
+| an experiment | read the experiment, its grid, cells, trials, measurements and comparisons | change, cancel, retry, re-grade, delete or share it; evidence bytes are read only as Arca allows |
+| a publication | read every published version through the signed-in routes, whatever its visibility; for a benchmark, run its suite and submit to it as its `submissions` allow | change, withdraw, list or share it, or read a version that never published |
+
+A baseline is used only by an experiment of the same suite, so a
+baseline share is useful beside a share of its suite. Evidence stays in
+the sharer's Arca space, and granting it is Arca's own act. Removing a
+share stops new references and new reads once any cached allow has
+lapsed (spec 004). An experiment that already pins a version of a
+shared suite or a shared baseline keeps it: reads of the objects it pins
+carry `pinned: true`, and its cells, comparisons and reports keep
+reading what they pinned, so a result stays reproducible.
+
+### Publications and their versions
+
+A publication is one of three kinds, each a snapshot of something its
+owner already holds:
+
+| Kind | A version snapshots | Its `source` |
+|---|---|---|
+| `report` | an experiment's comparisons, read-only: a report's frozen document (spec 010) and its released narrative, with the trial content of its evidence level | a report of the owner's |
+| `benchmark` | a suite version others can see and run, with the results submitted to it | a suite digest of the owner's |
+| `dataset` | a versioned dataset export (spec 007), with license and citation | a `complete` dataset export of the owner's |
+
+**Publishing** creates the publication with its first version (`POST
+/publications`), and each later change publishes a new version (`POST
+/publications/{id}/versions`). A version is immutable: its `snapshot`
+and `digest` never change, and it is never edited, only withdrawn. A
+reference to a publication reads its **latest** version, the newest in
+state `published`, unless it pins one by `number`.
+
+A version moves `preparing` → `scanning` → `published` (spec 002).
+While `preparing`, the `publish` job builds the snapshot and, for a
+version that carries files, copies them into the version's folder,
+`files/evals/publications/<publication id>/<number>/` in the owner's
+Arca space (spec 007), each copy with Arca's copy and its digest
+checked against its evidence ref. A version of evidence level
+`aggregates` that carries no file publishes at once, inside the
+request. While `scanning`, the secret scan runs (below). At
+`published`, Examen creates the version's Arca link and the snapshot
+is fixed. A copy whose digest does not match, a core that refuses, and
+any other failure end the version `failed` with an error object; a
+scan that finds a secret ends it `blocked`. Neither ever publishes,
+and the owner publishes a new version instead, so a version number
+names one content for its whole life.
+
+The `publish` job acts for the owner on behalf of the version's
+`published_by`, with owner tokens of the purpose `publish` (spec 004).
+A minter that refuses fails the version with its reason. Every job is
+idempotent, and a restarted examend resumes a version from its state.
+
+A publication is a snapshot and stands apart from what it was
+published from: deleting the experiment, the report or the export, or
+the evidence they referenced, leaves every published version and its
+folder as they are, and only a withdrawal stops a version from being
+read.
+
+### The snapshot
+
+The snapshot is one JSON document, format `examen.publication/v1`,
+whose canonical JSON (spec 002) is hashed into the version's `digest`.
+Every snapshot holds `format`, the publication's `kind`, `name`,
+`title` and `description` as they stood when the version published,
+the version's `number` and `evidence_level`, and its `attribution`.
+Then, by kind:
+
+- **A report**: the report's `document` (spec 010) and its released
+  narrative, `null` when none is released; a draft never. At `outputs`
+  and `full`, `trials`: one entry per finished trial of the report's
+  experiment, `{trial, task, candidate, index, outcome, values,
+  evidence}`, `values` the trial's current values (spec 007) and, at
+  `full`, their rationales, and `evidence` the trial's published
+  evidence objects, each `{kind, name, path, digest, size}` with `path`
+  relative to the version's folder, or `{kind, name, excluded: true}`
+  for one the owner left out. A baseline's trials, which belong to
+  another experiment, are never in it.
+- **A benchmark**: the suite version and every task, metric and grader
+  it pins, its taxonomies at their current records, and its primary
+  metric. A task's references are named by name and digest alone: their
+  content, an inline reference's text and an Arca or Origo path, is
+  never in a snapshot, so a benchmark never publishes its answers. An
+  Arca input is named by name, digest and size, without its path in the
+  owner's space.
+- **A dataset**: `{name, version, description, license, citation,
+  format, evidence_level, suites, experiments, records, files}`, its
+  `version` the publication version's number, `format` the export's
+  record format, `suites` and `experiments` what the export's records
+  came from, and `files` each file of the version's folder with its
+  path, digest, size and line count.
+
+### Evidence levels
+
+The owner chooses each version's evidence level. It decides which trial
+content a version carries:
+
+| Level | Carries | Evidence kinds of spec 007 |
+|---|---|---|
+| `aggregates` (the default) | summaries, verdicts, intervals, confounds and counts; no trial content | none |
+| `outputs` | also each trial's declared outputs, workspace files and check output, and its current values | `output`, `file`, `check_output`, `observed` |
+| `full` | also transcripts, final messages, request records and judge rationales | also `transcript`, `final_message`, `requests`, `judge_rationale` |
+
+A benchmark is published at `aggregates`: its snapshot holds
+definitions, never a trial's content. A dataset's records are written
+into its folder reduced to its level: at `aggregates`, with every
+measurement's value and without rationales or evidence refs; at
+`outputs`, with the refs of the kinds above, pointing into the folder;
+at `full`, with every rationale and ref. The side files and the
+manifest of spec 007 come with them, with `dataset.json`, the
+snapshot's dataset member, and `CITATION.cff`.
+
+The evidence and files one version copies are at most
+`PUBLICATION_EVIDENCE_MAX_BYTES`, summed from the sizes their refs and
+the export's manifest record, so a version over it is refused before
+anything is copied.
+
+### The secret scan
+
+Before a version at `outputs` or `full` publishes, a secret scan runs
+over everything it will publish. Examen creates a Cella sandbox as the
+owner, with the purpose `publish`, from Examen's secret scanner image,
+`examen-scan`, whose digest the examend build pins as it pins the trial
+driver's (spec 011), with network `none`. It writes the version's
+folder into the sandbox through Cella's file routes, each file read
+from the owner's Arca space with its digest checked, runs
+`examen-scan` over it through Cella's exec route under
+`SECRET_SCAN_TIMEOUT`, reads the findings it prints, and deletes the
+sandbox. Examen executes no scanner code itself.
+
+The scanner prints one JSON object, `{findings}`, each finding `{path,
+rule, line}`: the file, the rule of the scanner's pinned rule set that
+matched, and the line. It never prints the matched text, and Examen
+never stores or answers it. The findings and the scanner's image
+digest are the version's `scan`. A finding ends the version `blocked`:
+no Arca link is created, and nothing of it is readable but by its
+owner. The owner publishes a new version whose `exclude` names each
+file to leave out, which is then not copied, and its snapshot marks it
+`excluded`. A scan that cannot run, or does not end within
+`SECRET_SCAN_TIMEOUT`, fails the version. A version at `outputs` or
+`full` needs Arca and Cella configured, and is refused `422
+core_not_configured` without them.
+
+### Arca links for published evidence
+
+Published files are served by Arca, never by Examen. When a version
+with a folder publishes, Examen creates one read-only Arca link of kind
+`link` on exactly that folder through Arca's link API (`POST
+/v1/shares/links`), as the owner with the purpose `publish`, and keeps
+its id as the version's `evidence_link`. The link's token, which Arca
+answers once, is held in the version's row for building links and
+leaves Examen only inside the links of a read; it is in no log line,
+event or error. A public read answers each evidence object with its
+link, Arca's file route for that path under the link
+(`/v1/shares/links/{token}/files/{path}`) on `EXAMEN_ARCA_PUBLIC_URL`
+(spec 011).
+
+Examen mints no file link of its own. Its link tokens (Links, below)
+address a publication's snapshots, not files.
+
+A benchmark version also holds `input_links`: one Arca link for every
+Arca input and reference of the suite's tasks, on that one object, and
+for every check's `files`, on that folder, created at publish. They are never
+answered and never reach a system under test or a reader: only the
+`prepare` job of an experiment run through the benchmark reads them, to
+copy a task's inputs, references and check files into that
+experiment's folder (spec 005), since the runner, whose identity the
+experiment carries, cannot read the benchmark owner's Arca space. An
+Origo input is read at its commit as the runner, and inline text comes
+with the task.
+
+Every link of a version is revoked through Arca's link API (`DELETE
+/v1/shares/links/{id}`) when the version is withdrawn, and every link
+of a publication when it is paused; a resume creates new ones. A revoke
+that fails is retried until Arca accepts it, and the version reads as
+withdrawn or paused from the moment the request commits.
+
+### Links
+
+Each publication has one link token, 256 bits from `crypto/rand`
+rendered base64url, minted at create. The token is the capability:
+whoever holds it reads the publication's published versions, without
+signing in, while its visibility is `unlisted` or `public` and it is
+not paused. `POST /publications/{id}/link` replaces it, and the old
+token stops resolving at once. The token is answered, in the
+publication's `link`, only to a caller the authorizer allows
+`publication.update`; it is never in a list, an event, a log line, a
+span or an error, and the public routes record their route pattern,
+never their path, which holds it.
+
+The link a person shares is `<EXAMEN_PUBLIC_URL>/public/<token>`, a page
+a console renders from the public reads, and is absent without
+`EXAMEN_PUBLIC_URL`. A publication made `private` keeps its token,
+which resolves again if it is made `unlisted` and has not been
+replaced.
+
+### Listing
+
+`public` comes only through a listing. No request sets `visibility` to
+`public`: `PUT /publications/{id}/listing` asks for it, and Examen asks
+the authorizer `publication.list`, which an authorizer allows only for a
+listing its installation approved, with its own review, where it
+reviews what its people list elsewhere. Examen stores the visibility
+and asks the question, and builds no review of its own. `DELETE
+/publications/{id}/listing` ends a listing, asked the same way, and
+returns the publication to `unlisted`; an installation that ends a
+listing on its side calls it. While listed, a publication's visibility
+cannot be changed by `PATCH`, so every end of a listing passes through
+the question the installation answers.
+
+Who may make a publication `unlisted` is the authorizer's too: it sees
+`visibility` on `publication.create` and `publication.update`, and an
+installation whose organizations keep their items closed by default
+denies `unlisted` to an organization's members until its administrator
+allows it. Under the owner policy, owners are people, `unlisted` is
+allowed and nothing is ever listed (spec 004).
+
+### Reading without signing in
+
+The public routes of spec 003 serve published versions, read-only, to a
+reader who sends no bearer: a publication by its link token, which
+resolves while it is `unlisted` or `public`, or by its public id, its
+`pub_` id, which resolves while it is `public`; and the listings, which
+hold every `public` publication that is not paused. A read answers the
+snapshot, the version list and, for a version with a folder, the
+evidence objects with their Arca links; for a benchmark, its results
+table. It never answers a live object: no experiment, trial, measurement
+or comparison is reachable from it, and a figure's source in a report's
+document reads as plain text.
+
+Before answering, Examen resolves the key, then asks the authorizer
+`publication.read` with no subject, the publication's id, its
+`visibility`, the version and `via`, so an installation can refuse
+public reads per owner, per kind or altogether. A key that resolves to
+nothing and a denied read answer the same `404 publication_not_found`,
+byte for byte, and no answer or log line carries the key. Reads are
+rate limited per client address at `PUBLIC_REQUESTS_PER_MINUTE` per
+replica (spec 003).
+
+### Benchmarks
+
+A benchmark publishes a suite version for others to run and collects
+the results run on it.
+
+**Running.** Whoever can see a published benchmark may run its suite:
+an experiment names the suite's digest with `benchmark`, the benchmark's
+link token or public id (spec 003), and `suite.use` reaches the
+authorizer with `publication` and `published` (spec 004), which the
+owner policy allows. A benchmark shared with an owner is run the same
+way, with `shared` true. The experiment is the runner's own, on its
+own budget; its `prepare` job reads the benchmark owner's Arca inputs,
+references and check files through the version's `input_links`, and
+reads the suite's taxonomies as they stand.
+
+**Submissions.** A submission (spec 002) enters one candidate of a
+report publication version in a benchmark version's results table. The
+report's experiment must have run that exact suite digest, and the
+report must be `published`; for an `unlisted` or `public` benchmark
+the report must be `unlisted` or `public` too, so every entry a reader
+sees leads to the report behind it. The benchmark's owner sets
+`submissions`:
+
+| `submissions` | Who may submit | A new submission is |
+|---|---|---|
+| `owner_only` (the default) | the benchmark's owner | `accepted` |
+| `reviewed` | anyone who can see the benchmark | `pending` until the owner accepts or rejects it; the owner's own is `accepted` |
+| `open` | anyone who can see the benchmark | `accepted` |
+
+The owner may reject an accepted submission later, and the submitter
+may withdraw its own; a withdrawn report version withdraws its
+submissions. At submission Examen copies the entry's figures from the
+report version's document into the submission's `entry`, so the table
+never changes under a reader: the candidate's attribution; its name,
+kind, digest, model and reasoning, and for an `external` candidate its
+declared `harness` and `version`; its suite-level summary of the
+benchmark's primary metric, with its interval, denominator and
+coverage, as the report's grid holds it; its confounds that a side
+carries alone, `missing`, `self_reported`, `observed.model` and
+`sent.model`, with their counts; whether its provenance is declared,
+true for an `external` candidate; and whether its summary reads
+self-reported values. An entry shows its own report's
+summary; it is never a comparison between two owners' experiments.
+
+A benchmark's primary metric is of level `trial` or `cell` and not a
+`label`, since its results are ordered by one figure; a suite whose
+primary metric is not is refused at publish, `400 invalid_field` on
+`source`.
+
+**The results table.** For a benchmark version, the accepted entries,
+ordered and grouped so that the table never shows a bare ranking:
+
+1. Entries are ordered by their summary's value in the primary metric's
+   direction, best first: descending for `higher_is_better`, ascending
+   for `lower_is_better`, and descending for `none`, which the table
+   says has no better end. Ties keep submission id order.
+2. Walking that order, an entry joins the current group when its
+   interval overlaps the group's span, the union of its members'
+   intervals, ends included; otherwise it starts the next group. Groups
+   are numbered from 1 and carry no rank of their own.
+3. An entry whose summary has no interval, or covers less than
+   `MIN_SUITE_COVERAGE` of the suite's weight, is listed after every
+   group, ungrouped, with why.
+
+The table says what a group means: entries in one group are results
+this data cannot tell apart, because their intervals overlap. Overlap
+of intervals is a display rule and errs toward grouping; it is not a
+test, and two entries of one group may still differ under a comparison
+of spec 008, which is how an owner who runs both candidates in one
+experiment finds out. Each entry is marked when its provenance is
+declared and when its summary reads self-reported values, and names
+its confounds in its own row.
+
+### Datasets
+
+A dataset version names a `complete` dataset export of the owner's and
+gives:
+
+| Member | Rule |
+|---|---|
+| `license` | required: an SPDX license identifier or expression, checked against the SPDX license list the Examen release pins, else `400 invalid_field` |
+| `citation` | optional: Citation File Format 1.2.0 fields the owner gives, `authors`, `abstract`, `keywords`, `repository-code` and `message`, at most `PUBLICATION_TEXT_MAX_BYTES` as canonical JSON; Examen fills `cff-version`, `title`, `version`, `date-released`, `license` and, with `EXAMEN_PUBLIC_URL`, `url` |
+
+Its name and description are the publication's, its version the
+publication version's number, its schema version the export's record
+format, and its evidence level the version's. The version's folder
+holds the records at that level, the side files, `dataset.json`,
+`CITATION.cff` and the manifest, each downloadable from its Arca link
+and listed by the link's listing route. A DOI is out of scope.
+
+### Withdrawal and pause
+
+**Withdrawal** is the owner's (`publication.withdraw`). A withdrawn
+version stays in the publication's version list, with `withdrawn_at`
+and `withdrawn_by`, so a link that pinned it answers `410
+publication_withdrawn` and a page says it was withdrawn; every Arca
+link of the version is revoked; a report version's submissions are
+withdrawn; a benchmark version's results table is no longer served,
+and experiments already run through it keep the copies they made. The
+publication's latest version moves to the newest one still
+`published`, and with none left the publication answers `410
+publication_withdrawn`. Its folder stays in the owner's space, as
+exports and report bundles do (spec 007), for the owner to delete.
+
+**Pause** is an administrator's (`publication.pause`), as for anything
+an installation lists: `POST /publications/{id}/pause` with a reason
+sets `paused`, every public read of the publication answers `410
+publication_paused`, the listings leave it out, and every Arca link of
+it is revoked. Its visibility does not change, and its owner still
+reads it through the signed-in routes. `POST /publications/{id}/resume`
+clears `paused` and creates new Arca links. Under the owner policy no
+one pauses (spec 004).
+
+### Attribution
+
+A published version names its owner: the person's profile name or the
+organization's name, kept in the version as `attribution` and in every
+snapshot. Examen holds no profile, so the name comes from the
+authorizer's `attribution` limit on `publication.create`, or on a
+`publication.update` that publishes a version (spec 004); an
+authorizer's name replaces any the request gave. Without it, the
+request's `attribution` is used, and without that, the owner as
+rendered. A version keeps the name it was published with; a renamed
+owner's next version shows the new one. A benchmark entry shows its
+report version's attribution.
+
+### Limits
+
+The constants of spec 002 this spec holds:
+`PUBLIC_REQUESTS_PER_MINUTE`, `PUBLICATION_LINE_MAX_BYTES`,
+`PUBLICATION_TEXT_MAX_BYTES`, `PUBLICATION_EVIDENCE_MAX_BYTES`,
+`SECRET_SCAN_TIMEOUT` and `MIN_SUITE_COVERAGE`.
+
+## Not in this spec
+
+The objects and their fields (002), the routes, their answers and
+errors (003), the actions, the owner policy and the attribution limit
+(004). Rendering pages, share images and a share dialog: a console or
+an installation renders them from the public reads. Reviewing a
+listing, which the installation does. A DOI for a dataset. A ranking:
+the results table groups. Comparing two owners' entries statistically,
+which a comparison of spec 008 does within one experiment.
+
+## Acceptance criteria
+
+| Criterion | Test that proves it |
+|---|---|
+| A published version's snapshot and digest never change; a change publishes the next version; a link resolves the latest `published` version, or the one it pins | `publish.TestVersionsAreSnapshots` |
+| Deleting the experiment, report or export a version came from leaves the version, its snapshot and its folder readable | `publish.TestSnapshotOutlivesItsSource` |
+| A report version at `aggregates` carries no evidence object; at `outputs` it carries exactly the outputs, workspace files, check output and observed records of the report's experiment's finished trials; at `full` also transcripts, final messages, request records and judge rationales; never a baseline's trials | `publish.TestEvidenceLevels` |
+| A benchmark snapshot holds no reference's content or Arca path, and a canary planted in an inline reference is in no snapshot or public answer | `publish.TestBenchmarkHidesReferences` |
+| A dataset version's records drop rationales and evidence refs below `full` as the table says, and its license is required and checked | `publish.TestDatasetLevels`, `publish.TestLicenseRequired` |
+| A version at `outputs` or `full` is scanned in a Cella sandbox from the pinned scanner image before any link exists; a planted secret ends it `blocked` with the file and rule and never the text; a new version excluding the file publishes and marks it excluded | `publish.TestSecretScanBlocks`, against the stub Cella |
+| A published version's files are served only through one Arca link on its folder, created as the owner; withdrawing revokes it and a pause revokes every link of the publication; Examen serves no file bytes | `publish.TestEvidenceThroughArcaLinks`, against the stub Arca |
+| An experiment run through a benchmark copies the owner's Arca inputs, references and check files through the version's input links, which no answer carries | `publish.TestBenchmarkInputLinks` |
+| No request sets `public`; `publication.list` is asked for a listing and its end; under the owner policy nothing is listed or paused | `publish.TestPublicOnlyThroughAListing` |
+| A public read answers without a bearer, by link token while `unlisted` or `public` and by public id while `public`; it asks `publication.read` with no subject; a denied read and an unknown key answer alike; no answer reaches a live object | `publish.TestPublicReads` |
+| The link token is in no list, log line, span, event or error, and replacing it stops the old one | `publish.TestLinkTokenStaysSecret`, with a canary |
+| A withdrawn version answers `410 publication_withdrawn` and moves the latest to the newest published one; a paused publication answers `410 publication_paused` and leaves the listings | `publish.TestWithdrawAndPause` |
+| A submission needs a published report of the benchmark's exact suite digest, follows `submissions`, and copies its entry at submission; a withdrawn report withdraws its submissions | `publish.TestSubmissions` |
+| The results table orders entries in the primary metric's direction, groups every entry whose interval overlaps its group's span, lists entries without an interval or below coverage after the groups, and marks declared provenance and self-reported values | `publish.TestResultsTableGroups`, over committed entries |
+| A version shows the authorizer's attribution over the request's, and keeps it after the owner is renamed | `publish.TestAttribution` |
+| After a suite share, the grantee reads the suite's versions and the objects they pin and runs an experiment on it under its own owner and budget, and cannot apply under the name or read the sharer's experiments; after a baseline share, the grantee's comparison is computed against it and no route answers the sharer's trials or measurements; after the share is removed, a new reference is refused and an experiment that pinned the shared version still reads it | `access.TestSuiteAndBaselineShares` |
+| After a suite share, the grantee pins a baseline and applies a bar of its own on the suite; after an experiment share, the grantee reads the experiment, its trials and its comparisons and cannot change, cancel, re-grade or delete it; after a publication share, the grantee reads its published versions and cannot change or withdraw it | `access.TestExperimentAndPublicationShares` |

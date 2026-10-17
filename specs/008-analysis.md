@@ -1,5 +1,5 @@
 ---
-title: "Analysis: per-cell summaries and their intervals by metric type, Boschloo's exact test and permutation tests, suite-level summaries with task weights and coverage, the primary result and the one corrected family, verdicts and their reasons, computed confounds, automatic and progressive comparisons, and trends, all computed deterministically and stored"
+title: "Analysis: per-cell summaries and their intervals by metric type and level, Boschloo's exact test, permutation tests and the label tests, suite-level summaries with task weights and coverage, the primary result and the one corrected family, verdicts and their reasons, computed confounds and declared provenance, automatic and progressive comparisons, and trends, all computed deterministically and stored"
 status: drafted
 track: core
 depends_on:
@@ -22,9 +22,10 @@ author: changkun
 The analysis turns measurements into the statements Examen makes: what
 a cell's trials amount to, how sure that is, and whether a candidate
 changed a metric against a reference, per task and over the suite. It
-fixes every summary, interval and test by name and formula, the
-correction that keeps many metrics and tasks from producing chance
-findings, the verdict rule and the plain reason each verdict carries,
+fixes every summary, interval and test by name and formula, for
+metrics of every type and of each level, `trial`, `cell` and
+`candidate`, the correction that keeps many metrics and tasks from
+producing chance findings, the verdict rule and the plain reason each verdict carries,
 how confounds are computed from the provenance tuple and the
 provenance layers, and how two comparisons of the same inputs are
 guaranteed to agree.
@@ -49,13 +50,22 @@ parks until it is retried (spec 005).
 
 For a cell and a metric:
 
-- `n` is the number of finished trials;
+- `n` is the number of finished trials whose outcome the metric's
+  `applies_to` names (spec 002); a finished trial of another outcome
+  has no value of the metric, is counted as `not_applicable`, and is
+  neither in `n` nor missing, so a line count asked only of completed
+  trials is not inflated or deflated by the others;
 - `valued` is the number of those with a current value for the metric
   (spec 007);
 - `missing` is `n - valued`.
 
 These are a summary's `n`, `denominator` and `missing` (spec 002), and
-the `k` below is its `numerator`. A summary is computed over the valued
+the `k` below is its `numerator`. An open-vocabulary metric is read as
+the canonical label its raw label maps to at one taxonomy record (spec
+006): the suite's current record when the figure is computed, recorded
+in the comparison's `taxonomies` and inputs document. A trial whose raw
+label the record does not map has no value: it is in `missing`, and in
+the summary's `unmapped`. A summary is computed over the valued
 trials. A side of a task-level result has enough for a verdict when
 `valued` is at least `MIN_TRIALS_FOR_VERDICT`.
 
@@ -66,14 +76,18 @@ this spec runs in that order.
 
 A metric's `aggregate` fits its type: `rate` for `binary`,
 `distribution` for `label`, and `mean`, `median` or `p90` for `score`,
-`count`, `duration` and `cost`.
+`count`, `duration` and `cost`; a cell-level metric's is its statistic,
+and a candidate-level metric has none (Cell-level and candidate-level
+metrics, below).
 
 | Type | Aggregate | Cell summary | Interval at `CONFIDENCE_LEVEL` |
 |---|---|---|---|
 | `binary` | `rate` | `k / valued`, `k` the number of true values | Wilson score interval |
 | `score`, `count`, `duration`, `cost` | `mean` | the mean of the values | bootstrap-t interval |
 | `score`, `count`, `duration`, `cost` | `median`, `p90` | the quantile of the values | order-statistic interval; none for a `p90` of fewer than `MIN_TRIALS_FOR_P90_INTERVAL` values |
-| `label` | `distribution` | the count and proportion of each declared label, and the mode (ties broken by the order of `labels`) | Wilson score interval of each label's proportion |
+| `label` | `distribution` | the count and proportion of each declared label, or for an open vocabulary each canonical label, and the mode (ties broken by the order of `labels`, or of the record's `canonical`) | Wilson score interval of each label's proportion |
+| `score` of level `cell` | `mode_share` | the mode's count over `valued`, of the cell's values of its `of` metric | percentile bootstrap interval (Cell-level and candidate-level metrics, below) |
+| `count` of level `cell` | `distinct_count` | the number of distinct labels among the cell's values of its `of` metric | percentile bootstrap interval |
 
 For a numeric metric the summary also carries the mean, the sample
 standard deviation `s` (divisor `valued - 1`), the minimum and the
@@ -151,7 +165,8 @@ sides' `valued`.
 | `binary` | `k_x / n_x - k_y / n_y` (`difference`) | Newcombe's hybrid score interval | `boschloo_exact`, two-sided |
 | `score`, `count`, `duration`, `cost` with aggregate `mean` | `mean(x) - mean(y)` (`difference`) | bootstrap-t interval of the difference | `permutation` of the difference of means |
 | `score`, `count`, `duration`, `cost` with aggregate `median` or `p90` | `Q(x) - Q(y)` (`difference`) | the difference of two order-statistic intervals; none when either side has none, or for a `p90` when either side has fewer than `MIN_TRIALS_FOR_P90_INTERVAL` values | `permutation` of the difference of quantiles |
-| `label` | per label `l`, `p_x(l) - p_y(l)` (`per_label`) | Newcombe's hybrid score interval per label | none in the first slice (Label metrics, below) |
+| `label` | per label `l`, `p_x(l) - p_y(l)` (`per_label`) | Newcombe's hybrid score interval per label | `fisher_freeman_halton`, or `chi_square_permutation` when its tables are too many, once label tests are built (Label metrics, below) |
+| `mode_share`, `distinct_count` (level `cell`) | `A(x) - A(y)` (`difference`), `A` the statistic | percentile bootstrap interval of the difference | `permutation` of the difference of the statistic |
 
 **Boschloo's exact unconditional test.** The table is candidate true,
 candidate false, reference true, reference false: `a, b, c, d`, with
@@ -211,7 +226,8 @@ interval. It is distribution-free and errs wide.
 **Permutation tests.** The pooled values are `x` followed by `y`. A
 relabeling chooses which `n_x` of the `n_x + n_y` pooled values form
 the candidate side. The statistic is `T = A(x) - A(y)`, `A` the
-metric's aggregate, and the discrepancy `S = abs(T)`.
+metric's aggregate, recomputed for a cell-level metric from the
+relabeled values of its `of` metric, and the discrepancy `S = abs(T)`.
 
 - **Exact** when `C(n_x + n_y, n_x)` is at most
   `PERMUTATION_EXACT_MAX`: every relabeling is enumerated and
@@ -245,18 +261,91 @@ trial moves a mean; a metric that should not be moved by one declares
 
 ### Label metrics
 
-In the first slice a label result is descriptive. Per label it carries
-the difference of the two sides' proportions with Newcombe's interval,
-and at suite level the difference of the weighted proportions with the
-stratified bootstrap interval (below). It carries no `p`, `q` or
-`verdict` and takes no part in the family. Label tests are a later
-build step, whose design is kept here: `chi_square_permutation`, a
-permutation test whose discrepancy is Pearson's
-`X^2 = sum (O - E)^2 / E` over the 2 by k table of label counts, labels
-with no count on either side left out, `E = row total * column total /
-N`, and stratified by task at suite level. With label tests, a
-significant change in a label metric, whose direction is `none`, is
-`changed`.
+A label result carries, per label, the difference of the two sides'
+proportions with Newcombe's interval, and at suite level the
+difference of the weighted proportions with the stratified bootstrap
+interval (below). These per-label figures are descriptive: the verdict
+is one test of whether the two distributions differ, so many labels
+never make many chances at a finding. In the first slice a label
+result carries no `p`, `q` or `verdict` and takes no part in the
+family. Label tests, the build step right after the `external`
+executor, add the tests below; a significant difference in a label
+metric, whose direction is `none`, is `changed`.
+
+**The task-level test.** The table is the 2 by k table of label
+counts, the candidate's row and the reference's, over the labels with a
+count on either side; `n_x` and `n_y` are its row totals, `c_l` its
+column totals, `N = n_x + n_y`. Under the null hypothesis both sides
+share one distribution, and given the margins the probability of a
+table whose candidate row is `(a_1 … a_k)` is the multivariate
+hypergeometric
+`P(a) = prod_l C(c_l, a_l) / C(N, n_x)`, in log space with the
+log-gamma function.
+
+- **Fisher, Freeman and Halton's exact test** (`method`
+  `fisher_freeman_halton`): every table with the observed margins is
+  enumerated, and
+  `p = sum over tables a with P(a) <= P(observed) * (1 + TIE_TOLERANCE) of P(a)`.
+  It is used when the number of such tables, counted before any is
+  enumerated by a recurrence over the columns, is at most
+  `PERMUTATION_EXACT_MAX`; `exact` is true and `resamples` is that
+  number.
+- **Otherwise, by permutation of the chi-square statistic**
+  (`chi_square_permutation`): the discrepancy is Pearson's
+  `X^2 = sum (O - E)^2 / E` over the table's cells,
+  `E = row total * column total / N`, and the p-value is the Monte
+  Carlo one of a permutation test (above), `PERMUTATION_RESAMPLES`
+  relabelings of the pooled trials drawn from the result's seed, so the
+  same inputs always give the same p-value. Its ordering of tables is
+  Pearson's, not the probability the exact test orders by, and the
+  `method` says which ran.
+- A table with fewer than two labels, every trial of both sides holding
+  one label, has `p = 1` and is `within_noise`.
+
+**The suite-level test** is the stratified permutation of below, with
+the discrepancy `D = sum_l (S_x(l) - S_y(l))^2 / P(l)` over the labels,
+`S(l)` a side's weighted proportion and `P(l) = (S_x(l) + S_y(l)) / 2`,
+labels with `P(l) = 0` left out: one figure for the difference of the
+two weighted distributions the result reports.
+
+### Cell-level and candidate-level metrics
+
+**A cell-level metric** is a statistic of a cell's values of its `of`
+label metric, computed by Examen and never measured (spec 002):
+`mode_share`, the share of the cell's valued trials that hold its most
+frequent label, which is how often a candidate fixes on one answer, and
+`distinct_count`, how many labels it gives at all. A tie for the mode
+leaves `mode_share` unchanged. Both leave out the trials whose label is
+one of the metric's `exclude_labels`, `declined` and `none` unless it
+names others, so a cell whose trials declined is not read as fixed on
+one answer; the summary counts them in `excluded_labels`. `n` and
+`missing` are those of the `of` metric, `denominator` is its valued
+trials less the excluded ones, and `mode_share` is reported as its
+`numerator`, the trials holding the most frequent label, over that
+`denominator`, as a rate is. A cell with no trial left has no value:
+it is missing.
+
+- **Interval:** the percentile bootstrap interval
+  `[Q(alpha / 2), Q(1 - alpha / 2)]` of the statistic recomputed over
+  `BOOTSTRAP_RESAMPLES` resamples of the cell's valued trials, since a
+  statistic of a mode has no standard error to studentize with; the
+  delta's interval is the same over both sides redrawn, the candidate
+  side first.
+- **Test:** the permutation test above, with `A` the statistic
+  recomputed from the relabeled values, exact or Monte Carlo as there.
+- **Suite level:** the weighted mean of the per-task statistics, with
+  the stratified bootstrap's percentile interval and the stratified
+  permutation test (below).
+
+A cell-level result has a verdict by the metric's direction like any
+other, and is in the family.
+
+**A candidate-level metric** has one value per candidate of an
+experiment, from a candidate-level judge (spec 006). One value has no
+spread to test against, so its result is descriptive: one `candidate`
+result per comparison carrying both sides' values, the `delta` of a
+numeric metric, and no interval, `p`, `q` or `verdict`; it takes no
+part in the family, in `verdict_counts` or in a headline.
 
 ### The advice on trials and tasks
 
@@ -283,7 +372,7 @@ the mean `n_t` of the included tasks, when `V_w / n_bar` is at least
 `V_b` the advice is "More trials per task would narrow this interval
 more than more tasks would.", and otherwise "More tasks would narrow
 this interval more than more trials per task would." A label metric
-carries no advice.
+and a cell-level or candidate-level metric carry no advice.
 
 ### Suite-level summaries, task weights and coverage
 
@@ -314,7 +403,7 @@ Over the included tasks `T`, with weights `w_t` and `W = sum w_t`:
 
 | Type | Suite-level summary `S` |
 |---|---|
-| `binary`, numeric | `S = sum_t w_t s_t / W`, the weighted mean of the per-task summaries: of rates for a rate, of means, medians or 90th percentiles for those aggregates |
+| `binary`, numeric | `S = sum_t w_t s_t / W`, the weighted mean of the per-task summaries: of rates for a rate, of means, medians or 90th percentiles for those aggregates, and of the statistic for a cell-level metric |
 | `label` | the weighted mean of the per-task proportion vectors |
 
 So a task with more valued trials does not count for more than its
@@ -326,8 +415,8 @@ weight.
   `mean`, `S` is a weighted mean and its interval is studentized as
   above, with `se = sqrt(sum_t w_t^2 v_t / n_t) / W`, `v_t` the task's
   sample variance, and a resample whose `se*` is 0 drawn again. For a
-  `median` or a `p90`, no distribution-free interval exists for a
-  weighted sum of quantiles, and the interval is the percentile
+  `median`, a `p90` or a cell-level statistic, no distribution-free
+  interval exists for a weighted sum of them, and the interval is the percentile
   interval `[Q(alpha / 2), Q(1 - alpha / 2)]` of the resampled `S`; a
   `p90` has none when any included task has fewer than
   `MIN_TRIALS_FOR_P90_INTERVAL` valued trials. For a delta, both sides
@@ -338,7 +427,8 @@ weight.
 - **Test: stratified permutation** (`method` `stratified_permutation`).
   A relabeling permutes the labels within each included task
   separately, keeping each task's `n_x` and `n_y`. The statistic is
-  `S_x - S_y`, with discrepancy `abs(S_x - S_y)`. The test is exact
+  `S_x - S_y`, with discrepancy `abs(S_x - S_y)`, or for a label metric
+  `D` (Label metrics, above). The test is exact
   when the product over tasks of `C(n_x + n_y, n_x)` is at most
   `PERMUTATION_EXACT_MAX`, and Monte Carlo otherwise, with the p-values
   defined as per task. A binary or count metric uses the same test, and
@@ -377,7 +467,7 @@ order:
 
 A delta of zero has no direction and is always `within_noise`. A
 `label` result has no verdict in the first slice (Label metrics,
-above).
+above), and a `candidate` result never has one.
 
 The verdict comes from the test alone. The delta's interval is
 descriptive: it is not corrected for multiple comparisons and is built
@@ -401,11 +491,13 @@ verdict is what it is, built from fixed templates with numbers in spec
 | the primary metric's suite-level result | "p < 0.001 for the primary metric, tested alone without correction" |
 | a result of the family | "p = 0.048; q = 0.19 after correcting 40 results at 5%" |
 | a delta of zero | "no difference between the two sides" |
-| a label result | "descriptive: label tests are not built yet" |
+| a label result, in the first slice | "descriptive: label tests are not built yet" |
+| a candidate-level result | "descriptive: one value per candidate, so nothing to test" |
 
 A result with `missing` among its confounds adds the counts, such as
-"; 2 of 20 candidate trials have no value". The console shows `reason`
-beside every verdict.
+"; 2 of 20 candidate trials have no value", and one with
+`self_reported` adds them too, such as "; 20 of 20 candidate values are
+self-reported". The console shows `reason` beside every verdict.
 
 ### Multiple comparisons
 
@@ -462,23 +554,45 @@ fields:
 
 | Logical variable | Tuple fields |
 |---|---|
-| `agent` | `candidate.kind`, `agent_or_image_digest` |
+| `agent` | `candidate.kind`, `agent_or_image_digest`, `program` |
 | `model` | `model` |
 | `reasoning` | `reasoning` |
 | `tools` | `tools` |
 | `environment` | `environment_digest` |
 | `workspace` | `workspace_ref` |
+| `task` | `task_hash` |
 
-`task_hash` and `grader_digests` are never a variable: a change to
-either changes what is measured, not the agent. A comparison holds one
-logical variable or none. When a request declares none, the variable
-is the one logical variable whose fields differ between the two sides;
-when none differs it is empty, an A/A comparison whose every
+`agent` is the system under test itself: its kind, its agent version or
+image or declared digest, and how its program is started and configured.
+So two configurations of one program, such as two HTTP runner configs
+for one API, or two versions of one external harness, differ in `agent`
+alone and are a single-variable comparison; so are two `external`
+candidates that declare one harness and model and differ only in their
+declared `reasoning`, on `reasoning`. Every tuple field but
+`grader_digests` belongs to one logical variable; a change of grader
+changes what is measured, and is never a variable. A comparison holds
+one logical variable or none. When a request declares none, the
+variable is the one logical variable whose fields differ between the
+two sides; when none differs it is empty, an A/A comparison whose every
 `improved` or `regressed` verdict is a false discovery or drift over
 time; when several differ it is empty and every differing field is a
 confound.
 
-A result's `confounds` are spec 002's confound entries, of four kinds.
+**The pairing unit is everything but the variable.** Two cells are
+compared when their tuples agree on every field outside the variable,
+or name in `confounds` each field where they do not. For every variable
+but `task`, the two sides are two candidates' cells and the unit is the
+task: cells pair by task name (Comparisons, below). For `task`, which a
+comparison declares only on request (spec 003), the two sides are one
+candidate's cells of two tasks of one experiment, such as one prompt
+against another, and the unit is that candidate: the comparison holds
+one task-level result per metric, for that pair, and no suite-level
+result. The primary metric's result of the pair is its primary result,
+tested alone and uncorrected, and every other result is the family. Its
+tuple confounds are computed over the two cells as for a paired task,
+so two tasks that also differ in environment or workspace name it.
+
+A result's `confounds` are spec 002's confound entries, of five kinds.
 
 **Tuple confounds** are computed per paired task by comparing the two
 cells' tuples field by field. `tools` is compared as a sorted set, an
@@ -497,17 +611,21 @@ was sent or what served. Each is computed per task and attaches only
 to the results of the tasks where it occurs, with the requests it
 covers counted per side:
 
-| Confound | When, on either side | Requests counted |
+| Confound | When, on either side | Counted |
 |---|---|---|
 | `observed.model` | a request was served by a model other than the one it was sent to | the requests served by another model |
 | `sent.model` | a trial with at least one request sent none to its configured `model`: the override did not take effect | the requests of such trials |
 | `sent.reasoning` | the set of `reasoning` values sent to the configured model differs between the two sides, and the variable is none of `agent`, `model` and `reasoning` | the requests carrying a value the other side never sent |
+| `observed.service_versions` | a service named in the `service_versions` of trials on both sides has a version on one side that no trial of the other side recorded: the service changed between the trials compared | the finished trials carrying a version the other side never recorded |
+| `declared.image` | the set of `declared.image` values of the external trials differs between the two sides, and the variable is not `agent`: the harness ran in another image | the finished trials carrying an image the other side never declared |
 
 A suite-level result carries a layer confound with the tasks it
 occurs in and the summed counts. A layer confound leaves
 `single_variable` as it is: one fallback in one task names that task's
 results, and does not take the comparison out of the headline (spec
-010).
+010). `observed.service_versions` is how a change on a service's side,
+such as a new release of an API both candidates called, never reads as
+a difference between the candidates: the tasks it touches name it.
 
 **`missing`.** A result whose sides hold finished trials without a
 value of its metric carries `missing`, with the count per side. A
@@ -515,12 +633,25 @@ result with `missing` is never headlined (spec 010), since a figure
 computed without some trials' values is inflated or deflated where no
 one can see it.
 
+**`self_reported`.** A result that reads a self-reported value, which
+an external harness computed and submitted itself (spec 007), carries
+`self_reported`, with the number of finished trials per side whose
+value is self-reported. A result with `self_reported` is never
+headlined (spec 010): it is the harness's claim, not a measurement
+Examen made.
+
 **`window`.** Once adoption is built (spec 005), a task whose cells
 read adopted trials carries `window`, since those trials ran in an
 earlier time window than the experiment's own.
 
 The comparison's `confounds` are the union of the names of its results'
 confounds.
+
+**Declared provenance.** A side whose candidate is of kind `external`
+is listed in the comparison's `declared_provenance`: its tuple, outcome,
+times and outputs are what its harness declared, which Examen cannot
+observe (spec 005). It changes no verdict and no confound. A console
+and a report show it beside the comparison (spec 010).
 
 ### Comparisons
 
@@ -530,13 +661,18 @@ experiment, and a reference side, which is exactly one of:
 - **a baseline**: the baseline's candidate's cells in the baseline's
   experiment (`baseline` set);
 - **another candidate of the same experiment**
-  (`reference_candidate` set).
+  (`reference_candidate` set);
+- **the same candidate's cell of another task of the same experiment**,
+  for the variable `task` (`task` and `reference_task` set).
 
 **Pairing.** Cells pair by task name. A task on one side only is
 listed in `unpaired_tasks` and has no task-level result. Metrics pair
 by digest: a metric of the candidate's suite for which the reference
 holds no values has `valued = 0` on the reference side and is
-insufficient.
+insufficient. A candidate-level metric pairs the two sides'
+candidates' values, and an open-vocabulary metric reads both sides at
+one taxonomy record, the suite's, so a change of taxonomy never sits
+between the sides of one comparison.
 
 **Which grader each side is read at.** The candidate side is read at
 the producing grader its suite names. The reference side is read at
@@ -568,8 +704,9 @@ window.
   experiment's `reference` starts new automatic comparisons; the
   earlier ones stay.
 - **After a later grading.** A grading appended to a trial that a final
-  comparison read makes a new comparison of the same pair, final and
-  with the same `automatic`; the earlier one stays.
+  comparison read, or a taxonomy record appended for an open-vocabulary
+  metric it read (spec 006), makes a new comparison of the same pair,
+  final and with the same `automatic`; the earlier one stays.
 - **On request.** Any candidate against any baseline the owner may
   read or against another candidate of the same experiment, with an
   optional declared variable, computed once from what both sides hold
@@ -584,11 +721,12 @@ and 010). Every comparison is computed by the work queue.
 
 **The comparison record** is spec 002's. Of its fields, the analysis
 fills `reference_candidate` or `baseline`, `automatic`, `state`,
-`final`, `single_variable`, `confounds`, `unpaired_tasks`,
+`final`, `single_variable`, `confounds`, `declared_provenance`,
+`unpaired_tasks`,
 `candidate_suite` (what a bar's `at_least` and `at_most` read, spec
 009), `windows`, `verdict_counts`, `correction` (Multiple comparisons,
-above), `analysis_version`, `parameters`, `inputs_digest` and `seed`
-(Determinism, below), and `results`. Each result is spec 002's result,
+above), `taxonomies`, `analysis_version`, `parameters`, `inputs_digest`
+and `seed` (Determinism, below), and `results`. Each result is spec 002's result,
 with its `reason` and, on a suite-level result, its `left_out`; each
 of its two sides, like every stored summary below, is spec 002's
 summary: `n`, `denominator` (`valued`), `missing`, `numerator` (`k`)
@@ -609,9 +747,14 @@ from its first trial:
   its spend: the cost of every trial of the cell, the smoke trial and
   failed trials included, and of the cell's judge gradings, from Lux's
   records; its judge spend, the part of the spend that judge gradings
-  made; and, when the suite's primary metric is binary, its cost per
-  success: the cost of its finished trials over the number of true
-  values, absent when there are none;
+  made; the number of its trials whose cost is `unpriced` or `unknown`
+  (spec 007), which the spend leaves out and states, never reading them
+  as zero; its service cost: the sum of the `service_usage` costs its
+  trials' APIs reported for themselves, kept apart from the spend and
+  never added into it (spec 005); and, when the suite's primary metric
+  is binary, its cost per success: the cost of its finished trials over
+  the number of true values, absent when there are none or when any
+  finished trial's cost is not known;
 - per experiment, candidate and metric, the candidate's suite-level
   summary, and the same spend figures summed over the candidate's
   cells.
@@ -657,9 +800,13 @@ architecture.
 spec 002 of: `analysis_version`, `parameters`, `variable`, the
 candidate suite's weights and primary metric, and for each side and
 each paired task the task name and digest, the cell's tuple, the
-producing grader read per metric, and per finished trial its id,
-outcome, sent and served models, reasoning values, and every
-measurement read as `{metric, grader, generation, value}`.
+producing grader read per metric, each taxonomy record read with its
+digest, and per finished trial its id, outcome, sent and served models,
+reasoning values, service versions, declared image, and every
+measurement read as `{metric, grader, generation, value,
+self_reported}`, with the canonical label an open-vocabulary value
+maps to; and for each side's candidate, every candidate-level
+measurement read.
 `inputs_digest` is `sha256:` and the hex of its SHA-256. The
 measurement ids read are recorded in `comparison_inputs` (spec 007),
 from which the document is rebuilt.
@@ -732,9 +879,11 @@ Generalizing beyond a suite's tasks.
 
 ## Build order
 
-The first slice builds everything above but label tests, trends and
-the cross-architecture run of the golden comparison, which follow as
-later steps (specs/README.md).
+The first slice builds everything above but label tests, open
+vocabularies and cell-level and candidate-level metrics, trends and the
+cross-architecture run of the golden comparison, which follow as later
+steps (specs/README.md). Label tests, with open vocabularies and the
+two levels, come right after the `external` executor.
 
 ## Acceptance criteria
 
@@ -749,15 +898,26 @@ later steps (specs/README.md).
 | Equal data on both sides give `within_noise` for every method | `analysis.TestEqualSidesAreWithinNoise` |
 | With `MIN_TRIALS_FOR_VERDICT - 1` valued trials on either side, every task-level verdict is `insufficient` and the result is in no family | `analysis.TestInsufficientBelowMinimum` |
 | A suite-level result includes exactly the tasks with at least `MIN_TRIALS_PER_TASK_IN_SUITE` valued trials per side, is `insufficient` only below `MIN_SUITE_COVERAGE`, and lists every task left out with why | `analysis.TestCoverage` |
-| A metric with direction `none` is never `improved` or `regressed`; a significant change is `changed`; a label result carries no verdict, `p` or `q` | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive` |
+| A metric with direction `none` is never `improved` or `regressed`; a significant change is `changed`; in the first slice a label result carries no verdict, `p` or `q` | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive` |
+| Label tests: Fisher, Freeman and Halton's p-value matches reference values for 2 by k tables, ties and a one-label table included; above `PERMUTATION_EXACT_MAX` tables the chi-square permutation draws `PERMUTATION_RESAMPLES` from the result's seed and repeats bit for bit; a significant difference is `changed`; per-label intervals are Newcombe's | `analysis.TestFisherFreemanHalton`, `analysis.TestChiSquarePermutation` |
+| `mode_share` and `distinct_count` match hand-computed values per cell, their permutation test recomputes the statistic per relabeling, and their suite-level figure is the weighted mean | `analysis.TestCellLevelMetrics` |
+| A candidate-level result carries both values and no interval, `p`, `q` or verdict, and stays out of the family | `analysis.TestCandidateLevelIsDescriptive` |
+| An open-vocabulary metric is read at one taxonomy record on both sides, an unmapped raw label is missing, and a new record after a final comparison makes a new comparison | `analysis.TestTaxonomyReads` |
+| Declared images that differ between the sides in one task are `declared.image` on that task's results | `analysis.TestDeclaredImage` |
+| A trial outside a metric's `applies_to` is in `not_applicable`, not in `n` or `missing` | `analysis.TestAppliesTo` |
+| `mode_share` leaves out the trials of its `exclude_labels`, reports its numerator over the remaining denominator, and a cell of declines has no value rather than a share of 1 | `analysis.TestModeShareExcludesLabels` |
+| A comparison across tasks pairs one candidate's two cells, holds one result per metric with the primary one uncorrected, and names an environment or workspace that also differs as a confound | `analysis.TestComparisonAcrossTasks` |
+| Two `external` candidates that differ only in declared reasoning give a single-variable comparison on `reasoning` | `analysis.TestDeclaredReasoningIsSingleVariable` |
+| A trial of `unknown` cost is counted apart in the spend and never as zero | `analysis.TestUnknownCostNeverZero` |
 | The verdict follows `q` and the delta's sign alone, whatever the interval shows, and every result carries a `reason` from the templates | `analysis.TestVerdictRule`, `analysis.TestReasons` |
 | The primary metric's suite-level result has `q` equal to `p`; every other result is corrected in one family whose Benjamini and Hochberg values match a reference implementation; adding a candidate to an experiment leaves another candidate's `q` values unchanged | `analysis.TestPrimaryStandsAlone`, `analysis.TestBenjaminiHochberg`, `analysis.TestAddingACandidateChangesNoOtherVerdict` |
 | A suite-level summary is the weighted mean of the per-task summaries over its included tasks; a weight-0 task is compared per task and absent from every suite-level figure | `analysis.TestSuiteWeights` |
 | The advice sentence follows the comparison of within-cell and between-cell variance, which match hand-computed values | `analysis.TestAdvice` |
 | Two models on one agent version give a single-variable comparison; a differing task hash is a tuple confound; a request served by another model in one task is a layer confound on that task's results with its request counts and leaves `single_variable` true; trials without a value add `missing` with counts | `analysis.TestModelComparisonIsSingleVariable`, `analysis.TestConfounds` |
+| Two `program` candidates that differ only in `config` give a single-variable comparison with the variable `agent`; a service version that differs between the sides in one task is `observed.service_versions` on that task's results with trial counts and leaves `single_variable` true; a result that reads a self-reported value carries `self_reported`; a comparison with an `external` side lists it in `declared_provenance` | `analysis.TestProgramConfigIsSingleVariable`, `analysis.TestServiceVersions`, `analysis.TestSelfReported`, `analysis.TestDeclaredProvenance` |
 | A declared variable outside the logical variable table, or naming `task_hash` or `grader_digests`, is refused | `analysis.TestVariableIsOneLogicalVariable` |
 | A re-graded baseline is read at the candidate's grader and the grader confound disappears; a partly re-graded one is not | `analysis.TestReferenceReadAtCandidatesGrader` |
 | The automatic comparison is recomputed in place with `final` false as trials finish, keeps its id, becomes `final` true once both sides are final, and never changes after | `analysis.TestAutomaticComparisonIsProgressive` |
 | A final comparison recomputed from its recorded inputs is byte-identical, and its seeds are the recorded ones | `analysis.TestRecomputeFromRecordedInputs` |
 | Every figure of the console's grid, verdict tables and cost table is read from a stored comparison or the stored analysis; the console bundle contains no statistical routine | `analysis.TestEveryShownFigureIsStored`, `console.TestNoStatisticsInTheClient` |
-| Later steps: a golden comparison yields identical verdicts and figures agreeing to 12 significant digits on amd64 and arm64; a trend over a lineage of three baselines shows three points and two step comparisons; label tests | `analysis.TestGoldenAcrossArchitectures`, run on both in CI; `analysis.TestTrend` |
+| Later steps: a golden comparison yields identical verdicts and figures agreeing to 12 significant digits on amd64 and arm64; a trend over a lineage of three baselines shows three points and two step comparisons | `analysis.TestGoldenAcrossArchitectures`, run on both in CI; `analysis.TestTrend` |

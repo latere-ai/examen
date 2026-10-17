@@ -11,7 +11,7 @@ depends_on:
   - specs/006-grading.md
   - specs/007-measurements-and-evidence.md
   - specs/008-analysis.md
-affects: [internal/bar/, internal/events/, cmd/examen/, api/]
+affects: [internal/bar/, internal/events/, api/]
 effort: medium
 created: 2026-10-17
 updated: 2026-10-17
@@ -27,8 +27,8 @@ one in front of a release, so that a change which makes an agent
 measurably worse on the tasks that matter stops the release, and a
 change within the noise does not. This spec fixes what each rule
 reads and when it fails, how an evaluation is recorded so that a past
-release decision can be audited, the call and the command a CI job
-uses, the bar events the installation's event sink receives (spec
+release decision can be audited, the call a CI job makes and the
+result a client maps to its exit, the bar events the installation's event sink receives (spec
 003), and how Topos's release bar (Topos spec 025) is expressed as an
 Examen bar.
 
@@ -57,9 +57,9 @@ failing on any `regressed` verdict for its metric.
 
 | Rule | Reads | Passes when | Fails with reason |
 |---|---|---|---|
-| `no_regression` | the comparison's results for the metric at its scope | no result read is `regressed`, `insufficient`, or missing values | `regressed`, `insufficient`, `missing` |
-| `at_least: v` | the metric's entry in the comparison's `candidate_suite` (spec 008) | its `value` is at least `v` | `below`, `insufficient`, `missing` |
-| `at_most: v` | the same | its `value` is at most `v` | `above`, `insufficient`, `missing` |
+| `no_regression` | the comparison's results for the metric at its scope | no result read is `regressed`, `insufficient`, missing values, or self-reported | `regressed`, `insufficient`, `missing`, `self_reported` |
+| `at_least: v` | the metric's entry in the comparison's `candidate_suite` (spec 008) | its `value` is at least `v` | `below`, `insufficient`, `missing`, `self_reported` |
+| `at_most: v` | the same | its `value` is at most `v` | `above`, `insufficient`, `missing`, `self_reported` |
 | `require_single_variable: true` | the comparison's `single_variable` | it is true | `confounded`, listing the tuple confounds that make it false; a layer confound or `missing` leaves `single_variable` true, and the other rules fail on missing values themselves |
 | `allow_partial: false` (the default) | the suite-level results the other rules read | none leaves a task of the suite out | `incomplete`, naming each task left out and why |
 
@@ -74,6 +74,12 @@ failing on any `regressed` verdict for its metric.
   inflated or deflated without anyone seeing it, so a bar fails
   closed. The one exception is a metric whose producing grader is an
   annotation grader, whose missing values are its sampling (spec 006).
+- A result read is **self-reported** when its confounds hold
+  `self_reported` (spec 008); for `at_least` and `at_most`, the
+  metric's suite-level result is read for it. A rule that reads one
+  fails: a release decision does not rest on a value an external
+  harness claimed for itself. Spec 008 keeps such a value out of the
+  headline; a bar fails closed on it, as it does on `missing`.
 - `insufficient` fails a rule: a release decision that cannot be made
   is not a pass, as Topos spec 025 holds that an incomplete run never
   passes.
@@ -88,7 +94,9 @@ Otherwise it **fails**.
 
 **Applying a bar** is refused, naming the rule, when a rule's metric
 is not in the current version of the bar's suite; when `no_regression` names a metric whose
-direction is `none`, which can never regress; when `at_least` or
+direction is `none`, which can never regress; when any rule names a
+candidate-level metric, whose result has no verdict and no summary to
+bound (spec 008); when `at_least` or
 `at_most` names a `label` metric, which has no scalar summary, or a
 value outside what the metric can take (`[0, 1]` for a rate, the
 metric's `range` for a score, at least zero for a count, a duration
@@ -171,38 +179,28 @@ leads to the trials and evidence behind it. An evaluation in state
 `pending` has no `result` and is read again with `GET
 /evaluations/{id}`.
 
-**The command.** The command-line client wraps the call:
+**The result a client maps.** Examen ships no command line: the bar
+check is this call and its documented result, and a client of any kind
+holds a release to it. A release job creates the experiment (`POST
+/experiments`, spec 003), follows its progress stream until a
+`comparison` event with `final` true names its candidate, or until a
+deadline of the job's own, evaluates the bar, and reads the answer. The
+outcomes a client tells apart, and the exit code a command-line client
+maps each to, are:
 
-```
-examen bar check --suite <name> [--suite-owner <owner>] --bar <name|digest>
-                 --experiment <id> --candidate <name|digest>
-                 [--comparison <id>] [--wait <duration>] [--meta key=value]... [--json]
-```
+| Outcome | What the API answered | Exit code a command-line client maps it to |
+|---|---|---|
+| passed | `201` or `200`, `state` `complete`, `result` `passed` | 0 |
+| failed | `201` or `200`, `state` `complete`, `result` `failed` | 1 |
+| no evaluation, because of the request | a `4xx` other than `429`, `409 experiment_not_complete` and `409 request_in_progress`: an unknown bar, experiment or candidate (`404`, `422 reference_not_found`), `422 suite_mismatch`, `422 no_reference`, `409 experiment_canceled`, `403 forbidden`, `400` of any code; repeating the same request gives the same answer | 2 |
+| no evaluation yet | `429`, a `5xx` or no answer; `409 experiment_not_complete` or `409 request_in_progress`; or an evaluation still `pending` at the job's deadline; repeating may succeed | 3 |
 
-It resolves a candidate's name to the digest of its current version
-before the call. With `--wait`, it reads the experiment and the evaluation every
-`BAR_POLL_INTERVAL` until the experiment is complete or canceled and
-the evaluation is complete, or until the duration has passed. It
-prints the result, one line per failed rule with the metric, the
-level, the verdict, the delta with its interval and the confounds,
-and the console link; `--json` prints the evaluation instead.
-
-| Exit code | Meaning |
-|---|---|
-| 0 | the bar passed |
-| 1 | the bar failed |
-| 2 | no evaluation, because of the request: an unknown bar, experiment or candidate, `suite_mismatch`, `no_reference`, `experiment_canceled`, a refusal by the authorizer, or invalid flags. Retrying the same command gives the same answer |
-| 3 | no evaluation yet: the service did not answer or answered with a server error, or the experiment did not complete within `--wait`. Retrying may succeed |
-
-A release job fails on any code other than 0. A job applies the
-experiment and runs the check in one chain, so the job's status is the
-check's (the experiment command is spec 003's; this shows its shape):
-
-```sh
-exp="$(examen experiment apply -f release-experiment.yaml --output id)" &&
-examen bar check --suite topos-release --bar release --experiment "$exp" \
-  --candidate topos-release-candidate --wait 6h --meta commit="$GITHUB_SHA"
-```
+A release job fails on any outcome but passed. An evaluation answered
+in state `pending` is read again with `GET /evaluations/{id}`, or when
+the stream carries `bar.passed` or `bar.failed` for it. A client that
+prints the result shows one line per failed rule with the metric, the
+level, the verdict, the delta with its interval and the confounds, and
+the `console` link.
 
 ### Bar events
 
@@ -307,7 +305,7 @@ bar for the gating candidate only.
 | changing the pinned model measures a new baseline first | a release that changes the agent and the model at once differs from `main` in two logical variables, is not single-variable, and fails `require_single_variable` until `main` is moved to an experiment of the new model |
 | the CI key's Lux budget and `TOPOS_TASKS_BUDGET` | the experiment's one Lux Budget |
 | a task's `maxCost` caps one run | no per-trial cap: the experiment's hard Lux Budget bounds spend, since a cap derived per trial would cut off a dearer trial and bias the cell (spec 005) |
-| the release job fails | `examen bar check` exits 1 |
+| the release job fails | the evaluation's `result` is `failed`, which a release job's client maps to a failing exit |
 | the rate, the threshold and the report in the release notes | the evaluation's suite-level summaries with their denominators, the delta with its interval, `q`, and the console link |
 
 Two differences are deliberate. Topos's threshold measured the noise
@@ -326,7 +324,7 @@ nightly comparison more than a release.
 ### Limits
 
 The constants of spec 002 this spec holds: `MAX_RULES_PER_BAR`,
-`BAR_POLL_INTERVAL`, `MIN_TRIALS_FOR_VERDICT`,
+`MIN_TRIALS_FOR_VERDICT`,
 `MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`,
 `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL` and `METADATA_MAX_PAIRS`.
 
@@ -342,7 +340,7 @@ provider's own SDK, which compares two builds of Topos rather than
 two candidates. Signing and delivering events to the sink (spec 003).
 An owner-level webhook address; delivery to a chat or paging service,
 which a sink does. Bars that block anything other than the caller's
-own job.
+own job. A command-line client, which Examen does not ship.
 
 ## Acceptance criteria
 
@@ -352,12 +350,13 @@ own job.
 | `at_least` and `at_most` compare the `candidate_suite` summary with the value, and fail `insufficient` when its coverage is below `MIN_SUITE_COVERAGE` | `bar.TestBounds` |
 | With `allow_partial` false, any rule reading a suite-level result that leaves a task out fails `incomplete` and names the task; with it true, the result stands at `MIN_SUITE_COVERAGE` | `bar.TestIncompleteRun` |
 | Missing values fail a rule, except for a metric an annotation grader produces | `bar.TestMissingFailsClosed` |
+| A rule that reads a result with the confound `self_reported` fails with `self_reported` | `bar.TestSelfReportedFailsClosed` |
 | `require_single_variable` fails a comparison with a tuple confound and lists it, and passes one whose only confounds are layer confounds | `bar.TestRequireSingleVariable` |
-| Applying a bar with an unknown metric, `no_regression` on a direction-`none` metric, a bound on a label metric, an out-of-range value, or more than `MAX_RULES_PER_BAR` rules is refused naming the rule | `bar.TestApplyRefusals` |
+| Applying a bar with an unknown metric, `no_regression` on a direction-`none` metric, a rule on a candidate-level metric, a bound on a label metric, an out-of-range value, or more than `MAX_RULES_PER_BAR` rules is refused naming the rule | `bar.TestApplyRefusals` |
 | An evaluation of an experiment that is not complete, canceled, on another suite version, or for its reference candidate is refused with its reason; an evaluation reads only a final comparison | `bar.TestEvaluationRefusals` |
 | An evaluation computes no statistic, and two evaluations of one bar version against one comparison give the same result | `bar.TestEvaluationReadsOnlyTheComparison` |
 | A complete evaluation is immutable, its `inputs` and `rules` reproduce its `result`, and it stays readable after its comparison's experiment is deleted | `bar.TestEvaluationIsSelfContained` |
 | `POST /suites/{suite}/bars/{ref}/evaluate` answers `201` with `result: failed` for a failing bar and carries absolute links built on `EXAMEN_PUBLIC_URL` | `httpapi.TestBarEvaluationRoute` |
-| `examen bar check` exits 0, 1, 2 and 3 in the cases of its table, and with `--wait` polls every `BAR_POLL_INTERVAL` | `cli.TestBarCheckExitCodes`, against a stub server and a fake clock |
+| Each case of the outcome table is answered as the table names it, so a client maps it to its exit code without reading anything else | `httpapi.TestBarCheckOutcomes` |
 | A completed evaluation journals one `bar.failed` or `bar.passed` in its transaction, delivered as spec 003's sink events are, and the event holds no content field | `events.TestBarEventIsJournaled`, `events.TestNoContentInEvents` with canary strings |
 | On recorded Topos suite results, the release bar fails for a clear drop in the gating model's pass rate and for a run covering less than `MIN_SUITE_COVERAGE`, passes for a change within the noise, and counts a trial that ended `timed_out` with a passing checker as not passed | `bar.TestToposReleaseBar` |

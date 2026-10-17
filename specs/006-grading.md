@@ -1,5 +1,5 @@
 ---
-title: "Grading: the check contract, model judges, agent judges, annotation queues, generations and re-grading, the decline judge, and calibrating judges against people"
+title: "Grading: the check contract, the built-in comparators, model judges, candidate-level judges, agent judges, annotation queues, generations and re-grading, the decline judge, open vocabularies and their taxonomies with the canonicalizer, and calibrating judges against people"
 status: drafted
 track: core
 depends_on:
@@ -8,7 +8,7 @@ depends_on:
   - specs/003-api.md
   - specs/004-identity-and-authorization.md
   - specs/005-execution.md
-affects: [internal/grade/, internal/grade/check/, internal/grade/judge/, internal/grade/annotate/, internal/calibrate/]
+affects: [internal/grade/, internal/grade/check/, internal/grade/judge/, internal/grade/annotate/, internal/calibrate/, cmd/examen-compare/]
 effort: large
 created: 2026-10-17
 updated: 2026-10-17
@@ -23,10 +23,15 @@ A grader turns a trial into measurements. Spec 002 names four kinds: a
 check, a model judge, an agent judge and an annotation queue. This spec
 fixes how each one runs, what it reads, the exact shape of what it must
 answer, what happens when the answer is wrong or missing, and what it
-costs. It also fixes the decline judge that produces `declined`,
-how re-grading appends generations, and how a judge's measurements are
-calibrated against people's, so a report can say when a judge is not
-yet to be trusted.
+costs. It fixes the built-in comparators, which score an output against
+a task's reference through an ordinary check, with no model. It also
+fixes the decline judge that produces `declined`, the judges that
+grade a candidate over all its trials, how an open-vocabulary label is
+read through a suite's versioned taxonomy, how re-grading appends
+generations, and how a judge's measurements are calibrated against
+people's, so a report can say when a judge is not yet to be trusted.
+A cell-level metric is not graded: Examen computes it from the cell's
+trial values (spec 008).
 
 Every measurement is appended, never changed (spec 002). A grader that
 fails to answer produces no measurement and a record of why; it never
@@ -38,18 +43,28 @@ produces a guessed value.
 
 | Kind | Runs | When | Reads | Costs |
 |---|---|---|---|---|
-| `check` | the task's command, in the trial's machine, run by the executor (spec 005) | after the agent ends, before the machine is released | the machine's files, the trial's transcript and final message | machine time; no model call of Examen's |
-| `model_judge` | one structured call through Lux, made by examend on a Key from the key source | after the trial is `done` | the trial's evidence through its references, at most `JUDGE_MAX_INPUT_BYTES` | one Lux call on the experiment's Budget, per attempt |
+| `check` | the task's command, in the trial's machine, run by the executor, or for an external trial in the check sandbox (spec 005) | after the system under test ends, before the machine is released | the machine's files, the trial's outputs, transcript and final message, and the task's references | machine time; no model call of Examen's |
+| `model_judge` | one structured call through Lux, made by examend on a Key from the key source | after the trial is `done`; at level `candidate`, once per candidate after its cells are graded | the trial's evidence through its references, or at level `candidate` every finished trial's of the candidate, at most `JUDGE_MAX_INPUT_BYTES` | one Lux call on the experiment's Budget, per attempt |
 | `agent_judge` | a session of a pinned Topos agent version, through the `topos` executor | after the trial is `done` | the trial's evidence, read-only | a session on the experiment's Budget |
 | `annotation` | a person, through the API | when the trial is queued for them | the trial's evidence, through Examen | none on the Budget |
 
 A trial is graded by its task's checks, the suite's `graders`, and,
-when the suite lists `declined`, the suite's decline judge. A trial that
+when the suite lists `declined`, the suite's decline judge. A metric
+applies only to trials of the outcomes its `applies_to` names (spec
+002): examend drops a value a check or a judge gives for a trial
+outside them and records none; a check may answer `null` for it, which
+the JSON form admits for any metric; a check in the exit-status form,
+which cannot say "no value", is not run for a trial its one metric does
+not apply to; and a judge none of whose metrics apply to a trial is not
+called for it, so no money is spent on a value that would not be read. A trial that
 is not finished, one that ended `infra_failed`, `over_budget` or
 `canceled`, is not graded. A cell is `grading` while
 every trial is `done` and some check run or judgment is not yet ended,
 and `complete` when every one has ended. Annotations never hold a cell:
-a person's answer may come days later, as a generation.
+a person's answer may come days later, as a generation. A value an
+external harness submitted itself is not a grading: it is stored under
+`self:<harness>` with `self_reported` true (spec 007), is never
+calibrated, and takes no part in this spec.
 
 ### Checks
 
@@ -65,10 +80,15 @@ network policy, in the order the task lists, each with:
 | `EXAMEN_TRIAL` | the trial's id |
 | `EXAMEN_TASK` | the task's digest |
 | `EXAMEN_CHECK` | this check grader's digest |
-| `EXAMEN_WORKSPACE` | the absolute path of the working directory the agent left |
-| `EXAMEN_TRANSCRIPT` | the path of the trial's transcript as JSONL in the machine: the session's log for `topos`, the forwarded request and response bodies for `cella` (spec 005) |
-| `EXAMEN_FINAL_MESSAGE` | the path of a file holding the text of the agent's last message |
+| `EXAMEN_WORKSPACE` | the absolute path of the working directory the agent left; in the check sandbox, its empty working directory |
+| `EXAMEN_TRANSCRIPT` | the path of the trial's transcript as JSONL in the machine: the session's log for `topos`, the forwarded request and response bodies for `cella`, and what the harness submitted for `external`, an empty file when it submitted none (spec 005) |
+| `EXAMEN_FINAL_MESSAGE` | the path of a file holding the text of the system under test's last message, empty when there is none |
+| `EXAMEN_INPUTS` | the directory holding the task's inputs, each at its name: `/examen/inputs`, or `examen/inputs` of the working directory on `topos` |
+| `EXAMEN_OUTPUTS` | the directory holding the system under test's outputs, `/examen/outputs` |
+| `EXAMEN_OUTPUTS_MANIFEST` | in the check sandbox: the path of the trial's output manifest, which lists every output file with its size and digest and whether it was kept (spec 005) |
+| `EXAMEN_REFERENCE` | the read-only directory holding the task's references, each at its name, `/examen/reference`; empty when the task has none |
 | `EXAMEN_CHECK_FILES` | the read-only directory holding the grader's `files`, when it names them |
+| `EXAMEN_CHECK_IMAGE` | the read-only mount of the grader's `image`, when it names one; `command[0]` is then a path inside that image, run from this mount |
 | the grader's `env` | as declared; a key beginning `EXAMEN_` is refused at apply |
 
 The trial's model key is not in a check's environment, the forwarder
@@ -83,7 +103,11 @@ write, or from the grader's `files`, a pinned Arca folder and its digest
 `EXAMEN_CHECK_FILES`: after the agent ends on `topos` (spec 005,
 requirement 8), so the agent never sees them; on `cella`, through a
 read link whose token is in the replica from the start, so the agent
-can read them but not change them.
+can read them but not change them. A task's references are delivered
+read-only after the system under test's processes have stopped, on
+every executor, so it never reads them (spec 005); a grader's `image`
+is mounted read-only. In the check sandbox, no system under test ever
+ran: it holds only what examend wrote into it.
 
 The working directory is the grader's `workdir`,
 resolved against `EXAMEN_WORKSPACE`; a `workdir` that is absolute or
@@ -127,7 +151,7 @@ reads a missing one as `false`.
 | `count` | an integer | at least 0, no fraction |
 | `duration` | a number | seconds, at least 0 |
 | `cost` | a number | in the metric's `unit`, at least 0 |
-| `label` | a string | one of `labels` |
+| `label` | a string | one of `labels`; for an open-vocabulary metric, any string of 1 to `LABEL_MAX_BYTES` once normalized (Open vocabularies, below) |
 
 **Check run states.** Each run ends in one state:
 
@@ -139,7 +163,7 @@ reads a missing one as `false`.
 | exit 1 with stdout; any other exit; ended by a signal | `error` | none |
 | the command could not start: not found or not executable | `not_runnable` | none |
 | killed when `CHECK_TIMEOUT` ran out | `timed_out` | none |
-| not started because `CHECK_TIMEOUT` had run out | `not_run` | none |
+| not started because `CHECK_TIMEOUT` had run out, or, for an external trial, because its outputs passed a limit or its archive was refused (spec 005), with the reason `outputs_over_limit` or `outputs_refused` | `not_run` | none |
 
 A run yields all its measurements or none: a check that names one
 value wrongly yields nothing, so it cannot report a convenient subset.
@@ -159,6 +183,83 @@ infrastructure failure, a spend refusal or a cancel, so the work a
 timed-out agent left is graded. A check run's state never changes the
 trial's outcome, which is the agent's; a check that cannot start on
 every trial blocks the cell at its smoke trial instead.
+
+### Built-in comparators
+
+Scoring an output against a reference needs no model. Examen publishes a
+first-party comparator image, pinned by digest, holding one static
+program, `/examen-compare`, which a `check` grader runs as any check:
+the grader names the image in `image`, and its `command` is
+`["/examen-compare", "<comparator>", "<parameters>"]`, the parameters
+one JSON object. The comparator reads the output under `EXAMEN_OUTPUTS`
+and the reference under `EXAMEN_REFERENCE`, and prints the JSON form
+above with the quantities its parameters' `metrics` map to the grader's
+metric names. So a comparator produces the owner's declared metrics like
+any check, runs where checks run (the trial's machine, or the check
+sandbox), and costs nothing on the Budget. Its image digest is part of
+the grader version, so a new comparator release is a new grader version.
+A comparator is deterministic: the same output and reference give the
+same values.
+
+```yaml
+name: invoice-fields
+kind: check
+produces: [sha256:..., sha256:...]       # field_f1, total_f1
+check:
+  image: sha256:...                       # Examen's comparator image
+  command:
+    - /examen-compare
+    - json_fields
+    - '{"output": "fields.json", "reference": "fields",
+        "fields": [{"name": "total", "path": "$.total"},
+                   {"name": "items", "path": "$.line_items[*].sku"}],
+        "tolerance": 0.01,
+        "metrics": {"f1": "field_f1", "total_f1": "total_f1"}}'
+```
+
+| Parameter | Comparators | Meaning |
+|---|---|---|
+| `output` | all | the output's path under `/examen/outputs/`, one of the task's `outputs` |
+| `reference` | all | the name of one of the task's references |
+| `metrics` | all | an object from each quantity the comparator emits to the name of a metric the grader produces; it names every metric the grader produces, and the comparator prints only those |
+| `normalize` | `json_fields`, `set`, `text` | `{case, whitespace}`, both true by default: before strings are compared, fold them to lower case, and trim and collapse each run of white space to one space |
+| `fields` | `json_fields` | each `{name, path}`: the field's name, `[a-z][a-z0-9_]*`, used in its quantities, and a path selector |
+| `tolerance` | `json_fields` | the absolute difference within which two numbers match; 0 by default |
+| `path` | `numeric`, `set` | optional: a path selector into a JSON file; absent, `numeric` reads the whole file as one number and `set` reads its non-empty lines |
+| `absolute_tolerance`, `relative_tolerance` | `numeric` | two numbers match when their difference is at most the larger of `absolute_tolerance` and `relative_tolerance` times the reference's magnitude; both 0 by default |
+
+| Comparator | Compares | Quantities it emits |
+|---|---|---|
+| `exact` | the output's bytes with the reference's | `match`, binary: true when they are equal |
+| `json_fields` | per field, the values its selector yields from the output (predicted) and from the reference (expected), as multisets matched one to one: two strings match when equal after normalization, two numbers when within `tolerance`, any other values when equal as JSON | `precision`, `recall` and `f1` over every field together, from the sums of matched, predicted and expected values; and `<name>_precision`, `<name>_recall` and `<name>_f1` per field; each a score in [0, 1] |
+| `numeric` | the number at `path` in each | `match`, binary: true when within tolerance; `absolute_error`: the absolute difference, a number at least 0 |
+| `set` | the values at `path`, or the lines, as sets after normalization | `precision`, `recall` and `f1`, each a score in [0, 1] |
+| `text` | the two files as text after normalization | `exact`, binary: true when equal; `token_f1`: the F1 of the two multisets of tokens split on white space, a score in [0, 1] |
+
+Precision is matched over predicted and recall is matched over
+expected. With nothing predicted, precision is 1 when nothing was
+expected and 0 otherwise; with nothing expected, recall is 1 when
+nothing was predicted and 0 otherwise. F1 is `2PR / (P + R)`, and 0
+when both are 0. Each quantity's type fits the metric it maps to: a
+binary quantity a `binary` metric, a score a `score` metric of range
+[0, 1], and `absolute_error` a `score` metric whose range holds every
+error expected, since a value outside it makes the run `malformed`.
+
+**A path selector** is `$` for the root, then any sequence of
+`.<member>` for an object's member, `['<member>']` for a member whose
+name holds `.`, `[` or `'`, `[<n>]` for an array's element counted from
+0, and `[*]` for every element, such as `$.line_items[*].sku`. A
+selector that finds nothing yields no values. The HTTP runner reads the
+same selectors (spec 005).
+
+**The task's failure is a value here too.** An output that is missing,
+or that does not parse where JSON is read, is the system under test's
+failure: each quantity is computed with nothing predicted, so `match`
+and `exact` are false and `absolute_error` is `null`. A reference that
+is missing or does not parse, parameters that do not parse, an unknown
+comparator, or a `metrics` key naming a quantity the comparator does
+not emit is the check's own failure: the comparator prints nothing and
+exits 2, and the run is `error`.
 
 ### Model judges
 
@@ -190,13 +291,17 @@ same request:
    the agent's last message; `transcript` is the trial's transcript as
    spec 007 renders it to text; each of `files` is that evidence file,
    included when it is UTF-8 text and otherwise named with its size and
-   digest alone.
+   digest alone. Each of `outputs` is that output of the trial, read the
+   same way. For an external trial, `transcript` and `final_message`
+   are what its harness submitted, and one it did not submit is an
+   empty block.
 2. **Bound.** The inputs together take at most `JUDGE_MAX_INPUT_BYTES`,
-   filled in order: the final message, the files in the grader's order,
-   the transcript. An input that does not fit is cut: the final message
-   and a file keep their beginning; the transcript keeps its first
-   message and as much of its end as fits. A line `[examen: <n> bytes
-   elided]` stands at each cut, and each cut is recorded.
+   filled in order: the final message, the files and then the outputs in
+   the grader's order, the transcript. An input that does not fit is
+   cut: the final message, a file and an output keep their beginning;
+   the transcript keeps its first message and as much of its end as
+   fits. A line `[examen: <n> bytes elided]` stands at each cut, and
+   each cut is recorded.
 3. **Delimit.** Each input is one block:
 
    ```
@@ -254,6 +359,40 @@ tokens and the cost: one entry of the trial's `judgments` (spec 002),
 which spec 007 stores beside the measurements. Every attempt's cost is the trial's
 grading cost, which the smoke estimate reads (spec 005). Reports count
 each state per cell and grader, so a judge that refuses often is seen.
+
+### Candidate-level judges
+
+A model judge of level `candidate` judges a candidate's behavior over
+all its trials, such as a behavioral profile, and produces only
+candidate-level metrics: one value per candidate of an experiment.
+
+- **When.** Once per candidate, when every cell of the candidate has
+  left `grading`, complete or parked, over the candidate's finished
+  trials then. The experiment completes only after it ends (spec 002).
+- **Input assembly** is a model judge's, with one block per input per
+  trial, the trials in ascending id order and each block's `name`
+  carrying the trial's id and task. `JUDGE_MAX_INPUT_BYTES` bounds the
+  whole call: each trial is given an equal share of it, filled in the
+  grader's order and cut at the ends a trial-level judge cuts, and a
+  share a trial leaves unused passes to the trials after it. Every cut
+  is recorded.
+- **Its answer** is a `record_judgment` call as above, one value and
+  rationale per metric it produces, validated the same way, with the
+  same states and attempts, but for `over_budget`, which parks no cell:
+  the grading ends `over_budget`, and a re-grade runs it again once the
+  Budget is refilled. It appends one measurement per metric, naming the
+  experiment and the candidate and no trial (spec 007).
+- **Its Key** is leased as a trial-level judge's, with the purpose
+  `judge`. Its judgment record is kept in the experiment's `judgments`
+  with `candidate` set (spec 002), and its rationale in evidence (spec
+  007).
+- **Generations** count per experiment, candidate and grader version. A
+  re-grade with a candidate-level grader (spec 003) appends each named
+  candidate's next generation.
+
+A candidate-level value is one figure per candidate, with no trials to
+spread across, so it is descriptive: spec 008 reports it beside the
+other side's and tests nothing.
 
 ### Agent judges
 
@@ -342,7 +481,8 @@ changes it.
 - **The built-in decline judge**, `builtin:decline`, is the decline
   judge of a suite whose `decline_judge` is absent. It calls no model:
   it records `declined` true exactly when the outcome is `declined`, a
-  provider's refusal (spec 005), and false for every other outcome.
+  provider's refusal or, for an external trial, what its harness
+  submitted (spec 005), and false for every other outcome.
 - **A configured decline judge.** Examen ships a decline prompt and
   rubric, versioned with Examen. A suite configures its decline judge
   by naming in `decline_judge` a grader of kind `model_judge` that
@@ -358,11 +498,71 @@ changes it.
   cells' grader digests differ, so a comparison across the change
   carries the confound (spec 008).
 
+### Open vocabularies and taxonomies
+
+A `label` metric of open vocabulary declares no labels (spec 002). A
+check or a judge answers a raw label per trial, any string of 1 to
+`LABEL_MAX_BYTES` once normalized: in Unicode NFC, trimmed, each run of
+white space one space, and folded to lower case. The normalized string
+is the measurement's value. A measurement is never rewritten: what a
+raw label means is read through the suite's taxonomy.
+
+**The taxonomy.** Each suite, by owner and name, keeps one taxonomy per
+open-vocabulary metric it lists: a lineage of records (spec 002), each
+an ordered list of canonical labels and a map from raw labels to them.
+Results, summaries and reports read an open-vocabulary metric as the
+canonical label its raw label maps to at one named record, and name
+that record (spec 008). A trial whose raw label the record does not map
+has no canonical value at that record: it counts as missing, and every
+result that reads it carries `missing`, so an unmapped label is never
+guessed and never headlined.
+
+**Changing it.** A change to the mapping is never a rewrite. It appends
+the lineage's next record, which maps every raw label the one before it
+mapped, so a raw label never falls back to unmapped. Two things append
+records:
+
+- **The owner**, through the taxonomy route (spec 003), with any
+  mapping, a remapping included, and canonical labels added, renamed or
+  reordered.
+- **A canonicalizer**, a model judge of role `canonicalize` the suite
+  names for the metric in `canonicalizers` (spec 002), pinned like any
+  judge. It runs once per experiment of the suite's own owner, after
+  every cell has left `grading` and before the experiment completes,
+  when the experiment's trials hold raw labels the current record does
+  not map, and again after a re-grade of the metric's producer. It is
+  one structured call through Lux on a Key leased with the purpose
+  `judge`, whose system content is Examen's canonicalizer preamble, the
+  grader's `prompt` and `rubric`, and the current record's canonical
+  labels, and whose user message is one evidence block listing each
+  unmapped raw label of the experiment with its count. It offers one
+  tool, `record_taxonomy`, taking `{canonical, map}`: the canonical
+  labels, which keep every current one in its order and may add new
+  ones up to `MAX_LABELS_PER_METRIC`, and a map of some of the listed
+  raw labels to them. examend validates the answer as a judge's, with
+  the same states and attempts as a candidate-level judge's, and
+  appends a record of the current map
+  with the new entries, `source` naming the canonicalizer, the
+  experiment and the run's generation; it never remaps a raw label, and
+  one it leaves out stays unmapped. Its judgment record is kept in the
+  experiment's `judgments` with `metric` set. An experiment of an owner
+  a suite is shared with reads the suite's taxonomy and never runs its
+  canonicalizer.
+
+**A new record is a new generation of reading.** A provisional
+comparison moves to the current record when it is recomputed. A final
+comparison keeps the record it read, and a record appended after it
+makes a new comparison of the same pair, as a later grading does (spec
+008); the earlier stays. A taxonomy record is never deleted, so every
+past comparison can be reproduced.
+
 ### Generations and re-grading
 
 - **Numbering.** Generations count per trial and grader version, and for
-  annotations per annotator too, from 1. A re-grade appends the next;
-  nothing is overwritten (spec 002).
+  annotations per annotator too, from 1; for a candidate-level judge
+  per experiment, candidate and grader version, and for a canonicalizer
+  per experiment and metric. A re-grade appends the next; nothing is
+  overwritten (spec 002).
 - **The current value** is the latest generation of the grader version
   the suite names; for an annotation grader, each annotator's latest.
 - **A re-grade** (spec 003) names a grader version and the trials, by
@@ -412,6 +612,9 @@ same trials.
   result of m from J, once that column is built (spec 010).
 - **A new version starts uncalibrated**: agreement of one judge version
   says nothing of another.
+- **Not calibrated:** a candidate-level judge, since people annotate
+  trials, not candidates, and a canonicalizer, whose records an owner
+  reads and edits directly.
 
 ### Limits
 
@@ -420,12 +623,14 @@ The constants of spec 002 this spec holds: `CHECK_TIMEOUT`,
 `JUDGE_MAX_OUTPUT_TOKENS`, `JUDGE_MAX_ATTEMPTS`,
 `JUDGE_MAX_RATIONALE_BYTES`, `AGENT_JUDGE_TIMEOUT`,
 `ANNOTATION_CLAIM_TTL`, `CALIBRATION_MIN_PAIRS`,
-`CALIBRATION_MIN_AGREEMENT`, `CONFIDENCE_LEVEL` and
-`MAX_INFRA_RETRIES`.
+`CALIBRATION_MIN_AGREEMENT`, `CONFIDENCE_LEVEL`, `MAX_INFRA_RETRIES`,
+`LABEL_MAX_BYTES`, `MAX_LABELS_PER_METRIC` and
+`MAX_TAXONOMY_RAW_LABELS`.
 
 ## Not in this spec
 
-Running a check and writing evidence (spec 005); the routes that queue,
+Running a check, the check sandbox, delivering references and writing
+evidence (spec 005); the routes that queue,
 claim, answer, re-grade and read calibration (spec 003); who may
 annotate and acting as the owner toward Lux and Topos (spec 004); the
 evidence reference, the transcript's text rendering, the storage of
@@ -442,6 +647,9 @@ calibration (spec 010); the threats to judges (spec 012).
 | The exit-status form maps exit 0 to `true` and exit 1 to `false` for a grader of one `binary` metric, and is `error` for any other grader | `check.TestExitStatusForm` |
 | A check's environment carries the `EXAMEN_` variables and the grader's `env`, and never the trial's model key, on both executors | `check.TestEnvironment`, e2e tier |
 | A grader `env` key beginning `EXAMEN_`, an absolute `workdir` and one leaving the workspace are refused at apply | `check.TestApplyRefusals` |
+| A check's environment carries `EXAMEN_INPUTS`, `EXAMEN_OUTPUTS`, `EXAMEN_REFERENCE` and, for a grader with an `image`, `EXAMEN_CHECK_IMAGE`, on every executor and in the check sandbox | `check.TestEnvironment`, e2e tier |
+| Each comparator emits exactly the quantities its parameters map, with the values of committed fixtures: `exact` on equal and unequal bytes, `json_fields` per field and over all fields with normalization and tolerance, `numeric` at both tolerances, `set`, and `text` with token F1; the empty-side rules hold; a missing output yields values and a missing reference exits 2 | `compare.TestComparators`, `compare.TestEmptySides`, `compare.TestFailures`, in `cmd/examen-compare` |
+| A path selector finds exactly the values its fixtures list, quoted members and `[*]` included | `compare.TestSelectors` |
 | Input assembly is deterministic: the same evidence gives a byte-identical request, and the recorded digest matches it | `judge.TestAssemblyIsDeterministic` |
 | Inputs past `JUDGE_MAX_INPUT_BYTES` are cut in the order and at the ends given, each cut marked and recorded | `judge.TestInputBound` |
 | No byte of evidence or of the task's instruction appears in the system content, and the boundary occurs in no input | `judge.TestEvidenceStaysInTheUserTurn`, `judge.FuzzBoundary` |
@@ -456,3 +664,7 @@ calibration (spec 010); the threats to judges (spec 012).
 | A re-grade appends the next generation and leaves earlier ones unchanged; one key appends once; a changed judge starts at generation 1 under its own digest | `grade.TestRegrade` |
 | A check re-grade parses the stored stdout again and is refused for a version whose command differs | `check.TestRegradeReparses` |
 | Krippendorff's alpha matches reference values for nominal and interval data; a judge with fewer than `CALIBRATION_MIN_PAIRS` pairs or alpha below `CALIBRATION_MIN_AGREEMENT` is reported uncalibrated with its alpha, interval and count | `calibrate.TestAlpha`, `calibrate.TestUncalibrated` |
+| An open-vocabulary value is stored normalized and never rewritten; one longer than `LABEL_MAX_BYTES` makes the run `malformed` | `grade.TestOpenVocabularyValues` |
+| A taxonomy record never changes, a new one keeps every mapped raw label, and an unmapped raw label reads as missing | `grade.TestTaxonomyLineage` |
+| A canonicalizer runs once for an experiment of the suite's owner with unmapped labels, reads only the raw labels and their counts, adds labels and maps only unmapped ones, appends one record naming itself, and never runs for a grantee's experiment | `grade.TestCanonicalizer`, against the stub Lux |
+| A candidate-level judge runs once per candidate after its cells are graded, bounds its input at `JUDGE_MAX_INPUT_BYTES` in equal shares per trial, appends one generation per candidate with no trial, and holds the experiment from completing until it ends | `grade.TestCandidateLevelJudge` |

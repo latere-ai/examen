@@ -40,6 +40,9 @@ issuer and the open cores it composes, and needs no other service.
 |---|---|
 | `cmd/examend/` | the binary: `serve`, `migrate`, `version`; the e2e tier sits beside the function `serve` runs |
 | `cmd/examen-trial/` | the trial driver that runs in a `cella` replica, built into the trial driver image whose digest the build pins (spec 005) |
+| `cmd/examen-compare/` | the built-in comparators, built into the comparator image whose digest each release names (spec 006) |
+| `cmd/examen-http/` | the HTTP runner, built into the HTTP runner image whose digest each release names (spec 005) |
+| `cmd/examen-scan/` | the secret scanner and its pinned rule set, built into the scanner image whose digest the build pins (spec 013) |
 | `api/` | public: `openapi.yaml` (spec 003), embedded for the server to serve |
 | `authorizer/` | public: the action vocabulary, the limits of an allow, the minter's request and answer, and the key endpoint's request and answer (spec 004) |
 | `internal/access/` | verification, the authorizer client, the owner policy |
@@ -48,13 +51,14 @@ issuer and the open cores it composes, and needs no other service.
 | `internal/httpapi/` | routes, errors, the progress stream |
 | `internal/store/` | the store over Postgres, and `migrations/` |
 | `internal/queue/` | the work queue and its leases (spec 005) |
-| `internal/execute/` | the executor contract and the `topos` and `cella` executors; `internal/luxread/` reads Lux's records (spec 005) |
+| `internal/execute/` | the executor contract and the `topos`, `cella` and `external` executors; `internal/luxread/` reads Lux's records (spec 005) |
 | `internal/grade/`, `internal/calibrate/` | checks, judges, annotations and calibration (spec 006) |
 | `internal/evidence/`, `internal/export/` | evidence references and dataset export (spec 007) |
 | `internal/analysis/` | the analysis (spec 008) |
 | `internal/bar/` | bars (spec 009) |
 | `internal/events/` | the sink events' signing and delivery, under the delivery lease (spec 003) |
 | `internal/view/`, `internal/report/`, `internal/narrative/` | the report document, reports and the narrative linter (spec 010) |
+| `internal/publish/` | publications, their snapshots, scans and Arca links, submissions and the public reads (spec 013) |
 | `internal/config/` | configuration, read once into one typed value |
 | `internal/id/` | prefixed, time-ordered identifiers (spec 002) |
 | `internal/version/` | the build's version, commit and date, stamped by the linker |
@@ -134,7 +138,8 @@ configuration, and `examend` reads none of them.
 |---|---|---|
 | `EXAMEN_ADDR` | `:8080` | this spec |
 | `EXAMEN_BASE_PATH` | `/v1` | spec 003 |
-| `EXAMEN_PUBLIC_URL` | none: bar evaluations and events carry no `links`, and a report bundle's sources are not links | specs 003, 009 and 010 |
+| `EXAMEN_PUBLIC_URL` | none: bar evaluations and events carry no `links`, a report bundle's sources are not links, and a publication has no shareable page link | specs 003, 009, 010 and 013 |
+| `EXAMEN_TRUSTED_PROXIES` | none: a public read's client address is its peer address. Set, a comma list of address ranges in CIDR form, from which `X-Forwarded-For` names the client address the public routes rate limit | spec 003 |
 | `EXAMEN_LOG_LEVEL` | `info`; or `debug`, `warn`, `error` | this spec |
 | `EXAMEN_DATABASE_URL` | none; required | this spec |
 | `EXAMEN_DATABASE_POOL_URL` | none: `serve` opens `EXAMEN_DATABASE_URL` | this spec |
@@ -149,10 +154,11 @@ configuration, and `examend` reads none of them.
 | `EXAMEN_KEYS_URL` | none: the `lux` key source, which creates Keys at Lux as the owner | spec 004 |
 | `EXAMEN_KEYS_TOKEN_FILE` | none; required with `EXAMEN_KEYS_URL` | spec 004 |
 | `EXAMEN_TOPOS_URL` | none: candidates of kind `topos` and agent judges are refused | spec 005 |
-| `EXAMEN_CELLA_URL` | none: candidates of kind `image` are refused | spec 005 |
-| `EXAMEN_CELLA_ENVIRONMENT` | none; required with `EXAMEN_CELLA_URL`: the `queued` Cella Environment a SandboxSet runs in | spec 005 |
+| `EXAMEN_CELLA_URL` | none: candidates of kind `program`, and `external` candidates on a suite whose tasks have checks, are refused | spec 005 |
+| `EXAMEN_CELLA_ENVIRONMENT` | none; required with `EXAMEN_CELLA_URL`: the `queued` Cella Environment a SandboxSet and a check sandbox run in | spec 005 |
 | `EXAMEN_LUX_URL` | none: no experiment can be created | spec 005 |
-| `EXAMEN_ARCA_URL` | none: tasks with an `arca` workspace, judges that read evidence, and exports are refused | spec 007 |
+| `EXAMEN_ARCA_URL` | none: tasks with an `arca` workspace or with inputs, references or outputs, judges that read evidence, `external` candidates, exports, and publications that carry files are refused | spec 007 |
+| `EXAMEN_ARCA_PUBLIC_URL` | `EXAMEN_ARCA_URL`: the address readers reach Arca at, on which a public read builds evidence links | spec 013 |
 | `EXAMEN_ORIGO_URL` | none: tasks with an `origo` workspace are refused | spec 005 |
 | `EXAMEN_TOPOS_AUDIENCE` | `topos` | spec 004 |
 | `EXAMEN_CELLA_AUDIENCE` | `cella` | spec 004 |
@@ -193,14 +199,16 @@ the variable or the condition, in each of these cases:
 | `EXAMEN_KEYS_URL` without `EXAMEN_KEYS_TOKEN_FILE`, or the token file without the URL | a key endpoint takes a bearer, and a bearer with no endpoint means the installation believes Examen asks it for Keys while Examen would create them itself (spec 004) |
 | a token file is missing, unreadable or empty | the endpoint or core it is for requires a bearer |
 | the authorizer, minter, key endpoint or a core URL is not `https` and its host is not loopback | each carries a bearer, and an owner token or a Key over plain HTTP is readable on the way |
+| `EXAMEN_ARCA_PUBLIC_URL` is not `https` and its host is not loopback | readers follow it with an Arca link token in the path, which plain HTTP exposes on the way |
 | the database does not answer, or its schema fails the check below | the server cannot serve what it cannot store |
 | the authorizer allows the probe | spec 004 |
 
 ### Postgres and migrations
 
 Postgres holds every object of spec 002, the work queue (spec 005), the
-event log, the delivery lease and the idempotency keys (spec 003), and
-the shares (spec 004). Evidence stays in Arca. Any Postgres release that its project
+event log, the delivery lease and the idempotency keys (spec 003), the
+shares (spec 004), and the publications with their snapshots and
+submissions (spec 013). Evidence stays in Arca. Any Postgres release that its project
 still supports is accepted.
 
 Migrations are SQL files in `internal/store/migrations/`, numbered,
@@ -248,13 +256,17 @@ replica of the previous release does until it is replaced.
 
 ### The image
 
-There is one image, `examend`: the static binary on a distroless base,
-with the roots it verifies certificates against, a numeric user that is
-not root, no shell and no package manager. It is built for linux/amd64
-and linux/arm64 from one `Dockerfile` that cross-compiles, and is at
-most `IMAGE_MAX_SIZE`. It starts and answers with a read-only root file
-system and every capability dropped; `examend` starts no other program
-and writes no file. The same image runs `serve` and `migrate`.
+There is one server image, `examend`: the static binary on a distroless
+base, with the roots it verifies certificates against, a numeric user
+that is not root, no shell and no package manager. It is built for
+linux/amd64 and linux/arm64 from one `Dockerfile` that cross-compiles,
+and is at most `IMAGE_MAX_SIZE`. It starts and answers with a read-only
+root file system and every capability dropped; `examend` starts no other
+program and writes no file. The same image runs `serve` and `migrate`.
+The trial driver, comparator, HTTP runner and secret scanner images
+are built from the same tree, each one static binary on an empty base,
+for the same platforms; they run only inside Cella sandboxes, never
+beside `examend`.
 
 ### Probes
 
@@ -307,9 +319,12 @@ joins the core's trace. Each work item is a span carrying
 | `examen_streams_open` | gauge | none |
 
 No log line, span, event or metric label carries a token, a Lux Key's
-value or another credential (spec 004), nor an owner's content: a
-task's instruction, a transcript, an evidence file or a judge's input.
-Identifiers and rendered subjects are logged; content is not.
+value, a publication's link token, an Arca link's token or another
+credential (spec 004), nor an owner's content: a task's instruction, a
+transcript, an evidence file or a judge's input. A request is logged
+and traced by its route pattern, never its path, which on a public
+route holds a link token. Identifiers and rendered subjects are logged;
+content is not.
 
 ### Versioning and release
 
@@ -317,8 +332,8 @@ A release is a tag `vX.Y.Z` with a section in `CHANGELOG.md`.
 
 | Change | Bump |
 |---|---|
-| a route, field, error code, event type, configuration variable, action, resource field or limits member removed or given another meaning | major |
-| a new route, field, error code, event type, variable, metric, action, resource field or limits member | minor |
+| a route, field, error code, event type, configuration variable, action, resource field or limits member, or a comparator's parameter or quantity or an HTTP runner `config` member, removed or given another meaning | major |
+| a new route, field, error code, event type, variable, metric, action, resource field, limits member, comparator, comparator parameter or quantity, or HTTP runner `config` member | minor |
 | a fix with no visible change | patch |
 
 Before v1.0.0 a minor may break, with a changelog entry that names the
@@ -337,10 +352,12 @@ tags and pushes. A tag whose commit has no section is refused by the
 pre-push hook and by the release workflow.
 
 The release workflow waits for the verify run of the tagged commit,
-builds the image for both platforms, signs it, attests its bill of
-materials and its provenance, checks that the image's `/version`
-reports the tag, archives `deploy/` with the image pinned by digest, and
-creates the release from the changelog section.
+builds the five images for both platforms, signs them, attests their
+bills of materials and their provenance, checks that the `examend`
+image's `/version` reports the tag, archives `deploy/` with the image
+pinned by digest, and creates the release from the changelog section,
+naming the comparator and HTTP runner digests a grader or a candidate
+pins, and the scanner digest a publication's scan records.
 
 ### Upgrade and rollback
 
@@ -382,8 +399,8 @@ host.
 | Lux | budgets, model judges, cost; with the `lux` key source, the Keys Examen creates | no experiment can be created |
 | a key endpoint | Keys from an installation that keeps its own budgets (spec 004) | the `lux` key source: Examen creates its Keys at Lux as the owner |
 | Topos, itself running sessions in Cella | candidates of kind `topos`, agent judges | those are refused |
-| Cella | candidates of kind `image` | those are refused |
-| Arca | `arca` workspaces, evidence for judges, exports | those are refused |
+| Cella | candidates of kind `program`; the check sandboxes of `external` trials; the secret scan of a publication at `outputs` or `full` | those are refused |
+| Arca | `arca` workspaces, task inputs, references and outputs, evidence for judges, `external` candidates, exports, published files and their links | those are refused |
 | Origo | `origo` workspaces | those are refused |
 | an authorizer | organizations as owners, annotators and services acting for others, limits | the owner policy (spec 004) |
 
@@ -405,7 +422,9 @@ read-only root file system, no capability, the runtime's default seccomp
 profile and no token of the cluster's API. Egress is allowed to the
 resolver, the pooler and the database, the issuer, the authorizer, the
 minter, the key endpoint, each configured core, the event sink and the
-telemetry collector, as the overlay names them.
+telemetry collector, as the overlay names them, and to no host a task
+or a candidate names: an API under evaluation is called from a trial's
+sandbox (spec 005).
 
 `make run` builds `examend`, runs `migrate` and then `serve` against a
 local Postgres in the developer's container runtime, with
@@ -467,7 +486,8 @@ log (spec 007). The text of `SECURITY.md` (spec 012).
   with token files and no authorizer, an experiment runs from create to
   its comparison, and no request leaves for an address the
   configuration does not name.
-- No log line, span or metric label carries a token, a Key's value or a
-  task's instruction, by the canary of spec 004.
+- No log line, span or metric label carries a token, a Key's value, a
+  link token or a task's instruction, by the canary of spec 004 and
+  one planted as a publication's link token.
 - No file of the repository names an installation's hostname, account
   or credential, by the gate's identity scan.

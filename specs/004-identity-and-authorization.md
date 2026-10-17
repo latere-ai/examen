@@ -1,5 +1,5 @@
 ---
-title: "Identity and authorization: verifying a caller, the action vocabulary, the authorizer with its limits and filters, the built-in owner policy, sharing, acting as the owner toward Topos, Cella, Lux, Arca and Origo, and the key source that leases model Keys"
+title: "Identity and authorization: verifying a caller, the action vocabulary, the authorizer with its limits and filters, the built-in owner policy, share grants and readers who do not sign in, acting as the owner toward Topos, Cella, Lux, Arca and Origo, and the key source that leases model Keys and reads budgets"
 status: drafted
 track: core
 depends_on:
@@ -29,10 +29,15 @@ carries a short-lived token for the owner, which Examen obtains from a
 minter the operator provides or, on an installation run by one owner,
 receives from files that owner keeps. The Lux Keys that model judges,
 `cella` rollouts and narrative drafts call through come from a key
-source: Examen creates them at Lux as the owner when it runs on its
-own, or asks the installation for them when the installation keeps its
-own budgets. Examen never uses an identity of its own toward a core. It
-holds no accounts, roles or plans.
+source: Examen creates them at Lux as the owner when it runs on its own,
+or asks the installation for them when the installation keeps its own
+budgets; the same source reads an experiment's budget figures. A reader
+who does not sign in reads only what was published, and the authorizer
+is still asked about each read, with no subject. A `program` candidate
+may also be given owner tokens for the APIs it calls, each placed in the
+trial's sandbox only as a placeholder Cella's egress gateway swaps on
+the way to that API's host. Examen never uses an identity of its own
+toward a core. It holds no accounts, roles or plans.
 
 ## Design
 
@@ -78,9 +83,10 @@ else the caller's subject. Under the owner policy the context is always
 the caller's subject, so every owner is a person.
 
 Examen records who acted beside whose an object is: an experiment, a
-dataset export, a baseline record, a share and a bar evaluation carry
-`created_by`, the subject that created it, and an annotation's
-measurements carry `annotator`.
+dataset export, a baseline record, a taxonomy record, a share, a bar
+evaluation, a publication and a submission carry `created_by`, the
+subject that created it, a publication version `published_by`, and an
+annotation's measurements carry `annotator`.
 Unattended work for an experiment acts for its `owner` on behalf of its
 `created_by` (below).
 
@@ -108,11 +114,13 @@ checks before the wire. Each action names one kind.
 | `Suite` | `suite.read` | `GET /suites/{ref}`, `GET /suites/{name}/versions` | id; `owner`, `name`, `digest`, `shared`, `pinned` |
 | `Suite` | `suite.list` | `GET /suites` | `owner` |
 | `Suite` | `suite.share` | `PUT`, `DELETE` and `GET` of `/suites/{suite}/shares` | `owner`, `name`, `grantee` |
-| `Suite` | `suite.use` | `POST /experiments` naming another owner's suite; `PUT` of a bar or a baseline on another owner's suite | id; `owner`, `name`, `digest`, `for_owner`, `shared` |
-| `Candidate` | `candidate.apply` | `PUT /candidates/{name}` | `owner`, `name`, `digest`, `candidate_kind`, `agent`, `image`, `model`, `reasoning` |
+| `Suite` | `suite.use` | `POST /experiments` naming another owner's suite, directly or through `benchmark`; `PUT` of a bar or a baseline on another owner's suite | id; `owner`, `name`, `digest`, `for_owner`, `shared`, `publication`, `published` |
+| `Suite` | `taxonomy.apply` | `PUT /suites/{suite}/taxonomies/{metric}` | `owner`, `name`, `metric`, `version` |
+| `Suite` | `taxonomy.read` | `GET` of a taxonomy, its history and its unmapped labels, and `GET /taxonomies/{id}` | id; `owner`, `name`, `metric`, `version`, `shared`, `pinned` |
+| `Candidate` | `candidate.apply` | `PUT /candidates/{name}` | `owner`, `name`, `digest`, `candidate_kind`, `agent`, `image`, `model`, `reasoning`, `harness`, `credential_audiences` |
 | `Candidate` | `candidate.read` | `GET /candidates/{ref}`, `GET /candidates/{name}/versions` | id; `owner`, `name`, `digest`, `candidate_kind` |
 | `Candidate` | `candidate.list` | `GET /candidates` | `owner` |
-| `Experiment` | `experiment.create` | `POST /experiments` | id (minted before the question, so an authorizer can keep a record of the experiment it allows); `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `reference_candidate`, `baseline`, `baseline_owner`, `mode`, `adopt` |
+| `Experiment` | `experiment.create` | `POST /experiments` | id (minted before the question, so an authorizer can keep a record of the experiment it allows); `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `credential_audiences`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `budget_cap_usd_micro`, `reference_candidate`, `baseline`, `baseline_owner`, `benchmark`, `mode`, `adopt` |
 | `Experiment` | `experiment.read` | `GET /experiments/{id}` and every route below it that reads, `GET /cells/{id}`, `GET /trials/{id}`, `GET /measurements/{id}`, `GET /comparisons/{id}` with its rows, `POST /comparisons`; and the experiment each export, baseline pin or bar evaluation names | id; `owner`, `suite`, `state`, `mode`, `shared` |
 | `Experiment` | `experiment.list` | `GET /experiments`, `GET /comparisons` | `owner` |
 | `Experiment` | `experiment.update` | `PATCH /experiments/{id}`, `POST /experiments/{id}/close` | id; `owner`, `suite`, `state`, `mode`, and what it changes: `trials` with `trials_total`, `parallelism`, or the reference as `reference_candidate`, or `baseline` with `baseline_owner` |
@@ -120,6 +128,8 @@ checks before the wire. Each action names one kind.
 | `Experiment` | `experiment.cancel` | `POST /experiments/{id}/cancel` | id; `owner`, `suite`, `state` |
 | `Experiment` | `experiment.delete` | `DELETE /experiments/{id}` | id; `owner`, `suite`, `state`, `evidence` |
 | `Experiment` | `experiment.import` | `POST /experiments/{id}/imports` | id; `owner`, `suite`, `state`, `mode`, `task`, `candidate`, `executor`, `executor_ref` |
+| `Experiment` | `trial.lease` | `POST /experiments/{id}/work/lease` | id; `owner`, `suite`, `state`, `mode`, `candidate`, `harness`, `lease` |
+| `Experiment` | `trial.submit` | `POST /trials/{id}/submit` | id; `owner`, `suite`, `state`, `mode`, `candidate`, `harness`, `trial`, `lease`, `outcome` |
 | `Experiment` | `experiment.regrade` | `POST /experiments/{id}/regrade` | id; `owner`, `suite`, `state`, `grader`, `judge_models` |
 | `Experiment` | `experiment.share` | `PUT`, `DELETE` and `GET` of `/experiments/{id}/shares` | id; `owner`, `grantee` |
 | `Experiment` | `experiment.run` | Examen itself, before unattended work (below) | id; `owner`, `created_by`, `state`, `purpose`, `cell`, `executor`, `budget` |
@@ -139,52 +149,85 @@ checks before the wire. Each action names one kind.
 | `Annotation` | `annotation.submit` | `POST /annotations`, `POST /annotations/claim`, `POST /annotations/skip` | `owner`, `grader`, `trial`, `experiment`, `regrade` |
 | `Annotation` | `annotation.queue` | `POST /annotations/queue` | `owner`, `grader`, `experiment` |
 | `Report` | `report.create` | `POST /experiments/{id}/reports` | `owner`, `experiment` |
-| `Report` | `report.read` | `GET /reports/{id}` | id; `owner`, `experiment`, `shared` |
+| `Report` | `report.read` | `GET /reports/{id}` | id; `owner`, `experiment` |
 | `Report` | `report.update` | `POST /reports/{id}/draft`, `PUT /reports/{id}/narrative`, `POST /reports/{id}/exports` | id; `owner`, `experiment`, `model` |
 | `Report` | `report.release` | `POST /reports/{id}/release` | id; `owner`, `experiment` |
-| `Report` | `report.share` | `PUT`, `DELETE` and `GET` of `/reports/{id}/shares` | id; `owner`, `grantee` |
+| `Publication` | `publication.create` | `POST /publications` | id (minted before the question); `owner`, `publication_kind`, `name`, `visibility`, `evidence_level`, `source`, `license`, `submissions` |
+| `Publication` | `publication.read` | `GET /publications/{id}`, `GET /publications/{id}/versions/{n}`, `GET /publications/{id}/results`, and before `publication.list` and `publication.pause`; every public route, asked with no subject | id; `owner`, `publication_kind`, `visibility`, `listed`, `paused`, `version`, `via`, `shared` |
+| `Publication` | `publication.browse` | `GET /publications` | `owner`, `publication_kind`, `visibility` |
+| `Publication` | `publication.update` | `PATCH /publications/{id}`, `POST /publications/{id}/versions`, `POST /publications/{id}/link`; `GET /publications/{id}`, to decide whether its answer carries `link` | id; `owner`, `publication_kind`, `visibility`, `evidence_level`, `source`, `license`, `submissions` |
+| `Publication` | `publication.withdraw` | `POST /publications/{id}/versions/{n}/withdraw` | id; `owner`, `publication_kind`, `version` |
+| `Publication` | `publication.list` | `PUT` and `DELETE` of `/publications/{id}/listing` | id; `owner`, `publication_kind`, `visibility`, `listed` |
+| `Publication` | `publication.pause` | `POST /publications/{id}/pause`, `POST /publications/{id}/resume` | id; `owner`, `publication_kind`, `visibility`, `paused`, `reason` |
+| `Publication` | `publication.share` | `PUT`, `DELETE` and `GET` of `/publications/{id}/shares` | id; `owner`, `grantee` |
+| `Submission` | `submission.create` | `POST /submissions` | id (minted before the question); `owner`, `benchmark`, `benchmark_owner`, `submissions`, `via`, `shared`, `report` |
+| `Submission` | `submission.read` | `GET /submissions/{id}` | id; `owner`, `benchmark`, `benchmark_owner`, `state` |
+| `Submission` | `submission.list` | `GET /submissions` | `owner`, `benchmark` |
+| `Submission` | `submission.withdraw` | `POST /submissions/{id}/withdraw` | id; `owner`, `benchmark`, `benchmark_owner`, `state` |
+| `Submission` | `submission.review` | `GET /publications/{id}/submissions`, `POST /submissions/{id}/accept`, `POST /submissions/{id}/reject` | id, the benchmark's on the list and the submission's otherwise; `owner`, `benchmark`, `benchmark_owner`, `state` |
 | `Share` | `share.list` | `GET /shares` | `grantee` |
 
 `GET /openapi.yaml` asks nothing: it is a public document.
 
-`cell.retry` is an action of its own, so an authorizer can tell a
-retry from a change and a grant can name it, but it acts on the
-experiment and is decided as `experiment.update` is: an authorizer
-that lets a subject change an experiment lets it retry the
-experiment's cells, and the owner policy allows it to the owner.
+`cell.retry`, `trial.lease` and `trial.submit` are actions of their
+own, so an authorizer can tell a retry or an external harness's work
+from a change and a grant can name each, but they act on the experiment
+and are decided as `experiment.update` is: an authorizer that lets a
+subject change an experiment lets it retry the experiment's cells and
+lease and submit its external trials, and the owner policy allows them
+to the owner. A token whose grants name `trial.lease` and
+`trial.submit` alone is how an owner runs a harness that can do nothing
+else.
 
 The shared envelope keeps two names for the resource itself:
 `resource.kind`, the kind of the table's first column, and
 `resource.id`, the id of a stored object, written "id" in the table. It
 drops a field of either name on the wire, so no field takes one: an
 object's own `type` or `kind` is sent as `metric_type`, `grader_kind`,
-`candidate_kind` or `workspace_kind`.
+`candidate_kind`, `workspace_kind` or `publication_kind`.
 
 | Field | Meaning |
 |---|---|
-| `owner` | the object's owner; on an apply, a create, a pin or a list, the owner the request names, left out when it names none, which means the caller's context. On `annotation.submit`, the trial's owner |
+| `owner` | the object's owner; on an apply, a create, a pin or a list, the owner the request names, left out when it names none, which means the caller's context. On `annotation.submit`, the trial's owner; on a taxonomy action, the suite's owner; on a submission action, the submitter's, left out on the review queue |
 | `name`, `digest` | the object's name and digest (spec 002); on a baseline or bar, `suite` is the suite's name |
 | `suite_owner` | on a baseline or bar: the owner of its suite, which differs from `owner` when the suite is shared with it |
-| `shared` | on a read or use of another owner's object: whether a share record names the context owner for it, or for a suite or baseline that pins it |
+| `shared` | on a read or use of another owner's object: whether a share record names the context owner for it, or for a suite or baseline that pins it; on `suite.use` and `submission.create`, also whether one names it for the benchmark the request goes through |
 | `pinned` | on a read of another owner's task, metric, grader or suite: whether an experiment of the context owner pins it |
 | `for_owner` | the owner that would use another owner's suite or baseline: the experiment's, baseline's or bar's owner |
+| `publication`, `published` | on `suite.use` through a benchmark: the benchmark's publication id, and its `visibility` when the request resolved it by its link token or public id |
+| `metric`, `version` on a taxonomy action | the open-vocabulary metric's digest, and the record's `version`: on `taxonomy.apply`, the one it would append |
 | `metric_type`, `grader_kind`, `candidate_kind`, `workspace_kind` | the object's `type`, `kind`, or workspace kind (`none`, `origo`, `arca`) |
-| `model`, `agent`, `image`, `reasoning` | a grader's judge model or judge agent; a candidate's pinned agent version or image, its model and its reasoning level; on `report.update`, the model a narrative draft calls |
+| `model`, `agent`, `image`, `reasoning` | a grader's judge model or judge agent; a candidate's pinned agent version or a `program` candidate's image, its model and its reasoning level; on `report.update`, the model a narrative draft calls |
+| `harness` | an `external` candidate's `harness`; on `trial.lease` and `trial.submit`, that of the candidate whose trials are leased or submitted |
+| `credential_audiences` | on `candidate.apply`, the audiences a `program` candidate's `credentials` name; on `experiment.create`, those of every candidate |
 | `repository`, `commit`, `path`, `image` on a task | the workspace's Origo repository and commit, or Arca path; the environment's image digest |
 | `task_count`, `metric_count` | how many tasks and metrics a suite version pins |
 | `suite`, `suite_owner` | the experiment's suite digest and its owner |
-| `candidates`, `models`, `judge_models`, `executors` | the candidate digests; every model the candidates name; every model the suite's model judges name; the executors the candidates need, `topos` or `cella` |
+| `candidates`, `models`, `judge_models`, `executors` | the candidate digests; every model the candidates name; every model the suite's model judges name; the executors the candidates need, `topos`, `cella` or `external` |
 | `cells`, `trials`, `trials_total` | tasks × candidates; N; cells × N |
+| `budget`, `budget_cap_usd_micro` | on `experiment.create`: the Budget's name the request gave, or the cap it gave in micro-dollars in its place; on `experiment.run`, `budget` is the stored Budget's name |
+| `benchmark` | on `experiment.create`: the publication id of the benchmark the request runs another owner's suite through; on a submission action, the benchmark's publication id |
+| `benchmark_owner` | on a submission action: the benchmark's owner |
 | `reference_candidate` | on `experiment.create` and `experiment.update`: the candidate digest the experiment's `reference` names, when it names a candidate |
 | `baseline`, `baseline_owner` | the baseline record's id and its owner, when the experiment's `reference` names a baseline; on a baseline action, the baseline's |
 | `state` | on a stored experiment: its state |
 | `purpose`, `executor` | on `experiment.run`: the work about to be done (below) and its executor |
 | `cell` | on `experiment.run` and `cell.retry`: the cell's id |
+| `candidate`, `trial`, `lease`, `outcome` | on `trial.lease` and `trial.submit`: the candidate digest; the trial's id; the lease's id, on a renewal or a submit; the outcome submitted |
 | `cell_state`, `parked_reason` | on `cell.retry`: the cell's parked state, `blocked` or `over_budget`, and its `parked_reason` |
 | `grader` | on a re-grade and an annotation action: the grader version's digest |
 | `experiment` | on a report or annotation action: the experiment's id |
 | `experiments`, `all_generations`, `evidence` | on `export.create`: the experiments its filter names, and its `all_generations` and `evidence` (spec 002); on `experiment.delete`, `evidence` is the parameter of spec 007 |
 | `grantee` | the owner a share names; on `share.list`, the context owner |
+| `publication_kind`, `name`, `visibility` on a publication | the publication's `kind`, `name` and `visibility`; on `publication.create` and `publication.update`, the visibility asked for |
+| `evidence_level`, `source`, `license` | on `publication.create` and a `publication.update` that publishes a version: its evidence level; its source, the report id, suite digest or export id; and a dataset's license |
+| `submissions` | the benchmark's `submissions` setting, or on `publication.update` the one asked for |
+| `listed` | on `publication.read`, whether it is listed; on `publication.list`, true for a listing and false for its end |
+| `paused`, `reason` | on `publication.read`, whether it is paused; on `publication.pause`, true for a pause and false for a resume, with the pause's reason |
+| `version` on a publication | the version a read or a withdrawal names; absent for the latest |
+| `via` | on `publication.read` and `submission.create`, how the publication was reached: `link` (its link token), `public_id`, `listing` (an item of `GET /public/listings`), or absent for a signed-in caller by its id |
+| `report` | on `submission.create`: the report publication's id |
+| `state` on a submission | its state |
 
 A member Examen does not know for a request is left out, never sent
 empty.
@@ -235,10 +278,26 @@ request then fails closed.
 
 | Answer | Response |
 |---|---|
-| a deny of a question with no id: an apply, create, pin, share, list, export, annotation list or submit | `403 forbidden`, the authorizer's `reason` as `details.reason`, never in `message` |
+| a deny of a question with no id, or minted before the question: an apply, create, pin, share, list, export, annotation list or submit | `403 forbidden`, the authorizer's `reason` as `details.reason`, never in `message`; or, when the reason is one of the refusal codes below, that code |
 | a deny of a question about a stored object: a read, change, cancel, import, evaluation | the `404` of that object's kind, byte for byte the answer for an id that names nothing |
+| a deny of `publication.list` or `publication.pause` after `publication.read` let the same caller see the publication | `403 forbidden`, the reason as `details.reason`: the caller already knows it exists |
+| a deny of `publication.read` with no subject, on a public route | `404 publication_not_found`, byte for byte the answer for a key that resolves to nothing |
+| a deny of `publication.update`, asked on `GET /publications/{id}` after `publication.read` allowed the same caller, to decide whether the answer carries `link` | `link` is left out of the answer, and nothing else changes |
 | a deny of `suite.use` or `baseline.use`, or of `experiment.read` about an object another route's body names | `422 reference_not_found` on the member that names it, as for a missing object |
 | anything that is not a well-formed answer: another status than `200`, a body that does not parse or carries no `allow`, no answer within `authz.Timeout`, limits or a filter Examen cannot read | `503 authorizer_unavailable`, with nothing done; the error names neither the endpoint nor its bearer |
+
+**A deny reason that names a refusal code.** An authorizer may refuse
+for a reason that Examen documents as a refusal of its own. When the
+reason of a deny answered with `403` is one of the codes spec 003's
+table answers with `403`, other than `forbidden`, the answer is that
+code with its own `message`, and `details.reason` carries it too: an
+installation that refuses an experiment's create at its authorizer with
+the reason `sign_in_not_kept`, because it keeps no sign-in of the
+caller, is answered `403 sign_in_not_kept`, as if the minter had
+refused. Today that code is `sign_in_not_kept` alone. Any other reason
+stays `403 forbidden` with the reason in `details.reason`. A deny about
+a stored object stays its `404` whatever its reason, so no reason
+confirms that an object exists.
 
 An id that names nothing is `404` before any question is asked, so
 during an outage an id that exists answers `503` and one that does not
@@ -261,35 +320,57 @@ type Limits struct {
     MaxParallelism       int      // the highest parallelism an experiment may set; 0 leaves MAX_PARALLELISM
     MaxTrials            int      // cells × trials one experiment may declare; 0 is no cap beyond spec 002's
     MaxActiveExperiments int      // the owner's experiments neither complete nor canceled; 0 leaves MAX_ACTIVE_EXPERIMENTS_PER_OWNER
-    Executors            []string // the executors an experiment may use, "topos" and "cella"; empty is every configured one
+    Executors            []string // the executors an experiment may use, "topos", "cella" and "external"; empty is every configured one
     JudgeModels          []string // globs over the model ids a model judge may call; empty is all
-    Budget               string   // the Lux Budget the experiment is metered against, assigned by the authorizer; empty leaves the one the request named
+    CredentialAudiences  []string // the audiences a program candidate may be given owner tokens for; empty is none
+    Budget               string   // the Lux Budget the experiment is metered against, assigned or created by the authorizer; empty leaves the one the request named or the cap it gave
+    Attribution          string   // the name a publication version shows for its owner; empty leaves the one the request gave
 }
 ```
 
 An authorizer that is also its installation's budget authority answers
 `experiment.create` with `budget`: Examen records that Budget on the
 experiment, and a request that named a different one is refused `403
-forbidden` with `details.reason` `budget`. With no `budget` on the
-allow, the request's own `budget` is used and must exist.
+forbidden` with `details.reason` `budget`. A request that gave a cap
+in place of a name sends it as `budget_cap_usd_micro`, and such an
+authorizer creates a hard Budget of that cap for the experiment and
+answers its name in `budget`; a client never needs a Budget's name in
+advance. With no `budget` on the allow, a named Budget is used and must
+exist, and for a cap the key source decides: the `lux` source creates a
+hard Budget at Lux as the owner, with the purpose `resolve`, named
+`examen-<experiment id>`, of that amount in USD, with the window `none`
+and the experiment's labels, so the owner is its writer; the `endpoint`
+source refuses the create `422 budget_refused`, since an installation
+that keeps its own budgets writes every Budget itself.
 
-The JSON form has every member optional and exactly these keys:
-`owner`, `max_parallelism`, `max_trials`, `max_active_experiments`,
-`executors`, `judge_models`, `budget`. `DecodeLimits(authz.Decision)` reads it. An
-object that does not parse, a key this version does not know, a figure
-below zero, an empty glob and an executor that is not `topos` or `cella`
-make the answer no decision, and the request fails closed with `503
-authorizer_unavailable`: a ceiling Examen cannot read is not one it can
-hold.
+An authorizer that knows its people answers `publication.create`, and a
+`publication.update` that publishes a version, with `attribution`: the
+person's profile name or the organization's name, which the version
+shows in place of any the request gave (spec 013). It is at most
+`PUBLICATION_LINE_MAX_BYTES`.
+
+The JSON form has every member optional and exactly these keys: `owner`,
+`max_parallelism`, `max_trials`, `max_active_experiments`, `executors`,
+`judge_models`, `credential_audiences`, `budget`, `attribution`.
+`DecodeLimits(authz.Decision)` reads it. An object that does not parse,
+a key this version does not know, a figure below zero, an empty glob, an
+empty audience, an attribution that is empty or longer than
+`PUBLICATION_LINE_MAX_BYTES`, and an executor that is not `topos`,
+`cella` or `external` make the answer no decision, and the request fails
+closed with `503 authorizer_unavailable`: a ceiling Examen cannot read
+is not one it can hold.
 
 | Member | Read from the allow of | Held |
 |---|---|---|
-| `owner` | every `.apply`, `experiment.create`, `baseline.pin`, `export.create`, `report.create`, and a question that resolves a name in the caller's context (spec 003) | the object is recorded under it, and every question after carries it |
+| `owner` | every `.apply`, `experiment.create`, `baseline.pin`, `export.create`, `report.create`, `publication.create`, `submission.create`, and a question that resolves a name in the caller's context (spec 003) | the object is recorded under it, and every question after carries it |
 | `max_parallelism` | `experiment.create`, `experiment.update` | a declared `parallelism` above it is `403 forbidden` with `details.reason` `max_parallelism`; an absent one is the lower of `DEFAULT_PARALLELISM` and it |
 | `max_trials` | `experiment.create`, and `experiment.update` when it changes `trials` | `trials_total` above it is `403 forbidden`, reason `max_trials`. Retries of infrastructure failures, bounded by `MAX_INFRA_RETRIES`, are not counted |
 | `max_active_experiments` | `experiment.create` | counted with the insert, under one lock on the owner: `403 forbidden`, reason `max_active_experiments` |
 | `executors` | `experiment.create` | a candidate whose executor is not listed is `403 forbidden`, reason `executors`, on that candidate |
 | `judge_models` | `experiment.create`, `experiment.regrade` | a model judge of the suite, or the judge a re-grade names, whose model no glob matches is `403 forbidden`, reason `judge_models`, with the grader in `details.detail`. This is how an installation holds judges to the models whose data terms an owner accepts |
+| `credential_audiences` | `experiment.create` | a `program` candidate whose `credentials` name an audience the list does not hold is `403 forbidden`, reason `credential_audiences`, on that candidate. An empty or absent list allows none, so a program is given a credential only where an authorizer names its audience |
+| `budget` | `experiment.create` | recorded as the experiment's Budget (above) |
+| `attribution` | `publication.create`, and `publication.update` when it publishes a version | recorded as the version's `attribution` (spec 013) |
 
 An allow narrows spec 002's constants and never widens them: a
 `max_parallelism` above `MAX_PARALLELISM` is held to `MAX_PARALLELISM`,
@@ -300,17 +381,21 @@ limits of any other allow are not read. With no `owner` on the allow, a
 create is recorded under the owner the request named, and under the
 caller's subject when it named none. A limit refuses a request after its
 allow, so the answer is `403`, never `404`, and `details.figure` carries
-the limit's figure. With no authorizer, spec 002's constants alone hold.
+the limit's figure. With no authorizer, spec 002's constants alone hold,
+and no program is given a credential.
 
 ### Filters
 
-`filter.owners` narrows every `.list`. An allow with no filter lists the
-caller's own objects, so an authorizer that lets a caller see other
-owners names them. The request's `owner` narrows further and never
-widens, and a list that names an owner sends it in the question, so a
-service that lists one person's experiments for them is answered by a
-filter naming that person. `GET /comparisons` lists the comparisons of
-the experiments the filter of `experiment.list` admits.
+`filter.owners` narrows every list action: each `.list` but
+`publication.list`, which lists a publication for everyone rather than
+listing objects (spec 013), and `publication.browse`, which lists
+publications. An allow with no filter lists the caller's own objects, so
+an authorizer that lets a caller see other owners names them. The
+request's `owner` narrows further and never widens, and a list that
+names an owner sends it in the question, so a service that lists one
+person's experiments for them is answered by a filter naming that
+person. `GET /comparisons` lists the comparisons of the experiments the
+filter of `experiment.list` admits.
 
 `filter.labels` is applied to `metadata` on `task.list`,
 `candidate.list` and `experiment.list`, the listed kinds that have it
@@ -325,59 +410,59 @@ and decides itself. The rows, in the order they are tried:
 | Question | Answer |
 |---|---|
 | the probe id, as any subject | deny, `probe` |
+| `publication.read` with no subject, `via` `link`, `public_id` or `listing` | allow: the key resolved to a publication its visibility lets anyone read |
 | no subject | deny, `anonymous` |
 | an action outside the vocabulary, or asked about another kind | deny, `unknown_action` |
+| `publication.list`, `publication.pause` | deny, `no_review`: the policy reviews no listing and has no administrators, so nothing is listed or paused under it |
 | `share.list` naming the subject as `grantee`, or naming none | allow |
-| any other `.list` | allow, with a filter that narrows the list to the subject's own |
+| any other list action | allow, with a filter that narrows the list to the subject's own |
 | a stored object whose owner is the subject, any action | allow |
+| `submission.review` whose `benchmark_owner` is the subject | allow |
 | `suite.read`, `suite.use`, `baseline.read`, `baseline.use` with `shared` true and the subject as context owner | allow |
-| `task.read`, `metric.read`, `grader.read`, `suite.read` with `shared` or `pinned` true | allow |
-| `experiment.read`, `report.read` with `shared` true | allow |
+| `suite.use` with `published` set | allow: whoever can see a published benchmark may run it |
+| `task.read`, `metric.read`, `grader.read`, `suite.read`, `taxonomy.read` with `shared` or `pinned` true | allow |
+| `experiment.read`, `publication.read` with `shared` true | allow |
 | an apply, create, pin or export that names no owner, or names the subject | allow |
 | `experiment.run` whose `created_by` and `owner` are the subject | allow |
 | anything else | deny, `not_owner` |
 
 A subject applies, creates and pins under its own subject only; reads,
-changes, cancels and exports what it owns; annotates its own trials; and
-reads and uses what another subject shared with it. Naming another owner
+changes, cancels and exports what it owns; annotates its own trials;
+reads and uses what another subject shared with it; publishes
+`private` and `unlisted` items and reviews the submissions to its own
+benchmarks; and runs and submits to a benchmark it reached by its link. Naming another owner
 is denied for every subject, so organizations, annotators who work for
 others, and a service acting for its users need an authorizer. The
 policy has no administrators and names no limit of its own. An allow is
 narrowed by the grants of the caller's token, with `authz.Restrict`, as
 an authorizer's is, and a token whose grants cannot be read is denied.
 
-### Sharing
+### Share grants and readers who do not sign in
 
 Sharing is a later build step than the console path (spec 003); until
-it is built, an owner reaches only its own objects. A share is spec
-002's record, `{id, owner, object, suite, baseline,
-experiment, report, grantee, created_by, created_at}`, with the prefix
-`shr_`. An owner shares a suite it owns, a baseline it pinned, an
-experiment or a report with another owner through the routes of spec
-003; the question is `suite.share`, `baseline.share`,
-`experiment.share` or `report.share`, and under the owner policy the
-owner alone may ask it. A share names a suite or baseline by name, so
-it covers every record of that name, those made after it included,
-until it is removed.
+it is built, an owner reaches only its own objects. Spec 013 is the one
+definition of sharing: what a share grant lets its grantee do, a
+publication's link, and its listing. This spec holds how each reaches
+the authorizer.
 
-| Share | The grantee may | The grantee may not |
-|---|---|---|
-| a suite | read every version of the suite, and every task, metric and grader those versions pin; name any version in its own experiments, whose work is then its own, on its own budget; pin baselines and apply bars of its own on the suite | apply a version under the name, share it on, or read the sharer's experiments, candidates, baselines or bars |
-| a baseline | read the baseline's records; name one as its experiment's `reference`, so its comparisons are computed against the sharer's pinned cells | read the sharer's experiment, trials, measurements or evidence: a comparison carries the baseline side's summaries alone (spec 003) |
-| an experiment | read the experiment, its grid, cells, trials, measurements and comparisons | change, cancel, retry, re-grade, delete or share it; evidence bytes are read only as Arca allows |
-| a report | read the report's document and its released narrative (spec 010) | read a draft, or the experiment and its trials |
+A share is spec 002's record with the prefix `shr_`. The questions that
+create, remove and list one are `suite.share`, `baseline.share`,
+`experiment.share` and `publication.share`, and under the owner policy
+the owner alone may ask them. An authorizer sees a share as the field
+`shared` on a read or a use of another owner's object, and may honor or
+ignore it; the owner policy honors it. A share is a question with an
+id, so a removed share stops new reads once any cached allow has
+lapsed.
 
-A baseline is used only by an experiment of the same suite, so a
-baseline share is useful beside a share of its suite. Evidence stays in
-the sharer's Arca space, and sharing it is Arca's own act.
-
-An authorizer sees a share as the field `shared` on a read or a use of
-another owner's object, and may honor or ignore it; the owner policy
-honors it. Removing a share stops new references and new reads once any
-cached allow has lapsed. An experiment that already pins a version of a
-shared suite or a shared baseline keeps it: reads of the objects it pins
-carry `pinned: true`, and its cells, comparisons and reports keep
-reading what they pinned, so a result stays reproducible.
+A publication's visibility reaches the authorizer as `visibility`, and
+the way a request reached it as `via`. A reader who does not sign in is
+asked about as a question with no subject, the publication's id and
+`via`, so an installation can refuse public reads per owner, per kind
+or altogether, as Arca's `link.read` lets an operator refuse a link
+(spec 013). Making a publication `public` is the question
+`publication.list`, which an authorizer allows only for a listing the
+installation approved; Examen keeps no review of its own. Pausing one is
+`publication.pause`, an administrator's question.
 
 ### Acting as the owner
 
@@ -395,6 +480,7 @@ holds no credential of any core.
 | the minter | the bearer in `EXAMEN_MINTER_TOKEN_FILE` | the installation's trust in Examen |
 | the key endpoint, with the `endpoint` key source | the bearer in `EXAMEN_KEYS_TOKEN_FILE` | the installation's trust in Examen; the request names the owner and the experiment |
 | Topos, Cella, Lux, Arca, Origo | an owner token for that core's audience | the owner, on behalf of the subject below |
+| an API a `program` candidate calls | none from Examen: an owner token for the credential's audience, in a Cella Secret scoped to the credential's `host`, which Cella's egress gateway substitutes on the program's requests (spec 005) | the owner, on behalf of the subject below |
 | Postgres | the database URL (spec 011) | none |
 | the telemetry collector | the standard OpenTelemetry headers | none |
 
@@ -402,15 +488,17 @@ An owner token is asked for one piece of work, its **purpose**:
 
 | Purpose | When | Cores |
 |---|---|---|
-| `resolve` | an experiment's create checks that every pin it uses exists, that each environment image passes Cella's admission, and its budget (spec 003) | Topos (agent versions), Lux (models, the Budget), Origo (commits), Arca (workspace paths and digests), Cella (images) |
-| `trial` | a cell's rollouts: submitting, following, resizing and canceling them, the cost check's lease, and the Cella Secret of a `cella` rollout with its leased Key (spec 005) | Topos, Cella, Lux |
+| `resolve` | an experiment's create checks that every pin it uses exists, that each environment image passes Cella's admission, and its budget, and with the `lux` key source creates the Budget for a cap (spec 003); an experiment's budget figures are read (below) | Topos (agent versions), Lux (models, the Budget), Origo (commits), Arca (workspace paths and digests), Cella (images) |
+| `trial` | a cell's rollouts: submitting, following, resizing and canceling them, the cost check's lease, and the Cella Secret of a `cella` rollout with its leased Key; copying a task's inputs and references into the experiment's folder and the links that deliver them; an external trial's check sandbox, its Lux records, and the outputs its harness wrote into the owner's Arca space; and an owner token for each audience a `program` candidate's `credentials` name, delivered as a Cella Secret (spec 005) | Topos, Cella, Lux, Arca, Origo, and each credential audience |
 | `judge` | a model judge's calls through its leased Key, an agent judge's Topos session, and the evidence either reads (spec 006) | Lux, Topos, Arca |
 | `import` | reading a finished session or sandbox and its records (spec 005) | Topos, Cella, Lux, Arca |
 | `export` | writing a dataset (spec 007) | Arca |
 | `report` | a narrative draft's call through its leased Key, and a report's HTML bundle (spec 010) | Lux, Arca |
+| `publish` | a publication version's copies into its folder, its secret scan's sandbox, the Arca links of its folder and of a benchmark's inputs, and revoking them at a withdrawal or a pause (spec 013) | Arca, Cella |
 
 The token's subject is the caller, for work done during a request, and
-the experiment's or export's `created_by` for work done later. Examen
+the experiment's or export's `created_by`, or the version's
+`published_by`, for work done later. Examen
 asks for a token at first need for one owner, subject, audience,
 experiment and purpose, keeps it in memory until `OWNER_TOKEN_RENEWAL`
 before its expiry, and never uses it longer than
@@ -433,6 +521,17 @@ type Source interface {
 	// Release ends a lease: the Key stops serving. Releasing a Key
 	// already released is no error.
 	Release(ctx context.Context, keyID string) error
+	// Budget answers the figures of an experiment's Budget.
+	Budget(ctx context.Context, r Request) (Budget, error)
+}
+
+// Budget is what an experiment's answer shows of its Budget.
+type Budget struct {
+	Name      string
+	Cap       int64  // micro-units: the Budget's amount
+	Spent     int64  // micro-units: spent in its current window
+	Remaining int64  // micro-units: the smallest remainder across every Budget the experiment's Keys draw on
+	Currency  string
 }
 
 // Request names whose work a Key is for and what it may call.
@@ -442,6 +541,7 @@ type Request struct {
 	Experiment string            // the exp_ id
 	Purpose    string            // "trial", "judge" or "report"
 	Models     []string          // the only models the Key may call
+	Surface    string            // the one Lux surface the Key may call (spec 005): a program's surface; "lux" for a judge and a narrative draft
 	Labels     map[string]string // the Key's labels (spec 005)
 	TTL        time.Duration     // the longest the work can last
 }
@@ -458,8 +558,20 @@ type Lease struct {
 
 | Source | Used when | `Lease` | `Release` | `Remaining` |
 |---|---|---|---|---|
-| `lux` | `EXAMEN_KEYS_URL` is unset: Examen runs on its own | creates a Key at Lux's control plane with a Lux owner token of the request's purpose: `spec.budget` the experiment's Budget, `models`, `allowUnpriced` false, the labels and a `ttl`, so the Key's `owner` is the owner and the owner is its writer | deletes the Key | the experiment's Budget's `status.remaining`, read as the owner |
+| `lux` | `EXAMEN_KEYS_URL` is unset: Examen runs on its own | creates a Key at Lux's control plane with a Lux owner token of the request's purpose: `spec.budget` the experiment's Budget, `models`, the surface, `allowUnpriced` false, the labels and a `ttl`, so the Key's `owner` is the owner and the owner is its writer | deletes the Key | the experiment's Budget's `status.remaining`, read as the owner |
 | `endpoint` | `EXAMEN_KEYS_URL` is set: the installation keeps its own budgets | asks the installation's key endpoint (below) | `DELETE {EXAMEN_KEYS_URL}/{key id}` with the same bearer | what the endpoint answers: the smallest remainder across every Budget the Key draws on, such as the experiment's, a wallet that pays for it and a budget line above them |
+
+`Budget` reads the figures an experiment's answer carries (spec 003).
+The `lux` source reads the experiment's Budget at Lux as the owner with
+the purpose `resolve`: `spec.amount`, `status.spent` and
+`status.remaining`, money strings it turns into micro-units, and
+`spec.currency`. The `endpoint` source posts `{owner, subject,
+experiment, budget}` to `{EXAMEN_KEYS_URL}/budget` with the same bearer
+and reads `{name, cap, spent, remaining, currency}`, `remaining` the
+smallest remainder across every Budget a Key of the experiment would
+draw on. The answer is kept for `BUDGET_STATUS_TTL` per experiment, and
+any failure leaves the figures out of the experiment's answer and fails
+nothing.
 
 With `endpoint`, Examen writes no Key and no Budget at Lux: the
 installation creates, scopes and ends them, so no experiment bypasses a
@@ -482,7 +594,7 @@ Authorization: Bearer <the content of EXAMEN_KEYS_TOKEN_FILE>
 { "owner": "https://issuer.example|9ab3",
   "subject": "https://issuer.example|9ab3",
   "experiment": "exp_01jb…", "purpose": "judge",
-  "models": ["<the grader's model id>"],
+  "models": ["<the grader's model id>"], "surface": "lux",
   "labels": { "examen.experiment": "exp_01jb…", "examen.grader": "grd_01jb…" },
   "ttl": 86400 }
 ```
@@ -494,15 +606,22 @@ Authorization: Bearer <the content of EXAMEN_KEYS_TOKEN_FILE>
 | `403`, optionally with `{reason}` | `403 forbidden`, the reason as `details.reason`, `key_refused` when absent | the cell parks `blocked`, `parked_reason` the reason or `key_refused` |
 | anything else, a body that does not parse or lacks a member, an expiry already past, or no answer within `authz.Timeout`, after one retry on a connection failure | `503 owner_tokens_unavailable`, `details.reason` `key_source`, retryable | the work waits and is tried again; nothing parks for an outage |
 
-The endpoint should scope the Key to `models`, carry `labels`, and let
-it serve no longer than `ttl`; Examen holds a Key until its expiry and
+The endpoint should scope the Key to `models` and `surface`, carry
+`labels`, and let it serve no longer than `ttl`; Examen holds a Key until its expiry and
 never past it. Neither the endpoint's address nor its bearer nor a byte
 of a Key is in an error.
 
-**Inside a trial** Examen places no token. A Topos trial reaches models
-and its machine with the credentials Topos gives its sessions; a
-`cella` trial reaches Lux through the Key in its Secret, which Cella's
-egress gateway substitutes for a placeholder at the last hop.
+**Inside a trial** Examen places no token's value. A Topos trial
+reaches models and its machine with the credentials Topos gives its
+sessions; a `cella` trial reaches Lux through the Key in its Secret,
+and each API its program's `credentials` name through an owner token in
+a Secret of its own, which Cella's egress gateway substitutes for a
+placeholder at the last hop, only on a request to the Secret's host. A
+credential's token lasts at most `OWNER_TOKEN_MAX_LIFETIME`; Examen
+replaces the Secret's value `OWNER_TOKEN_RENEWAL` before it expires,
+which Cella applies without touching the sandbox (spec 005). An
+external harness holds whatever credentials its owner gave it; Examen
+gives it none.
 
 **Attribution check.** Where a core's answer names the owner it
 recorded for what Examen created, such as the `owner` of a Key the
@@ -516,8 +635,12 @@ The minter is an HTTP endpoint the operator provides, usually in front
 of the installation's identity provider. Examen asks it for one owner
 token at a time, with a bearer of its own. Examen offers no route that
 turns one token into another, and asks the minter only for work the
-authorizer allowed: the caller's action during a request, or
-`experiment.run` for unattended work.
+authorizer allowed: the caller's action during a request;
+`experiment.run` for an experiment's unattended work; or, for a
+publication version's `publish` job, which runs after its request on
+behalf of `published_by`, the `publication.create` or
+`publication.update` that asked for the version, with a withdrawal's
+or a pause's revokes covered by its own request (spec 013).
 
 ```json
 POST {EXAMEN_MINTER_URL}
@@ -538,8 +661,8 @@ Authorization: Bearer <the content of EXAMEN_MINTER_TOKEN_FILE>
 |---|---|
 | `owner` | the owner the work is for |
 | `subject` | the subject on whose behalf it happens: the caller, or the experiment's or export's `created_by` |
-| `audience` | the core's audience, from `EXAMEN_TOPOS_AUDIENCE`, `EXAMEN_CELLA_AUDIENCE`, `EXAMEN_LUX_AUDIENCE`, `EXAMEN_ARCA_AUDIENCE` or `EXAMEN_ORIGO_AUDIENCE` |
-| `claims` | `examen: {experiment, purpose}`, for the minter to place on the token where its issuer can (above) |
+| `audience` | the core's audience, from `EXAMEN_TOPOS_AUDIENCE`, `EXAMEN_CELLA_AUDIENCE`, `EXAMEN_LUX_AUDIENCE`, `EXAMEN_ARCA_AUDIENCE` or `EXAMEN_ORIGO_AUDIENCE`; or, with the purpose `trial`, an audience a `program` candidate's `credentials` name and the authorizer's `credential_audiences` hold |
+| `claims` | `examen: {experiment, purpose}`, or `examen: {publication, purpose}` for the purpose `publish`, for the minter to place on the token where its issuer can (above) |
 | `ttl` | the lifetime asked: `OWNER_TOKEN_MAX_LIFETIME`, in seconds |
 | `token`, `expires_in` | the answer: the token and its lifetime in seconds |
 
@@ -570,8 +693,8 @@ and the `200` answer are otherwise as above.
 | Minter answer | During a request | In unattended work |
 |---|---|---|
 | `200` with `token` and `expires_in` | used | used |
-| `403` with reason `sign_in_not_kept` | `403 sign_in_not_kept` | the cell parks `blocked`, `parked_reason` `sign_in_not_kept`; an export fails with the same reason |
-| `403` otherwise | `403 forbidden`, `details.reason` `owner_token_refused` | the cell parks `blocked`, `parked_reason` `owner_token_refused`; an export fails with the same reason |
+| `403` with reason `sign_in_not_kept` | `403 sign_in_not_kept` | the cell parks `blocked`, `parked_reason` `sign_in_not_kept`; an export or a publication version fails with the same reason |
+| `403` otherwise | `403 forbidden`, `details.reason` `owner_token_refused` | the cell parks `blocked`, `parked_reason` `owner_token_refused`; an export or a publication version fails with the same reason |
 | anything else, or no answer within `authz.Timeout`, after one retry on a connection failure as `authz.Retryable` judges it | `503 owner_tokens_unavailable`, retryable | the work waits and is tried again; nothing parks for an outage |
 
 A minted token is opaque to Examen, which reads none of its claims. It
@@ -584,7 +707,9 @@ An installation run by one owner may receive that owner's tokens
 instead. `EXAMEN_SOLE_OWNER` names the owner, a rendered subject, and
 `EXAMEN_OWNER_TOKEN_DIR` a directory holding one file per core, named by
 that core's configured audience (`topos`, `cella`, `lux`, `arca`,
-`origo` by default), each holding a bearer of that owner for that core.
+`origo` by default), each holding a bearer of that owner for that core,
+and one file per credential audience a `program` candidate may be
+given, named by that audience.
 Examen reads a file when its last read is older than
 `OWNER_TOKEN_RENEWAL`, so a process outside Examen may refresh it in
 place.
@@ -649,8 +774,9 @@ a test.
 
 The constants of spec 002 this spec holds: `OWNER_TOKEN_MAX_LIFETIME`,
 `OWNER_TOKEN_RENEWAL`, `MAX_PARALLELISM`, `DEFAULT_PARALLELISM`,
-`MAX_TRIALS_PER_CELL`, `MAX_INFRA_RETRIES` and
-`MAX_ACTIVE_EXPERIMENTS_PER_OWNER`.
+`MAX_TRIALS_PER_CELL`, `MAX_INFRA_RETRIES`,
+`MAX_ACTIVE_EXPERIMENTS_PER_OWNER`, `BUDGET_STATUS_TTL` and
+`PUBLICATION_LINE_MAX_BYTES`.
 
 ## Not in this spec
 
@@ -658,9 +784,12 @@ Browser sessions and cookies: a person reaches Examen through a client.
 A token exchange route, a delegation claim, or a chain of actors: a
 token's subject is the person on whose behalf the work happens, and the
 minter is the one place an installation issues tokens for Examen's
-work. Administrators. Rate limits on requests. How a core's authorizer
-reads the `examen` claim, which is that core's. Sharing evidence, which
-is Arca's. Deciding by an object's content beyond the fields sent.
+work. Administrators, beyond asking `publication.pause` of whoever an
+authorizer lets pause. Rate limits on requests. How a core's authorizer
+reads the `examen` claim, which is that core's. What each way of
+sharing grants, which is spec 013's; evidence grants of Arca's own.
+Reviewing a listing, which is the installation's. Deciding by an
+object's content beyond the fields sent.
 
 ## Acceptance criteria
 
@@ -680,7 +809,8 @@ is Arca's. Deciding by an object's content beyond the fields sent.
   through the envelope as Examen built it.
 - Every route asks its action before it acts; a question with no id is
   asked before a name is resolved; a deny and an outage are answered
-  with nothing done.
+  with nothing done; every public route asks `publication.read` with no
+  subject before it answers.
 - A deny of a route about a stored object is byte for byte the `404` of
   an id that names nothing; a deny of a create, apply, pin, share, list,
   export or submission is `403 forbidden`; a deny of `suite.use` or
@@ -701,18 +831,24 @@ is Arca's. Deciding by an object's content beyond the fields sent.
   running server, neither reads, lists, changes, cancels, imports into,
   exports or annotates anything of the other's, and neither creates in
   the other's name.
-- After a suite share, the grantee reads the suite's versions and the
-  objects they pin and runs an experiment on it under its own owner and
-  budget, and cannot apply under the name or read the sharer's
-  experiments; after a baseline share, the grantee's comparison is
-  computed against it and no route answers the sharer's trials or
-  measurements; after the share is removed, a new reference is refused
-  and an experiment that pinned the shared version still reads it.
-- After a suite share, the grantee pins a baseline and applies a bar of
-  its own on the suite; after an experiment share, the grantee reads the
-  experiment, its trials and its comparisons and cannot change, cancel,
-  re-grade or delete it; after a report share, the grantee reads the
-  report's document and released narrative and no draft.
+- A deny of `experiment.create` with the reason `sign_in_not_kept` is
+  `403 sign_in_not_kept`; a deny with any other reason is `403
+  forbidden` with that reason; a deny about a stored object is its
+  `404` whatever the reason.
+- Under the owner policy, `publication.list` and `publication.pause` are
+  denied for every subject, the owner included; `publication.read` with
+  no subject is allowed for a key that resolved and denied otherwise;
+  `suite.use` with `published` set is allowed; a deny of
+  `publication.read` with no subject answers exactly as an unknown key.
+- An allow's `attribution` replaces the name a version's request gave,
+  and an empty or overlong one is `503 authorizer_unavailable`; an
+  allow's `budget` on a create that gave `budget_cap_usd_micro` becomes
+  the experiment's Budget, and without one the `lux` source creates a
+  hard Budget of that cap as the owner and the `endpoint` source refuses
+  `422 budget_refused`.
+- `Budget` of either key source answers the experiment's cap, spend and
+  remainder, reused for `BUDGET_STATUS_TTL`; a failure leaves them out
+  and fails no read.
 - The owner policy answers the contract's conformance suite and narrows
   an allow by the grants of a token; a server whose authorizer allows
   the probe does not start.
@@ -738,7 +874,15 @@ is Arca's. Deciding by an object's content beyond the fields sent.
   work's end.
 - `experiment.run` carries the experiment's `state`, and `cell.retry`
   reaches the authorizer as its own action with the cell's parked state
-  and reason.
+  and reason; `trial.lease` and `trial.submit` reach it as their own
+  actions with the candidate, its `harness` and the lease, and the owner
+  policy allows them to the owner alone.
+- A `program` candidate whose credential names an audience outside the
+  allow's `credential_audiences`, or any audience with no authorizer, is
+  refused `403 forbidden` with reason `credential_audiences`; an allowed
+  one is minted with the purpose `trial` for that audience, reaches the
+  sandbox only as a Secret scoped to its `host`, and is in no response,
+  log line, span, event, error or database row, by canary.
 - A deny of `experiment.run` parks the cell `canceled` with
   `run_denied` and starts no trial; an outage holds the work.
 - A Key whose recorded owner differs from the experiment's owner is

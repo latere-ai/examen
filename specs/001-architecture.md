@@ -1,5 +1,5 @@
 ---
-title: "Architecture: a thin core that defines experiments on agents, records measurements and decides what changed, while Topos and Cella run every trial, Lux meters it and Arca keeps the evidence"
+title: "Architecture: a thin core that defines experiments on agents and on programs built on models, records measurements and decides what changed, while Topos, Cella or the owner's own harness runs every trial, Lux meters it and Arca keeps the evidence"
 status: drafted
 track: core
 depends_on: []
@@ -14,14 +14,21 @@ author: changkun
 
 ## Overview
 
-Examen runs experiments on agents and tells you what changed. You
-define tasks, the metrics that matter, and the graders that measure
-them. You name the agent configurations to compare and how many trials
-each gets. Examen asks the cores that already run agents and sandboxes
-to execute the trials, records every measurement with everything that
-conditioned it, and compares each candidate with a reference, a pinned
-baseline or another candidate of the same experiment: per metric,
-improved, regressed, or within noise, with the confounds named.
+Examen runs experiments on agents and on programs built on models, and
+tells you what changed. You define tasks, with the inputs they give and
+the outputs expected, the metrics that matter, and the graders that
+measure them. You name the systems under test to compare and how many
+trials each gets: a Topos agent configuration, a program in an image
+(an agent command-line tool of any vendor, or Examen's HTTP runner
+calling an API such as Lectio's), or a configuration of your own
+harness. Examen asks the cores that already run agents and sandboxes to
+execute the trials, or hands them to your harness, records every
+measurement with everything that conditioned it, and compares each
+candidate with a reference, a pinned baseline or another candidate of
+the same experiment: per metric, improved, regressed, or within noise,
+with the confounds named. What it measured can be shared: a report, a
+suite others can run with the results submitted to it, or a dataset,
+each published as immutable versions.
 
 Examen is one of a family of open cores, and it is thin on purpose. It
 owns the definitions, the measurements and the analysis, and nothing
@@ -31,28 +38,35 @@ else:
   Topos agent is a Topos session, and a cell's trials execute as Topos
   rollouts.
 - [Cella](https://github.com/latere-ai/cella) runs sandboxes. A trial of
-  an agent packaged as an image is one replica of a Cella SandboxSet,
-  and every trial's checks run in its Cella machine.
+  a program packaged as an image is one replica of a Cella SandboxSet;
+  every executed trial's checks run in its Cella machine, and an
+  external trial's in a fresh Cella sandbox, the check sandbox.
 - [Lux](https://github.com/latere-ai/lux) carries every model call. An
   experiment's spend is one Lux Budget, its cost comes from Lux's
   records, and a model judge is one call through Lux on a Key from
   Examen's key source.
 - [Arca](https://github.com/latere-ai/arca) keeps the evidence: a Topos
   trial's in its session's own folder, and everything Examen writes in
-  the owner's reserved folder `files/evals/`, exported datasets
-  included. [Origo](https://github.com/latere-ai/origo) holds the
-  repositories a task starts from.
+  the owner's reserved folder `files/evals/`, exported datasets and
+  published versions included, which readers reach through Arca's
+  read-only links. [Origo](https://github.com/latere-ai/origo) holds the
+  repositories a task starts from and may take inputs from.
+- Your own harness may run the trials of an `external` candidate
+  wherever it likes: it leases them from Examen and submits each
+  trial's outcome and outputs, which Examen grades like any trial's.
 - An authorizer you write decides who may do what, with the contract
   of [`pkg/authz`](https://github.com/latere-ai/pkg).
 
 Examen executes nothing itself: no agent loop, no sandbox, no model
-call on a trial's behalf, no task or check code.
+call on a trial's behalf, no task or check code, and no request to a
+host a task or a candidate names.
 
 ## Problem
 
-Anyone who builds on agents asks the same question whenever a model,
-an agent's instructions, its tools or its harness change: did the
-change move what the agent does on the tasks that matter? Answering it
+Anyone who builds on agents, or on programs and APIs that call models,
+asks the same question whenever a model, an agent's instructions, its
+tools, its harness or a program's configuration change: did the change
+move what the system does on the tasks that matter? Answering it
 by hand means scripting runs, pinning versions, retrying failures,
 reading transcripts and building tables, and redoing it for the next
 change. It goes wrong in ways that corrupt conclusions silently: two
@@ -64,18 +78,26 @@ one that moved by chance reported as the result.
 ## Concepts
 
 Spec 002 defines every object and its fields. In one paragraph: a
-**task** is a versioned unit of work with its **checks**. A **suite**
-groups tasks with the **metrics** they are measured on and the
-**graders** that produce them. A **candidate** is one fully pinned agent
-configuration. An **experiment** runs a suite against candidates; each
-task × candidate pair is a **cell**, the unit of comparison, and its
-**trials** are one agent attempt each. A cell's trials execute as
-**rollouts**: a smoke rollout, the main rollout, and retry rollouts. A
-grader turns a trial into **measurements**. An experiment's
-**reference** is a **baseline**, which pins an earlier experiment's
-measurements, or one of its own candidates, the first by default; a
-**comparison** classifies each metric's change of a candidate against
-it; a **bar** fails a release when a change crosses it.
+**task** is a versioned unit of work with its inputs, its reference
+outputs and its **checks**. A **suite** groups tasks with the
+**metrics** they are measured on and the **graders** that produce them.
+A **candidate** is one fully pinned system under test: an agent, a
+program, or an external harness's configuration. An **experiment** runs
+a suite against candidates; each task × candidate pair is a **cell**,
+the unit of comparison, and its **trials** are one attempt each. A
+cell's trials execute as **rollouts**: a smoke rollout, the main
+rollout, and retry rollouts. A grader turns a trial into
+**measurements**; a metric's **level** says whether its value belongs
+to a trial, to a cell, computed by Examen from the cell's trial values,
+or to a candidate, from a judge over all its trials, and a `label`
+metric of **open vocabulary** reads its judges' raw labels through a
+versioned **taxonomy** of the suite. An experiment's **reference** is a **baseline**, which
+pins an earlier experiment's measurements, or one of its own candidates,
+the first by default; a **comparison** classifies each metric's change
+of a candidate against it; a **bar** fails a release when a change
+crosses it. A **publication** shares a report, a benchmark or a dataset
+as immutable versions, at a visibility: only people invited, anyone
+with the link, or listed.
 
 ```mermaid
 flowchart TB
@@ -85,14 +107,21 @@ flowchart TB
     M[Measurements] --> CMP[Comparison vs reference]
     CMP --> BAR[Bars]
     CMP --> R[Reports, dataset export]
+    R --> PUB[Publications: report, benchmark, dataset]
   end
+  PUB -->|published files, read-only links| EV
+  READER[A reader without sign-in] -->|link or public id| PUB
   C -->|Topos agent candidate: rollouts| T[Topos: one session per trial]
-  C -->|image candidate: one set per rollout| CE[Cella: SandboxSet, one replica per trial]
+  C -->|program candidate: one set per rollout| CE[Cella: SandboxSet, one replica per trial]
+  C -->|external candidate: leased trials| H[The owner's harness]
+  H -->|outcome and outputs| X
+  X -->|external trial's checks: check sandbox| CE
   T -->|machine| CE
   T -->|checks run in the machine before the session ends| EV[("Arca: session folders and files/evals/")]
   CE --> EV
   T -->|model calls| L[Lux: one budget per experiment]
   CE --> L
+  H -->|model calls, labeled with the trial| L
   T -->|trial records| M
   CE -->|trial records| M
   J[Model judges] -->|one structured call| L
@@ -104,10 +133,14 @@ flowchart TB
 1. **Apply.** A suite and an experiment are applied. Examen validates
    every pinned reference, asks the authorizer whether the owner may
    run it, and expands the cells.
-2. **Budget.** The experiment names one Lux Budget. Every model call its
+2. **Budget.** The experiment names one Lux Budget, or gives a cap for
+   one made for it by the authorizer or, on its own, by Examen as the
+   owner. Every model call its
    trials and judges make is metered against it, through Keys that
-   Examen's key source leases or that Topos issues its sessions. Examen
-   keeps no spend ledger of its own.
+   Examen's key source leases or that Topos issues its sessions; an
+   external harness calls models on Keys its owner gave it, which draw
+   on the Budget when the owner makes them. Examen keeps no spend ledger
+   of its own.
 3. **Smoke.** Each cell first runs `SMOKE_TRIALS` trials as its smoke
    rollout. A cell whose smoke trial fails for a reason other than the
    agent's own behavior parks as blocked. The smoke cost estimates the
@@ -117,7 +150,9 @@ flowchart TB
 4. **Rollouts.** For each cell past its cost check, Examen submits the
    main rollout to the executor for the candidate's kind: the remaining
    trials, a parallelism bound, the task, its checks, the budget, and,
-   for a `cella` rollout, where evidence goes. A task's cells are dealt
+   for a `cella` or `external` rollout, where evidence goes. Before a
+   task's first rollout, its inputs and references are copied once into
+   the experiment's folder in Arca. A task's cells are dealt
    trials round robin, so candidates compared within one experiment run
    in one time window. Trials that failed for an infrastructure reason
    run again in retry rollouts.
@@ -125,7 +160,9 @@ flowchart TB
    task's checks inside the trial's Cella machine, keeps the evidence
    in Arca, and reports the trial: outcome, the measurements the checks
    produced, what was sent and what served, where the evidence is,
-   cost.
+   cost. An external harness runs its leased trials and submits each
+   one's outcome and outputs; its checks run in a check sandbox, and
+   its cost is read from Lux by the trial's request ids or label.
 6. **Judges.** Graders that need judgment run over the stored evidence
    after the trial: a model judge as one structured call through Lux,
    an agent judge as a session of a pinned Topos agent, and the decline
@@ -150,8 +187,9 @@ and cancels it. Spec 005 fixes the contract.
 
 | Executor | Candidate kind | Executes through | Built today |
 |---|---|---|---|
-| `topos` | a Topos agent version, with a model and reasoning override | Topos rollouts: one session per trial, each in its own Cella machine, the checks run in the machine before the session ends | Topos sessions, budgets and metadata are built; the rollout and the model override are proposed |
-| `cella` | an agent program packaged as an image, any vendor's command-line agent | one Cella SandboxSet per rollout: one replica per trial of the task's environment template, with the candidate's program mounted read-only into it from the candidate's image, so the environment is identical across candidates; the checks as the completion command, results collected | designed (Cella spec 020), not built |
+| `topos` | `topos`: a Topos agent version, with a model, reasoning and tools override | Topos rollouts: one session per trial, each in its own Cella machine, the checks run in the machine before the session ends | Topos sessions, budgets and metadata are built; the rollout and the model override are proposed |
+| `cella` | `program`: a program packaged as an image, pinned by digest, with its command, environment and configuration: an agent command-line tool of any vendor, the HTTP runner that calls an API, or any other | one Cella SandboxSet per rollout: one replica per trial of the task's environment template, with the program mounted read-only into it from its image, so the environment is identical across candidates; the checks as the completion command, results collected | designed (Cella spec 020), not built |
+| `external` | `external`: a configuration of the owner's own harness, its name, version and an optional digest, declared and not observed | none of Examen's: the harness leases pending trials and submits each one's outcome, outputs and the Lux request ids of its model calls; each trial's checks run in a check sandbox, one Cella sandbox from the task's environment template | a single Cella sandbox with its file routes and exec is built; a check with an image also needs Cella's image Volumes (Cella spec 019) |
 
 ## Place in the platform
 
@@ -167,6 +205,8 @@ on purpose:
 | Lux Budgets and usage records | Stay in Lux. Examen names a budget, takes Keys from its key source, and reads cost |
 | Agon's adversarial review | Stays a library. An agent judge may use it |
 | Instruction tests: measuring a change to an agent's instructions | Become Examen experiments whose variable is the agent version |
+| Evaluating an API built on models, such as Lectio's, with a client written for the occasion | Becomes an Examen experiment whose candidates are the HTTP runner with each configuration, scored against expected outputs by the built-in comparators |
+| A team's own evaluation harness, scoring its own runs | Can stay where it runs: as an `external` candidate it leases Examen's trials and submits outputs that Examen grades, with its provenance marked declared |
 | The model router's evaluation set, a training loop's evaluation gate | Become Examen suites and bars; a training loop reads Examen's dataset export |
 | Live monitoring and oversight of automated actions | Not Examen. Examen is offline: it measures trials and imported samples |
 
@@ -175,30 +215,34 @@ on purpose:
 Each decision names the alternative it rejects.
 
 1. **Examen executes nothing.** Rollouts are a primitive of Topos and
-   Cella. *Rejected:* Examen starting and tracking sessions itself,
-   which builds a second rollout mechanism beside the SandboxSet Cella
-   designs for this, and drifts from both.
+   Cella, and an external harness runs its own. *Rejected:* Examen
+   starting and tracking sessions itself, which builds a second rollout
+   mechanism beside the SandboxSet Cella designs for this, and drifts
+   from both.
 2. **Checks run inside the trial's Cella machine, before it ends.** The
-   executor runs them and returns measurements. *Rejected:* copying
-   artifacts out after the trial and grading elsewhere, which needs a
-   sandbox of Examen's own and loses the environment the work was done
-   in.
+   executor runs them and returns measurements. An external trial's
+   work was not done in a machine of Examen's, so its checks run in a
+   fresh Cella sandbox from the task's environment template, the check
+   sandbox, with its outputs delivered. *Rejected:* copying artifacts
+   out after an executed trial and grading elsewhere, which loses the
+   environment the work was done in; and a sandbox of Examen's own.
 3. **Two judge kinds, the model judge by default.** A model judge is one
    structured call through Lux with a pinned model, prompt and rubric:
    cheap and reproducible. An agent judge is a session of a pinned
    Topos agent, for a judgment that needs tools to inspect the work.
    *Rejected:* agent judges only, which costs more and varies more for
    judgments a single call makes.
-4. **A candidate overrides model and reasoning on a pinned agent version.**
-   The override is part of the provenance tuple and the agent's digest
-   stays the same, so comparing two models on one agent is a
-   single-variable comparison. *Rejected:* deriving a Topos agent
-   version per model, which changes the digest and confounds every
-   model comparison. The Topos rollout must accept the override.
+4. **A candidate overrides model and reasoning on a pinned agent
+   version.** The override is part of the provenance tuple and the
+   agent's digest stays the same, so comparing two models on one agent
+   is a single-variable comparison. *Rejected:* deriving a Topos agent
+   version per model, which changes the digest and confounds every model
+   comparison. The Topos rollout must accept the override.
 5. **One Lux Budget per experiment, and Keys from a key source.** Every
    model call is metered against the experiment's Budget. The Keys
    Examen's own calls need come from a key source: the `lux` source
-   creates them at Lux as the owner when Examen runs on its own, and
+   creates them at Lux as the owner when Examen runs on its own, with
+   the Budget of an experiment that gave a cap in place of a name, and
    the `endpoint` source asks an installation that keeps its own
    budgets, which then writes every Key and Budget itself and reports
    the smallest remainder the cost check reads. *Rejected:* a spend
@@ -209,18 +253,27 @@ Each decision names the alternative it rejects.
    Examen's own records go to the owner's reserved folder
    `files/evals/`.** The Topos rollout reports each object's path and
    digest, and Examen references them where they are. The experiment
-   and cell manifests, judge rationale, a `cella` trial's evidence,
-   dataset exports and report bundles live under `files/evals/`.
-   Examen keeps references and digests. *Rejected:* Examen copying
-   evidence out of a session's folder, which makes two copies to keep
-   consistent and two places to delete.
+   and cell manifests, the copies of each task's inputs and references,
+   judge rationale, a `cella` trial's evidence, an external trial's
+   outputs and check outputs, dataset exports and report bundles live
+   under `files/evals/`.
+   Examen keeps references and digests. The one copy is a published
+   version's: the evidence its owner publishes is copied into the
+   version's folder under `files/evals/publications/`, so a snapshot
+   stands when its source is deleted and one Arca link covers exactly
+   what was published (spec 013). *Rejected:* Examen copying evidence
+   out of a session's folder for its own records, which makes two
+   copies to keep consistent and two places to delete.
 7. **Statistics are part of the contract, not a report option.** N is
    declared before a cell runs. No task-level verdict before
    `MIN_TRIALS_FOR_VERDICT` finished trials, and no suite-level verdict
    below `MIN_SUITE_COVERAGE`. Noise comes from within-cell spread.
    Binary task-level results use Boschloo's exact unconditional test on
    a fixed grid, numeric ones a permutation test of their declared
-   aggregate, and intervals are Wilson and Newcombe for rates,
+   aggregate, label distributions Fisher, Freeman and Halton's exact
+   test, or a permutation of the chi-square statistic with a fixed seed
+   when its tables are too many to enumerate, and intervals are Wilson
+   and Newcombe for rates,
    bootstrap-t for means and exact order-statistic intervals for
    quantiles. Each comparison's p-values form two parts: the primary
    metric's suite-level result, one pre-declared test reported without
@@ -244,7 +297,10 @@ Each decision names the alternative it rejects.
 10. **Trials Examen did not start can be graded.** A finished Topos
     session or Cella sandbox is imported as a trial with its provenance
     read from its records, so the same graders score production
-    samples. Built after the executed path. *Rejected:* executed trials
+    samples, and an external harness's past run is imported with its
+    times, harness version and image declared, so a study run before
+    Examen is backfilled and marked declared. Built after the executed
+    path. *Rejected:* executed trials
     only, which leaves the graders unusable on real traffic.
 11. **Public benchmarks are imported as ordinary tasks.** A manifest
     format, no built-in benchmark adapters. *Rejected:* shipping
@@ -258,19 +314,93 @@ Each decision names the alternative it rejects.
     evaluation mechanisms.
 14. **Offline only.** Examen measures trials and imported samples; live
     monitoring stays with the observability and oversight systems.
-15. **A task starts from a pinned Origo commit or a pinned Arca path.**
-    *Rejected:* arbitrary URLs, which cannot be pinned or authorized.
+15. **A task starts from a pinned Origo commit or a pinned Arca path,**
+    and takes its inputs and references from the same or from inline
+    text. *Rejected:* arbitrary URLs, which cannot be pinned or
+    authorized, and which examend would have to fetch.
 16. **The first consumer is people comparing agents in a console.** The
     first slice is the path a comparison needs: suites, candidates and
     experiments with an automatic comparison against their reference,
     the `topos` executor, checks and model judges, the analysis, and a
     read API, the paged grid, comparison rows and the progress stream,
     that a console renders from without computing any statistic itself.
-    Bars, dataset export, agent judges, annotations, imported trials,
-    the `cella` executor, adoption, label tests, the gap map, trends,
-    shares and reports follow (specs/README.md). *Rejected:* a training
-    loop or the release bar first, which exercises the same core but
-    leaves people without a way to compare agents.
+    The built-in comparators follow, useful to agent tasks with
+    reference outputs too, then the `external` executor with its check
+    sandbox, then label tests with open vocabularies and the cell and
+    candidate levels, external history import, bars, dataset export,
+    publishing, agent judges, annotations, imported trials, the `cella`
+    executor with the `program` kind and the HTTP runner once Cella's
+    SandboxSet exists, adoption, the gap map, trends and report exports
+    (specs/README.md).
+    *Rejected:* a training loop or the release bar first, which
+    exercises the same core but leaves people without a way to compare
+    agents.
+17. **Three kinds of system under test.** A candidate is a Topos agent,
+    a program in an image, or an external harness's configuration. An
+    agent command-line tool of any vendor is one kind of program, not
+    the definition of one. *Rejected:* agents only, which leaves
+    programs and APIs built on models unmeasured; and a kind per vendor
+    tool, which grows with every vendor.
+18. **APIs are evaluated through programs.** An API is called by a
+    program in a trial's sandbox, under its network policy: Examen's
+    HTTP runner, driven by the candidate's configuration, with owner
+    tokens for the APIs it calls placed as Cella Secrets. *Rejected:* a
+    direct HTTP executor in examend, which would make examend an
+    outbound client of arbitrary hosts and an SSRF surface; and asking
+    every user to write a client.
+19. **References are hidden from the system under test.** A task's
+    expected outputs reach only its checks: after the system under
+    test's processes have stopped, or in a check sandbox it never ran
+    in. *Rejected:* delivering references with the inputs, which lets a
+    system under test copy the answer.
+20. **Comparators are checks.** Reference-based scoring runs as ordinary
+    check graders over Examen's first-party comparator image, so it
+    needs no model judge and produces the owner's declared metrics.
+    *Rejected:* a model judge for exact or field-level comparison, which
+    costs a call and adds variance where a program decides; and
+    comparison code in examend, which would run check code there.
+21. **An external harness runs its own trials, and its provenance is
+    declared.** It leases trials and submits outcomes and outputs, which
+    the task's checks grade in a check sandbox; it declares its model,
+    reasoning and settings explicitly, so its configurations are
+    compared one field at a time; its cost is read from Lux by request
+    id or label, and is unknown, never zero, when Lux holds no record of
+    it. Values it computes itself are kept as self-reported, never
+    headlined, and named as a confound wherever they are read.
+    *Rejected:* trusting self-reported scores, which lets a harness
+    grade itself; and requiring every harness to be packaged as an
+    image, which shuts out harnesses that cannot be.
+22. **Results are shared as published snapshots, and sharing has one
+    definition.** Only people invited is a share grant of one owner to
+    another; anyone with the link and listed reach a publication, a
+    report, a benchmark or a dataset published as immutable versions
+    with a digest, at the evidence level its owner chose, after a
+    secret scan in a Cella sandbox for any trial content, with evidence
+    served through Arca read-only links Examen creates and revokes.
+    `public` comes only through a listing the installation approves:
+    Examen asks the authorizer `publication.list` and keeps no review
+    of its own. A reader who does not sign in reads published versions
+    only, and the authorizer is still asked, with no subject. A
+    benchmark groups entries whose intervals overlap and never ranks
+    them bare (spec 013). *Rejected:* anonymous reads of live objects,
+    which change under a reader and expose what was never chosen for
+    publication; a review flow in the core, which would duplicate the
+    installation's; file links minted by Examen, which would make it a
+    second file server beside Arca; and a ranking, which reads
+    differences the data cannot show.
+23. **A metric has a level, and a label may have an open vocabulary.**
+    A metric belongs to a trial, to a cell, as a statistic Examen
+    computes from the cell's trial values (`mode_share`,
+    `distinct_count`), or to a candidate, from a judge over all its
+    trials, with generations. A label metric may leave its labels open:
+    a judge proposes a raw label per trial, and the suite's taxonomy,
+    versioned and changed by the owner or a pinned canonicalizer, maps
+    it to a canonical label; results name the taxonomy version they
+    read, and a change appends a version, never rewriting a
+    measurement (specs 006 and 008). *Rejected:* forcing every label
+    into a closed list before a study runs, which loses what nobody
+    expected; and rewriting stored labels when a taxonomy changes,
+    which makes a past comparison irreproducible.
 
 ## Service shape
 
@@ -285,20 +415,22 @@ client and any console use the same API. Spec 011 covers distribution.
 |---|---|
 | 002 Objects | every object, its fields, states, identifiers and limits |
 | 003 API | the contract a client codes against, its errors, and the event sink |
-| 004 Identity and authorization | the authorizer contract, actions, the built-in owner policy, sharing, acting as the owner, the key source |
-| 005 Execution | the executor contract, the `topos` and `cella` executors, smoke and the cost check, retries and retrying a parked cell, cancellation, imported trials |
-| 006 Grading | checks, model judges, agent judges, annotations, the decline judge, generations, calibration |
+| 004 Identity and authorization | the authorizer contract, actions, the built-in owner policy, share grants and readers who do not sign in, acting as the owner, the key source |
+| 005 Execution | the executor contract, the `topos`, `cella` and `external` executors, task inputs and references, the HTTP runner, the check sandbox, smoke and the cost check, retries and retrying a parked cell, cancellation, imported trials and external past runs, an API's own cost |
+| 006 Grading | checks, the built-in comparators, model judges, candidate-level judges, agent judges, annotations, the decline judge, generations, open vocabularies and their taxonomies, calibration |
 | 007 Measurements and evidence | the measurement store, provenance layers, evidence references and where evidence lives, retention, dataset export |
-| 008 Analysis | aggregation and intervals, tests, the primary result and the corrected family, confounds, automatic comparisons, verdicts and reasons, trends |
+| 008 Analysis | aggregation and intervals by metric level, tests and the label tests, the primary result and the corrected family, confounds, automatic comparisons, verdicts and reasons, trends |
 | 009 Bars | bar rules, evaluation, release use, bar events |
-| 010 Reports | what a console reads and shows, the report document, export, sharing |
+| 010 Reports | what a console reads and shows, the report document, export |
 | 011 Distribution | the binary, configuration, Postgres, upgrades, versioning |
-| 012 Security | untrusted task content, judges reading hostile output, cost exhaustion, evidence privacy |
+| 012 Security | untrusted task content, judges reading hostile output, references hidden from the system under test, credentials given to programs, external harnesses, cost exhaustion, evidence privacy, published evidence and readers without sign-in |
+| 013 Publishing | the one definition of sharing; reports, benchmarks and datasets as published snapshots, evidence levels and the secret scan, Arca links, reads without sign-in, benchmark submissions and results, withdrawal, pause, attribution |
 
 ## Acceptance criteria
 
 - No code path in Examen starts a model call, a sandbox or an agent
-  loop for a trial; every trial is executed through an executor.
+  loop for a trial; every trial is executed through an executor, and
+  examend sends no request to a host a task or a candidate names.
 - A check's measurements arrive from the executor; Examen never executes
   task or check code.
 - An experiment without a budget, or whose smallest remainder cannot
@@ -318,6 +450,19 @@ client and any console use the same API. Spec 011 covers distribution.
   readable beside them.
 - Re-grading with a changed judge appends a generation; earlier ones
   are unchanged.
+- No sandbox holds a task's references while its system under test can
+  run, and no lease answer carries one.
+- A value an external harness reports for itself is never headlined,
+  and every result that reads it names `self_reported`; a comparison
+  with an external side marks its provenance declared.
+- Two configurations of one program compared in one experiment yield a
+  single-variable comparison.
+- A published version never changes, and no request makes a
+  publication `public` without the authorizer allowing
+  `publication.list`; a withdrawn version's links stop resolving and
+  its Arca links are revoked.
+- A taxonomy change appends a version and leaves every measurement and
+  every final comparison as it was.
 
 ## Open questions
 
