@@ -9,7 +9,7 @@ depends_on:
 affects: [authorizer/, internal/access/, internal/owner/, internal/keys/, internal/httpapi/, internal/execute/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -153,7 +153,7 @@ checks before the wire. Each action names one kind.
 | `Report` | `report.update` | `POST /reports/{id}/draft`, `PUT /reports/{id}/narrative`, `POST /reports/{id}/exports` | id; `owner`, `experiment`, `model` |
 | `Report` | `report.release` | `POST /reports/{id}/release` | id; `owner`, `experiment` |
 | `Publication` | `publication.create` | `POST /publications` | id (minted before the question); `owner`, `publication_kind`, `name`, `visibility`, `evidence_level`, `source`, `license`, `submissions` |
-| `Publication` | `publication.read` | `GET /publications/{id}`, `GET /publications/{id}/versions/{n}`, `GET /publications/{id}/results`, and before `publication.list` and `publication.pause`; every public route, asked with no subject | id; `owner`, `publication_kind`, `visibility`, `listed`, `paused`, `version`, `via`, `shared` |
+| `Publication` | `publication.read` | `GET /publications/{id}`, `GET /publications/{id}/versions/{n}`, `GET /publications/{id}/results`, `GET /publications/{id}/results/compare`, and before `publication.list` and `publication.pause`; every public route, asked with no subject | id; `owner`, `publication_kind`, `visibility`, `listed`, `paused`, `version`, `via`, `shared` |
 | `Publication` | `publication.browse` | `GET /publications` | `owner`, `publication_kind`, `visibility` |
 | `Publication` | `publication.update` | `PATCH /publications/{id}`, `POST /publications/{id}/versions`, `POST /publications/{id}/link`; `GET /publications/{id}`, to decide whether its answer carries `link` | id; `owner`, `publication_kind`, `visibility`, `evidence_level`, `source`, `license`, `submissions`, `version` (the latest version number the request saw, so an authorizer can refuse a stale change) |
 | `Publication` | `publication.withdraw` | `POST /publications/{id}/versions/{n}/withdraw` | id; `owner`, `publication_kind`, `version` |
@@ -238,8 +238,11 @@ The shared contract, `latere.ai/x/pkg/authz`: Examen posts the subject,
 its issuer and `sub` apart, every verified claim verbatim, the action
 and the resource, with a bearer of its own, and receives `{allow,
 reason, ttl, limits, filter}`. The request also carries what is known of
-the HTTP request: its id, the peer address and the user agent. Examen
-fills no `workload` member.
+the HTTP request: its id, the peer address and the user agent. A
+question with no subject, a public read's, leaves out the peer address
+and the user agent, so every reader of one published version asks one
+question, which the cache below absorbs; spec 003's per-address limit
+still holds each reader. Examen fills no `workload` member.
 
 The endpoint is `EXAMEN_AUTHORIZER_URL`. Its bearer is the content of
 the file `EXAMEN_AUTHORIZER_TOKEN_FILE` names, read once at start and
@@ -368,7 +371,7 @@ is not one it can hold.
 | `max_active_experiments` | `experiment.create` | counted with the insert, under one lock on the owner: `403 forbidden`, reason `max_active_experiments` |
 | `executors` | `experiment.create` | a candidate whose executor is not listed is `403 forbidden`, reason `executors`, on that candidate |
 | `judge_models` | `experiment.create`, `experiment.regrade` | a model judge of the suite, or the judge a re-grade names, whose model no glob matches is `403 forbidden`, reason `judge_models`, with the grader in `details.detail`. This is how an installation holds judges to the models whose data terms an owner accepts |
-| `credential_audiences` | `experiment.create` | a `program` candidate whose `credentials` name an audience the list does not hold is `403 forbidden`, reason `credential_audiences`, on that candidate. An empty or absent list allows none, so a program is given a credential only where an authorizer names its audience |
+| `credential_audiences` | `experiment.create` | a `program` candidate whose `credentials` name an audience the list does not hold is `403 forbidden`, reason `credential_audiences`, on that candidate. An empty or absent list allows none, so a program is given a credential only where an authorizer names its audience. No list admits a core audience Examen acts through or Examen's own: a credential naming one is refused at apply, `422 credential_audience_reserved` (spec 003), so a program under test never holds a token toward the services that run it, meter it, keep its evidence or grade it |
 | `budget` | `experiment.create` | recorded as the experiment's Budget (above) |
 | `attribution` | `publication.create`, and `publication.update` when it publishes a version | recorded as the version's `attribution` (spec 013) |
 
@@ -494,7 +497,7 @@ An owner token is asked for one piece of work, its **purpose**:
 | `import` | reading a finished session or sandbox and its records (spec 005) | Topos, Cella, Lux, Arca |
 | `export` | writing a dataset (spec 007) | Arca |
 | `report` | a narrative draft's call through its leased Key, and a report's HTML bundle (spec 010) | Lux, Arca |
-| `publish` | a publication version's copies into its folder, its secret scan's sandbox, the Arca links of its folder and of a benchmark's inputs, and revoking them at a withdrawal or a pause (spec 013) | Arca, Cella |
+| `publish` | a publication version's copies into its folder, its secret scan's sandbox, the Arca link of its folder, replaced when the publication is made `private` or its link token replaced and revoked at a withdrawal (spec 013); and the input links a `prepare` job mints on a published benchmark's files for one run, as the benchmark's owner (spec 005) | Arca, Cella |
 
 The token's subject is the caller, for work done during a request, and
 the experiment's or export's `created_by`, or the version's
@@ -636,11 +639,17 @@ of the installation's identity provider. Examen asks it for one owner
 token at a time, with a bearer of its own. Examen offers no route that
 turns one token into another, and asks the minter only for work the
 authorizer allowed: the caller's action during a request;
-`experiment.run` for an experiment's unattended work; or, for a
+`experiment.run` for an experiment's unattended work; for a
 publication version's `publish` job, which runs after its request on
 behalf of `published_by`, the `publication.create` or
 `publication.update` that asked for the version, with a withdrawal's
-or a pause's revokes covered by its own request (spec 013).
+revokes and a change to `private`'s or a new link token's link
+replacements covered by their own requests (spec 013); or, for the
+`prepare` job of an experiment run through another owner's published
+benchmark, the `suite.use` that let its create run it: the job asks for
+an `arca` token of the benchmark's owner on behalf of the version's
+`published_by`, with the purpose `publish`, to mint that run's input
+links (spec 005).
 
 ```json
 POST {EXAMEN_MINTER_URL}
@@ -661,8 +670,8 @@ Authorization: Bearer <the content of EXAMEN_MINTER_TOKEN_FILE>
 |---|---|
 | `owner` | the owner the work is for |
 | `subject` | the subject on whose behalf it happens: the caller, or the experiment's or export's `created_by` |
-| `audience` | the core's audience, from `EXAMEN_TOPOS_AUDIENCE`, `EXAMEN_CELLA_AUDIENCE`, `EXAMEN_LUX_AUDIENCE`, `EXAMEN_ARCA_AUDIENCE` or `EXAMEN_ORIGO_AUDIENCE`; or, with the purpose `trial`, an audience a `program` candidate's `credentials` name and the authorizer's `credential_audiences` hold |
-| `claims` | `examen: {experiment, purpose}`, or `examen: {publication, purpose}` for the purpose `publish`, for the minter to place on the token where its issuer can (above) |
+| `audience` | the core's audience, from `EXAMEN_TOPOS_AUDIENCE`, `EXAMEN_CELLA_AUDIENCE`, `EXAMEN_LUX_AUDIENCE`, `EXAMEN_ARCA_AUDIENCE` or `EXAMEN_ORIGO_AUDIENCE`; or, with the purpose `trial`, an audience a `program` candidate's `credentials` name and the authorizer's `credential_audiences` hold, which is never one of those five nor Examen's own, so a minter can tell a program's credential from Examen's own work by the audience alone |
+| `claims` | `examen: {experiment, purpose}`, or `examen: {publication, purpose}` for the purpose `publish`, and `examen: {publication, experiment, purpose}` for a `prepare` job's input links, for the minter to place on the token where its issuer can (above) |
 | `ttl` | the lifetime asked: `OWNER_TOKEN_MAX_LIFETIME`, in seconds |
 | `token`, `expires_in` | the answer: the token and its lifetime in seconds |
 
@@ -877,6 +886,11 @@ object's content beyond the fields sent.
   and reason; `trial.lease` and `trial.submit` reach it as their own
   actions with the candidate, its `harness` and the lease, and the owner
   policy allows them to the owner alone.
+- A question with no subject carries no peer address and no user agent,
+  and two readers of one published version hit one cached answer.
+- A `program` candidate whose credential names a core audience or
+  Examen's own is refused at apply `422 credential_audience_reserved`,
+  whatever the authorizer holds.
 - A `program` candidate whose credential names an audience outside the
   allow's `credential_audiences`, or any audience with no authorizer, is
   refused `403 forbidden` with reason `credential_audiences`; an allowed

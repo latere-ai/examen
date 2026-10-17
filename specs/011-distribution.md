@@ -16,7 +16,7 @@ depends_on:
 affects: [cmd/examend/, internal/config/, internal/version/, internal/store/migrations/, test/stubs/, deploy/, docs/, Makefile, Dockerfile, .lateregate.yaml, .githooks/, .github/, CHANGELOG.md]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -154,11 +154,12 @@ configuration, and `examend` reads none of them.
 | `EXAMEN_KEYS_URL` | none: the `lux` key source, which creates Keys at Lux as the owner | spec 004 |
 | `EXAMEN_KEYS_TOKEN_FILE` | none; required with `EXAMEN_KEYS_URL` | spec 004 |
 | `EXAMEN_TOPOS_URL` | none: candidates of kind `topos` and agent judges are refused | spec 005 |
-| `EXAMEN_CELLA_URL` | none: candidates of kind `program`, and `external` candidates on a suite whose tasks have checks, are refused | spec 005 |
+| `EXAMEN_CELLA_URL` | none: candidates of kind `program`, `external` candidates on a suite whose tasks have checks, and every publication version, whose secret scan runs in Cella, are refused | spec 005 |
 | `EXAMEN_CELLA_ENVIRONMENT` | none; required with `EXAMEN_CELLA_URL`: the `queued` Cella Environment a SandboxSet and a check sandbox run in | spec 005 |
 | `EXAMEN_LUX_URL` | none: no experiment can be created | spec 005 |
 | `EXAMEN_ARCA_URL` | none: tasks with an `arca` workspace or with inputs, references or outputs, judges that read evidence, `external` candidates, exports, and publications that carry files are refused | spec 007 |
 | `EXAMEN_ARCA_PUBLIC_URL` | `EXAMEN_ARCA_URL`: the address readers reach Arca at, on which a public read builds evidence links | spec 013 |
+| `EXAMEN_FILESTORE_DOWNLOAD_ONLY` | `false`: publication versions at `outputs` and `full` are refused, `422 file_store_not_download_only`. `true` declares that every link read of the file store answers `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`, so a published file a model wrote is downloaded and never rendered on the file store's origin; Examen cannot check the declaration, and an operator sets it only once the file store does so | spec 013 |
 | `EXAMEN_ORIGO_URL` | none: tasks with an `origo` workspace are refused | spec 005 |
 | `EXAMEN_TOPOS_AUDIENCE` | `topos` | spec 004 |
 | `EXAMEN_CELLA_AUDIENCE` | `cella` | spec 004 |
@@ -304,7 +305,10 @@ Export starts when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; without it,
 logs are JSON lines on stderr at `EXAMEN_LOG_LEVEL` and traces and
 metrics are discarded. Every request is a span through `otel.Handler`.
 Every outbound call goes through `otel.HTTPClient`, so a call's span
-joins the core's trace. Each work item is a span carrying
+joins the core's trace; its instrumentation scrubs each outbound URL
+before it reaches a span or a log line, dropping the query and the
+token segment of an Arca link's path, so no link Examen mints, a
+`prepare` job's input links among them, reaches telemetry. Each work item is a span carrying
 `examen.experiment`, `examen.cell` and `examen.trial` as attributes.
 
 | Metric | Kind | Labels |
@@ -399,7 +403,7 @@ host.
 | Lux | budgets, model judges, cost; with the `lux` key source, the Keys Examen creates | no experiment can be created |
 | a key endpoint | Keys from an installation that keeps its own budgets (spec 004) | the `lux` key source: Examen creates its Keys at Lux as the owner |
 | Topos, itself running sessions in Cella | candidates of kind `topos`, agent judges | those are refused |
-| Cella | candidates of kind `program`; the check sandboxes of `external` trials; the secret scan of a publication at `outputs` or `full` | those are refused |
+| Cella | candidates of kind `program`; the check sandboxes of `cella` and `external` trials; the secret scan of every publication version | those are refused |
 | Arca | `arca` workspaces, task inputs, references and outputs, evidence for judges, `external` candidates, exports, published files and their links | those are refused |
 | Origo | `origo` workspaces | those are refused |
 | an authorizer | organizations as owners, annotators and services acting for others, limits | the owner policy (spec 004) |
@@ -487,7 +491,11 @@ log (spec 007). The text of `SECURITY.md` (spec 012).
   its comparison, and no request leaves for an address the
   configuration does not name.
 - No log line, span or metric label carries a token, a Key's value, a
-  link token or a task's instruction, by the canary of spec 004 and
-  one planted as a publication's link token.
+  link token, an Arca link's token or a task's instruction, by the
+  canary of spec 004, one planted as a publication's link token and
+  one planted as a `prepare` job's input link.
+- Without `EXAMEN_FILESTORE_DOWNLOAD_ONLY` set to `true`, a
+  publication version at `outputs` or `full` is refused before
+  anything is copied.
 - No file of the repository names an installation's hostname, account
   or credential, by the gate's identity scan.

@@ -14,7 +14,7 @@ depends_on:
 affects: [internal/bar/, internal/events/, api/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -61,7 +61,7 @@ failing on any `regressed` verdict for its metric.
 | `at_least: v` | the metric's entry in the comparison's `candidate_suite` (spec 008) | its `value` is at least `v` | `below`, `insufficient`, `missing`, `self_reported` |
 | `at_most: v` | the same | its `value` is at most `v` | `above`, `insufficient`, `missing`, `self_reported` |
 | `require_single_variable: true` | the comparison's `single_variable` | it is true | `confounded`, listing the tuple confounds that make it false; a layer confound or `missing` leaves `single_variable` true, and the other rules fail on missing values themselves |
-| `allow_partial: false` (the default) | the suite-level results the other rules read | none leaves a task of the suite out | `incomplete`, naming each task left out and why |
+| `allow_partial: false` (the default) | the results the other rules read | no suite-level result leaves a task of the suite out, and no result carries the confound `incomplete` (spec 008) | `incomplete`, naming each task left out and why, and each side's excluded trials with their counts |
 
 - A `candidate_suite` entry is **insufficient** when the tasks it
   includes, those with at least `MIN_TRIALS_PER_TASK_IN_SUITE` valued
@@ -94,7 +94,9 @@ Otherwise it **fails**.
 
 **Applying a bar** is refused, naming the rule, when a rule's metric
 is not in the current version of the bar's suite; when `no_regression` names a metric whose
-direction is `none`, which can never regress; when any rule names a
+direction is `none`, which can never regress, or a `mode_share` or
+`distinct_count` metric, whose results are descriptive and carry no
+verdict (spec 008); when any rule names a
 candidate-level metric, whose result has no verdict and no summary to
 bound (spec 008); when `at_least` or
 `at_most` names a `label` metric, which has no scalar summary, or a
@@ -102,6 +104,17 @@ value outside what the metric can take (`[0, 1]` for a rate, the
 metric's `range` for a score, at least zero for a count, a duration
 and a cost); and when the bar has more than `MAX_RULES_PER_BAR`
 rules.
+
+**The taxonomy a bar reads.** An open-vocabulary metric's labels mean
+what the suite's taxonomy record at the time says, and a later record
+can move a raw label from one canonical label to another (spec 006). So
+a bar pins, in `taxonomies` (spec 002), the record of each
+open-vocabulary metric a rule reads, directly or as a cell-level
+metric's `of`: the suite's current record at apply when the body names
+none. The pin is covered by the bar's digest, so applying the same
+rules after the taxonomy moved makes a new bar version, and a release
+decision never changes because someone remapped a label after the bar
+was set.
 
 ### Evaluation
 
@@ -118,9 +131,11 @@ refused with the error of spec 003 of the reason's name when:
 The comparison is the one the request names, or else the newest final
 comparison of the candidate against the experiment's `reference` whose
 inputs are current: no grading has been appended to a trial it read
-since. When there is none, Examen computes one (spec 008) and the
-evaluation waits for it in state `pending`. A bar reads only a
-comparison with `final` true: a provisional one can still change.
+since. Either must have read the taxonomy records the bar pins; when
+the one named read others, or none qualifies, Examen computes one of
+the same pair at the bar's records (spec 008) and the evaluation waits
+for it in state `pending`. A bar reads only a comparison with `final`
+true: a provisional one can still change.
 
 The evaluation reads only the comparison: the verdicts, summaries and
 corrected values were computed and stored there, and the bar
@@ -300,7 +315,7 @@ bar for the gating candidate only.
 | baseline: the mean pass rate of five runs of the suite | the baseline `main`; the reference side's suite-level `task_passed` rate |
 | noise: twice the standard deviation of those five pass rates | the primary metric's suite-level test at `FALSE_DISCOVERY_RATE`, uncorrected, from within-cell spread on both sides, with its interval at `CONFIDENCE_LEVEL` |
 | threshold: baseline less noise, rounded down | no threshold figure: `no_regression` fails when the suite-level verdict is `regressed` |
-| an incomplete run never passes | `allow_partial` is false, its default: a suite-level result that leaves any task out fails `incomplete`, and the evaluation's `inputs` list the tasks left out and why |
+| an incomplete run never passes | `allow_partial` is false, its default: a suite-level result that leaves any task out, or any result with trials excluded and not replaced by a finished retry, fails `incomplete`, and the evaluation's `inputs` list the tasks left out and the excluded trials' counts |
 | other models report and never gate | other candidates are compared and reported; the bar is evaluated for the gating candidate |
 | changing the pinned model measures a new baseline first | a release that changes the agent and the model at once differs from `main` in two logical variables, is not single-variable, and fails `require_single_variable` until `main` is moved to an experiment of the new model |
 | the CI key's Lux budget and `TOPOS_TASKS_BUDGET` | the experiment's one Lux Budget |
@@ -315,11 +330,12 @@ candidate whose own pass rate swings widely needs a larger drop to be
 called a regression, and a steady one a smaller drop.
 
 A release bar keeps Topos's rule that an incomplete run never passes:
-`allow_partial` is false by default, so a parked cell fails the bar
-`incomplete` until the cell is retried. A bar that sets `allow_partial`
-reads a suite-level result that covers at least `MIN_SUITE_COVERAGE` of
-the suite, with the tasks left out named beside it, which suits a
-nightly comparison more than a release.
+`allow_partial` is false by default, so a parked cell, and an index
+whose trial failed to run after its retries, fail the bar `incomplete`
+until the cell is retried. A bar that sets `allow_partial` reads a
+suite-level result that covers at least `MIN_SUITE_COVERAGE` of the
+suite, with the tasks left out and the excluded trials named beside
+it, which suits a nightly comparison more than a release.
 
 ### Limits
 
@@ -348,11 +364,12 @@ own job. A command-line client, which Examen does not ship.
 |---|---|
 | `no_regression` at each scope fails exactly on a `regressed`, `insufficient` or value-missing result in its scope and passes otherwise; its default scope is `all` | `bar.TestNoRegressionScopes` |
 | `at_least` and `at_most` compare the `candidate_suite` summary with the value, and fail `insufficient` when its coverage is below `MIN_SUITE_COVERAGE` | `bar.TestBounds` |
-| With `allow_partial` false, any rule reading a suite-level result that leaves a task out fails `incomplete` and names the task; with it true, the result stands at `MIN_SUITE_COVERAGE` | `bar.TestIncompleteRun` |
+| With `allow_partial` false, any rule reading a suite-level result that leaves a task out, or a result that carries `incomplete`, fails `incomplete` and names the task and the excluded counts; with it true, the result stands at `MIN_SUITE_COVERAGE` | `bar.TestIncompleteRun` |
+| A bar pins the suite's current taxonomy record at apply; an evaluation reads only a comparison at the pinned record, and computes one of the same pair at it when none exists, whatever record the suite has moved to | `bar.TestTaxonomyPin` |
 | Missing values fail a rule, except for a metric an annotation grader produces | `bar.TestMissingFailsClosed` |
 | A rule that reads a result with the confound `self_reported` fails with `self_reported` | `bar.TestSelfReportedFailsClosed` |
 | `require_single_variable` fails a comparison with a tuple confound and lists it, and passes one whose only confounds are layer confounds | `bar.TestRequireSingleVariable` |
-| Applying a bar with an unknown metric, `no_regression` on a direction-`none` metric, a rule on a candidate-level metric, a bound on a label metric, an out-of-range value, or more than `MAX_RULES_PER_BAR` rules is refused naming the rule | `bar.TestApplyRefusals` |
+| Applying a bar with an unknown metric, `no_regression` on a direction-`none` metric or on a `mode_share` or `distinct_count` metric, a rule on a candidate-level metric, a bound on a label metric, an out-of-range value, or more than `MAX_RULES_PER_BAR` rules is refused naming the rule | `bar.TestApplyRefusals` |
 | An evaluation of an experiment that is not complete, canceled, on another suite version, or for its reference candidate is refused with its reason; an evaluation reads only a final comparison | `bar.TestEvaluationRefusals` |
 | An evaluation computes no statistic, and two evaluations of one bar version against one comparison give the same result | `bar.TestEvaluationReadsOnlyTheComparison` |
 | A complete evaluation is immutable, its `inputs` and `rules` reproduce its `result`, and it stays readable after its comparison's experiment is deleted | `bar.TestEvaluationIsSelfContained` |

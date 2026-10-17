@@ -10,7 +10,7 @@ depends_on:
 affects: [internal/execute/, internal/execute/topos/, internal/execute/cella/, internal/execute/external/, internal/queue/, internal/luxread/, cmd/examen-trial/, cmd/examen-http/]
 effort: xlarge
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -26,8 +26,9 @@ candidate of kind `topos`, `cella` for a candidate of kind `program`,
 and `external` for a candidate of kind `external`. It fixes how a
 task's inputs reach the system under test and its references reach
 only the checks, the HTTP runner that lets a `program` candidate
-evaluate an API, and the check sandbox in which an external trial's
-checks run. It also fixes what examend owns around the executors: the
+evaluate an API, and the check sandbox in which a `cella` or `external`
+trial's checks run, with network `none`, apart from where its system
+under test ran. It also fixes what examend owns around the executors: the
 work queue that spreads an experiment's parallelism across its cells,
 the smoke trials and the cost check, retries of infrastructure failures
 with their lineage, what happens when a Budget runs out, retrying a
@@ -146,13 +147,13 @@ trial carried (below). A `TrialReport` carries:
 | `State` | `pending`, `running`, `checking`, `done` |
 | `Outcome` | once `done`: one of spec 002's outcomes |
 | `Failure` | for `infra_failed`, `over_budget` and `canceled`: `{code, detail}`, a stable code and a developer's detail |
-| `Sent` | each model request as the executor's records show it was sent: `{at, model, reasoning, lux_request}`; for an external trial, which no forwarder sees, read from Lux's records (below) |
+| `Sent` | each model request as it was sent: `{at, model, reasoning, lux_request}`; for a `topos` trial from the session's records, and for a `cella` or `external` trial from Lux's records of the trial's requests, never from a file the program could write (below) |
 | `Lux` | where Lux's records of the trial are: `{keys []string, requests []string, request_label string, by_owner bool}`, the Keys that served it, the request ids an external harness submitted, the label that marks its records, and whether the owner's records are read as well as the Keys' (below) |
 | `Executor` | what the executor's own records add to `observed`: per request `{lux_request, usage, cost_micro}` from Topos, the program's exit code and the wall times from Cella |
 | `ServiceVersions` | the `service_versions` a program wrote to `/examen/observed.json` or an external harness submitted: an object from a service's name to its version; empty for a `topos` trial |
 | `ServiceUsage` | the `service_usage` a program wrote to `/examen/observed.json` or an external harness submitted: an object from a service's name to `{cost_usd_micro, units}`, what that API reported its own usage of the trial to be (Cost and the sent and observed layers, below); empty for a `topos` trial |
 | `Declared` | for an `external` trial: the `declared` its harness submitted, `{harness_version, image}` |
-| `Checks` | one `CheckRun` per check, in order: `{grader, state, exit_code, stdout, stdout_size, stdout_sha256, stderr_tail, duration}`, `stdout` at most `CHECK_MAX_OUTPUT_BYTES` and the size and digest of the whole; a check that did not run to its end does not change the trial's outcome; spec 006 turns it into measurements |
+| `Checks` | for a `topos` trial: one `CheckRun` per check, in order: `{grader, state, exit_code, stdout, stdout_size, stdout_sha256, stderr_tail, duration}`, `stdout` at most `CHECK_MAX_OUTPUT_BYTES` and the size and digest of the whole; a check that did not run to its end does not change the trial's outcome; spec 006 turns it into measurements. A `cella` or `external` trial's report carries none: its checks run afterward in the check sandbox (below), which records the same runs |
 | `Evidence` | each evidence object, as spec 007's evidence ref: its kind, name, path, SHA-256 digest computed while writing, size, and Arca's `checksum` and `checksum_kind`; for a `topos` trial, the objects its session keeps in its own folder, as the rollout reports them (R9) |
 | `StartedAt`, `AgentEndedAt`, `EndedAt` | the agent's first step, the agent's end, and the trial's end after its checks and evidence |
 | `Tuple` | on an imported trial only: the provenance tuple read from the records |
@@ -231,14 +232,14 @@ on, and acting twice changes nothing the first act did not.
 |---|---|
 | `prepare` | copies one task's inputs and references into the experiment's folder (below), before the first rollout of the task is submitted |
 | `submit` | submits one rollout; the rollout's row moves `submitting` to `submitted` with its handle |
-| `report` | calls `Report` for one submitted rollout every `REPORT_INTERVAL`, applies it, and enqueues what follows: grading of each trial that reached `done` (spec 006), the cost check, a retry round, parking on a spent Budget, the cell's next state; for a `cella` rollout it also delivers each replica's references once its program has ended, and replaces a credential Secret's value `OWNER_TOKEN_RENEWAL` before its token expires |
-| `check_sandbox` | runs one submitted external trial's checks in its check sandbox (below) |
+| `report` | calls `Report` for one submitted rollout every `REPORT_INTERVAL`, applies it, and enqueues what follows: the check sandbox of each `cella` trial whose evidence is exported, grading of each trial that reached `done` (spec 006), the cost check, a retry round, parking on a spent Budget, the cell's next state; for a `cella` rollout it also replaces a credential Secret's value `OWNER_TOKEN_RENEWAL` before its token expires |
+| `check_sandbox` | runs one `cella` or `external` trial's checks in its check sandbox (below), once the trial's outputs are exported or submitted |
 | `cost_check` | the cost check, after a cell's smoke trials are graded and at a cell's retry |
 | `resize` | sets a rollout's parallelism to its share |
 | `watch` | the deadlines below and lapsed leases of external trials, every `REPORT_INTERVAL` |
 | `cancel` | cancels an experiment's open rollouts |
 | `usage` | reads Lux's records of a trial `USAGE_SETTLE_DELAY` after it ended |
-| `publish` | builds one publication version, copies its files, runs its secret scan and creates its Arca links, or revokes a version's links after a withdrawal or a pause, retried until Arca accepts (spec 013) |
+| `publish` | builds one publication version, copies its files, runs its secret scan and creates its Arca links, or revokes a version's links after a withdrawal and replaces them after a change to `private` or a new link token, retried until Arca accepts (spec 013) |
 
 Cells advance task by task, in the suite's order, and an experiment's
 smoke rollouts are submitted before any main rollout, so every cell is
@@ -374,11 +375,11 @@ outcome is retried automatically.
 | Bound | Covers | Enforced by | Past it |
 |---|---|---|---|
 | the task's resolved `timeout` | the agent's work, from its first step to its end | the executor | `timed_out` |
-| `CHECK_TIMEOUT` | all of one trial's checks together | the executor | spec 006 |
-| the trial's deadline: `timeout` + `CHECK_TIMEOUT` + `TRIAL_GRACE` from `StartedAt` | the whole trial, machine start and evidence writing included | examend's `watch` | `Cancel` of that trial, then `infra_failed` with code `deadline_passed` |
+| `CHECK_TIMEOUT` | all of one trial's checks together | the executor, or examend's check sandbox job | spec 006 |
+| the trial's deadline: `timeout` + `CHECK_TIMEOUT` + `TRIAL_GRACE` from `StartedAt`, and for a `cella` trial `timeout` + `TRIAL_GRACE` | the whole trial, machine start and evidence writing included, and a `topos` trial's checks | examend's `watch` | `Cancel` of that trial, then `infra_failed` with code `deadline_passed` |
 | `TRIAL_START_TIMEOUT` | a pending trial of a rollout running fewer trials than its parallelism, counted from the later of the rollout's submission and the last end of one of its trials; not an `external` trial, which waits for a harness to lease it | examend's `watch` | `Cancel` of that trial, then `infra_failed` with code `not_started` |
 | `EXTERNAL_LEASE` | a leased external trial, from its lease or its last renewal | examend's `watch` | the trial returns to pending with its id, its lease ends, and no retry is spent |
-| an external trial's deadline: `CHECK_TIMEOUT` + `TRIAL_GRACE` from its submit or import | its check sandbox and evidence | examend's `watch` | its check sandbox is deleted, then `infra_failed` with code `deadline_passed` |
+| the check deadline: `CHECK_TIMEOUT` + `TRIAL_GRACE` from a `cella` trial's export, or an external trial's submit or import | its check sandbox and evidence | examend's `watch` | its check sandbox is deleted, then `infra_failed` with code `deadline_passed` |
 
 The deadline exists for an executor that stops reporting; the executor
 enforces the first two bounds itself. An external trial's `timeout` is
@@ -397,8 +398,8 @@ measurement is kept. Spend after a cancel is bounded by how fast each
 core stops: the `cella` executor releases the rollout's Key to the key
 source and deletes its credential Secrets in the same job, the `topos`
 executor relies on R13 below, and the `external` executor ends every
-lease of the experiment, so a later submit is `409 lease_not_held`, and
-deletes its check sandboxes.
+lease of the experiment, so a later submit is `409 lease_not_held`; the
+check sandboxes of `cella` and `external` trials are deleted.
 
 ### Restarts and resubmission
 
@@ -504,7 +505,7 @@ ends:
 
 | Layer | Source | Fields |
 |---|---|---|
-| `sent` | the executor's records of each request | when, the model the request named, the reasoning level it carried, the Lux request id |
+| `sent` | for a `topos` trial, the session's records of each request; for a `cella` or `external` trial, Lux's records of the trial's requests | when, the model the request named, the reasoning level it carried, the Lux request id |
 | `observed` | Lux's records, joined per request by the Lux request id, with the executor's records beside them; the trial report's `ServiceVersions` | the Lux Model resolved, the provider and the `upstreamModel` that served, `status` and `error`, `tokens` (`input`, `output`, `cachedInput`, `cacheWrite`, `reasoning`, `estimated`), `cost` (`amount` in micro-units, `currency`, `priced`); `service_versions` |
 
 The executor reports where Lux's records of a trial are: the ids of the
@@ -529,11 +530,17 @@ with the trial, which the HTTP runner asks of every service it calls
 labels, not by a request's, so the owner read walks every record of the
 owner in the trial's window and keeps the labeled ones. It is correct
 and grows with the owner's traffic. L1: a filter of `GET /v1/requests`
-by a request label makes it one query.
+by a request label makes it one query. L2: a Key scoped to one surface,
+which Lux's Keys cannot name today; until they can, a `cella` rollout's
+Key is leased with its `surface` recorded and not enforced, and a
+program can reach a model through any surface its Key's models allow
+(The `cella` executor, below).
 
-For an external trial, `sent` is read from the same records: the model
-each request named and, where Lux records one, the reasoning level it
-carried.
+For a `cella` or `external` trial, `sent` is read from the same
+records: the model each request named and, where Lux records one, the
+reasoning level it carried. A `cella` trial's forwarder also writes
+`requests.jsonl`, which is kept as evidence and never read as either
+layer, since the program shares the replica and could write it.
 
 The trial's cost is the sum of its records' `cost.amount`, in the
 Budget's currency. Lux's figure is the authority (spec 001, decision 5).
@@ -591,16 +598,23 @@ the task `blocked`, `parked_reason` `input_changed` naming the input.
 Each file is written once, create-only. For an experiment run through
 a published benchmark (spec 013), whose tasks are another owner's, the
 job reads each Arca input and reference, and each check's `files`, of
-the benchmark owner's space through the Arca links the benchmark
-version holds, with each digest checked, and copies the checks' files
-beside them under `.../tasks/<task hex>/check-files/<grader hex>/`,
-from which they are delivered as the experiment owner's own (spec
-007).
+the benchmark owner's space through Arca links it mints for this run:
+as the benchmark's owner on behalf of the version's `published_by`,
+with the purpose `publish` (spec 004), one link on exactly each object
+or folder, each expiring `INPUT_LINK_TTL` after it is minted. The links
+are kept in the job's row only while the job runs, so a restarted
+examend reuses them, and are revoked when it ends; they are never
+answered, never logged, and scrubbed from every span (spec 011). The
+job checks each digest and copies the checks' files beside the inputs
+under `.../tasks/<task hex>/check-files/<grader hex>/`, from which they
+are delivered as the experiment owner's own (spec 007). The copies are
+the runner's: whoever runs a benchmark can read its references and
+checks, which is why a benchmark is open and not held out (spec 013).
 
 | Executor | Inputs | References | Outputs |
 |---|---|---|---|
-| `topos` | under `examen/inputs/` of the session's working directory, before the first step (R15) | read-only at `/examen/reference/`, after every process of the turn is stopped (R8) | the files and directories the task names under `/examen/outputs/`, kept in the session's folder with the output manifest (R9) |
-| `cella` | read by the trial driver into `/examen/inputs/` through a read link on the inputs folder, before the program starts | read by the completion command into `/examen/reference/` through a read link examend writes into the replica only after the program's processes are stopped (below) | collected from `/examen/outputs/` with the replica's evidence; the export sandbox writes each directory output as an archive and the output manifest |
+| `topos` | under `examen/inputs/` of the session's working directory, before the first step (R15) | read-only at `/examen/reference/`, after every process of the turn is stopped and the machine's network is `none` (R8) | the files and directories the task names under `/examen/outputs/`, kept in the session's folder with the output manifest (R9) |
+| `cella` | read by the trial driver into `/examen/inputs/` through a read link on the inputs folder, before the program starts | written into the check sandbox alone, after the replica has ended and its outputs are exported; the replica holds no link to them and nothing in it can ask for them | collected from `/examen/outputs/` with the replica's evidence; the export sandbox writes each directory output as an archive and the output manifest |
 | `external` | one presigned link per input from Arca's materialize route on the inputs folder, in the lease answer (spec 003) | written into the check sandbox alone | submitted by the harness, a file inline or from the owner's Arca space and a directory as an archive there, and written by examend under the trial's folder with the output manifest |
 
 A check reads the outputs at `EXAMEN_OUTPUTS` and the references at
@@ -636,19 +650,21 @@ its path, size and SHA-256, and whether it was kept.
   leaves the output directory refuses the whole archive: the output is
   recorded as refused in the manifest and keeps no file.
 
-The checks of a `topos` or `cella` trial run in the trial's machine,
-over the directory as the system under test left it, so the limits
-bound what is kept as evidence and not what the checks read. An
-external trial's check sandbox receives what was kept: each kept file
+The checks of a `topos` trial run in the trial's machine, over the
+directory as the system under test left it, so the limits bound what
+is kept as evidence and not what the checks read. A `cella` or
+`external` trial's check sandbox receives what was kept: each kept file
 under `/examen/outputs/`, and the manifest at `EXAMEN_OUTPUTS_MANIFEST`
-(spec 006), so a check can account for a file kept by digest alone.
-When its outputs passed a limit or its archive was refused, its checks
-do not run: each check run is `not_run` with the reason
-`outputs_over_limit` or `outputs_refused`, and their metrics are missing
-for that trial, never read from part of what it produced. No sandbox holds a link to a task's
-references while its system under test can run, and no reference
-reaches an external harness: a system under test never sees the answer
-it is graded against.
+(spec 006), so a check can account for a file kept by digest alone; a
+task whose checks read a program's working directory names it as a
+directory output. When its outputs passed a limit or its archive was
+refused, its checks do not run: each check run is `not_run` with the
+reason `outputs_over_limit` or `outputs_refused`, and their metrics are
+missing for that trial, never read from part of what it produced. No
+sandbox holds a link to a task's references while its system under
+test can run, no sandbox a program ran in ever holds one, and no
+reference reaches an external harness: a system under test never sees
+the answer it is graded against.
 
 ### The `topos` executor
 
@@ -753,10 +769,13 @@ R1 to R15:
    session's own thread; the bound ends the turn with a stop reason of
    its own, distinct from the turn deadline's `turn_limit`.
 8. **Checks in the machine.** After the turn ends and before the machine
-   is released, every process the turn started is stopped, the checks'
-   files (a pinned Arca folder, spec 006), each check's `image` and the
-   task's references (an Arca folder, delivered at `/examen/reference/`)
-   are delivered read-only, and
+   is released, every process the turn started is stopped, the
+   machine's network is set to `none` for the whole check phase, the
+   checks' files (a pinned Arca folder, spec 006), each check's `image`
+   and the task's references (an Arca folder, delivered at
+   `/examen/reference/`) are delivered read-only, read with the
+   server's own file-store identity and never with the identity of the
+   agent's workload, and
    the rollout's check commands run in order in the session's machine,
    in the working directory the agent left, as spec 006 fixes: with the
    session's log written into the machine as JSONL and the final
@@ -797,43 +816,49 @@ R1 to R15:
     has a pinned environment.
 15. **Input files.** The rollout may name an Arca folder whose files,
     each with its SHA-256, are delivered under `examen/inputs/` of each
-    session's working directory before the first step; a digest that
-    does not match fails the session before the agent starts, with a
-    code the report carries, as for R6.
+    session's working directory before the first step, read with the
+    server's own file-store identity as R8's are; a digest that does
+    not match fails the session before the agent starts, with a code
+    the report carries, as for R6.
 
 ### The `cella` executor
 
 One rollout is one Cella SandboxSet: one replica per trial of one
-sandbox template, the checks as the completion command, the results
-collected into a Volume and then into Arca.
+sandbox template, the results collected into a Volume and then into
+Arca. Each trial's checks then run in its check sandbox (below), never
+in the replica: the program and the checks share no machine, the
+replica never holds the references, a link to them or the checks'
+files, and nothing in it can cause their delivery.
 
 **Which image runs.** A sandbox runs one image, and spec 002 pins two:
 the task's `environment` and the `program` candidate's `image`. The
-replica runs the task's environment image, because the checks were
-written for it and run where the work was done (spec 001, decision 2).
-The program's image reaches the replica as a read-only Volume filled
-from that image (Cella spec 019, `source.kind: image`), mounted at
-`/examen/program`, and its `command` runs from there. The program must
-therefore run from that mount: statically linked, or carrying its own
-loader and libraries under its root. A program that needs its own root
-file system cannot run on this executor; running it needs a sandbox of
-two images, which Cella does not design. The tuple carries both
-digests. A check grader's `image` reaches the replica the same way, at
-`/examen/check-images/<image hex>`.
+replica runs the task's environment image, the environment every
+candidate of the task gets, and the check sandbox runs the same image,
+so the checks run on the system they were written for (spec 001,
+decision 2). The program's image reaches the replica as a read-only
+Volume filled from that image (Cella spec 019, `source.kind: image`),
+mounted at `/examen/program`, and its `command` runs from there. The
+program must therefore run from that mount: statically linked, or
+carrying its own loader and libraries under its root. A program that
+needs its own root file system cannot run on this executor; running it
+needs a sandbox of two images, which Cella does not design. The tuple
+carries both digests. A check grader's `image` reaches the check
+sandbox the same way, at `/examen/check-images/<image hex>`, and never
+the replica.
 
 **Objects.**
 
 | Object | Per | Holds |
 |---|---|---|
 | the tools Volume | owner and examend build | `examen-trial`, a static binary, filled from the trial driver image whose digest the examend build pins; `shared-read` |
-| the program Volume | owner and program image digest | the `program` candidate's image; `shared-read`; named from the digest, so every rollout of that candidate reuses it |
-| a check image Volume | owner and check image digest | one check grader's `image`, such as the comparator image (spec 006); `shared-read`; named from the digest |
+| the program Volume | owner and program image digest | the `program` candidate's image; `shared-read`; named from the digest, so every rollout of that candidate reuses it, and at every attach examend reads the Volume's source digest and attaches it only when it equals the name's, else the rollout fails `infra_failed` with `volume_mismatch` and the Volume is not used |
+| a check image Volume | owner and check image digest | one check grader's `image`, such as the comparator image (spec 006); `shared-read`; named from the digest and verified by its source digest at every attach, as the program Volume is; attached to check sandboxes alone |
 | the results Volume | rollout | `shared-read`, `retain` true until every replica is exported, then deleted |
 | the rollout's Lux Key | rollout | for a candidate that names a `model`, leased from the key source with the purpose `trial` (spec 004): `models` the candidate's model alone, the candidate's `surface` alone, the rollout's labels, a `ttl` of the rollout's longest possible life; the `lux` source names the experiment's Budget and allows no unpriced model. examend leases it before submitting: at the cost check for the main rollout, at submission for the others. Its id, never its value, is kept as the rollout's `key_id` (spec 002), so it is released at the rollout's end after a restart too |
 | the Lux Secret | rollout | the Key's value as a Cella Secret scoped to Lux's host, mounted under the candidate's key variable |
 | the credential Secrets | rollout | one per entry of the candidate's `credentials`: the owner token for its audience as a Cella Secret scoped to its `host` and injected into the `Authorization` header as a bearer, mounted under its `env`, or for `file` under a variable the driver writes into that file. The token lasts at most `OWNER_TOKEN_MAX_LIFETIME`, so examend replaces the Secret's value `OWNER_TOKEN_RENEWAL` before it expires while the rollout is open, which Cella applies at its gateway without touching a replica, since a replica holds only the placeholder; deleted at the rollout's end |
 | the Arca Secret | rollout | a token of the owner for Arca, scoped to Arca's host, lasting the export's life; Secrets are not refreshed, so its life is bounded; mounted only in the export sandbox, which runs no agent code |
-| Arca read links | trial | one per folder a replica reads (an `arca` workspace, the task's inputs, the checks' `files`), on exactly that folder, expiring at the trial's deadline; and one on the task's references, minted only once the replica's program has ended (below) |
+| Arca read links | trial | one per folder a replica reads (an `arca` workspace, the task's inputs), on exactly that folder, expiring at the trial's deadline; none on the checks' `files` or the task's references, which only the check sandbox receives |
 | the SandboxSet | rollout | below |
 | the export sandbox | rollout | the tools image, the results Volume read-only, the Arca Secret |
 
@@ -859,7 +884,6 @@ spec:
     volumes:
       - {name: tools, path: /examen/bin, volume: <tools Volume>, readOnly: true}
       - {name: program, path: /examen/program, volume: <program Volume>, readOnly: true}
-      - {name: check-<i>, path: /examen/check-images/<image hex>, volume: <check image Volume>, readOnly: true}   # one per check image
     secrets:
       - {name: <Lux Secret>, env: <candidate key variable>}           # when the candidate names a model
       - {name: <credential Secret>, env: <its env, or a driver variable for file>}   # one per credential
@@ -869,7 +893,7 @@ spec:
   variants:
     - {env: {EXAMEN_TRIAL: tri_..., EXAMEN_INDEX: "0"}}   # one per trial, in order
   completion:
-    command: ["/examen/bin/examen-trial", "check"]
+    command: ["/examen/bin/examen-trial", "finish"]
     collect:
       paths: ["/examen/out", "/examen/outputs", <task.evidence paths>]
       volume: <results Volume>
@@ -894,19 +918,23 @@ surface's base URL (default `LUX_URL`). The surface is the program's,
 not the model's: a vendor's command-line agent that speaks the
 Anthropic Messages API and is told to use another vendor's model calls
 it through `anthropic_messages`, and Lux translates. The rollout's Key
-is leased for that one surface (spec 004), and Lux refuses a request
-made with it on any other surface, so a program cannot reach a model
-through an API its candidate did not declare. The key reaches the replica as a placeholder that
+is leased for that one surface (spec 004), so that Lux refuses a
+request made with it on any other surface and a program cannot reach a
+model through an API its candidate did not declare; that needs Lux's
+Keys to name a surface, requirement L2 (Cost and the sent and observed
+layers, above), and until then the surface is recorded on the lease and
+not enforced. The key reaches the replica as a placeholder that
 Cella's egress gateway swaps for the value on a request to Lux's host,
 so the value is never in the replica. The candidate's `model` and
 `reasoning` are passed as `EXAMEN_MODEL` and `EXAMEN_REASONING`;
-whether the program honors them shows in `sent`, which the forwarder
-reads from each request. A candidate without a `model` gets no Key, no
-Lux Secret and no forwarder.
+whether the program honors them shows in `sent`, which is read from
+Lux's records of the trial's requests, never from what the replica
+records. A candidate without a `model` gets no Key, no Lux Secret and
+no forwarder.
 
 **The trial driver.** `examen-trial` is Examen's own program and runs in
 the replica; it runs no task or check code of its own, only the
-candidate's command and the task's checks.
+candidate's command.
 
 - `examen-trial agent` is the replica's main process. It writes the
   instruction, when the task has one, to `/examen/in/instruction.md`
@@ -930,43 +958,39 @@ candidate's command and the task's checks.
   added header, `Lux-Labels: examen.trial=<trial>`, and records per
   request the model named and the reasoning level read from the body
   through `pkg/llmdialect`, with the `Lux-Request-Id` of the answer, in
-  `/examen/out/requests.jsonl`; it writes each request and response
-  body to `/examen/out/transcript.jsonl`, the program's transcript,
-  and the text of the last response's message to
+  `/examen/out/requests.jsonl`, which is evidence and never the source
+  of `sent`; it writes each request and response body to
+  `/examen/out/transcript.jsonl`, the program's transcript, and the
+  text of the last response's message to
   `/examen/out/final_message.md`. When the program ends, it stops every
   process in the replica but its own and the completion command's, so
-  nothing the program left behind runs during the checks; keeps the
+  nothing the program left behind changes what is collected; keeps the
   `service_versions` and `service_usage` of `/examen/observed.json`,
   when the program wrote one, in `/examen/out/observed.json`, ignoring
   any other member and recording a file that does not parse with
   neither; records
   `{exit_code, started_at, ended_at, timed_out, not_runnable}` in
   `/examen/out/agent.json`; stops the forwarder; and then idles, since
-  the main process's exit would stop the replica before its checks.
-- `examen-trial check` is the completion command, which Cella runs once
-  the replica is running. It waits for `agent.json`, and, when the task
-  has references, for `/examen/in/reference.link`; reads the references
-  through that link into `/examen/reference/`, checking each SHA-256;
-  removes anything under `/examen/out/checks/`, reads the checks' files
-  through a read link as above (spec 006), then runs the checks in
-  order under
-  `CHECK_TIMEOUT` as spec 006 fixes, without the key variable in their
-  environment, and writes each check's result to
-  `/examen/out/checks/<i>.json` with its whole stdout and stderr beside
-  it. It exits 0 when the trial ran to an outcome, and 3 with
-  `/examen/out/failure.json` `{code, detail}` when it found an
-  infrastructure failure; any other exit is the driver's own failure.
+  the main process's exit would stop the replica before it is
+  collected.
+- `examen-trial finish` is the completion command, which Cella runs once
+  the replica is running. It waits for `agent.json` and exits 0 when the
+  trial ran to an outcome, and 3 with `/examen/out/failure.json`
+  `{code, detail}` when it found an infrastructure failure; any other
+  exit is the driver's own failure. Cella then collects the replica's
+  paths.
 
-**References after the program.** For each running replica of a
-rollout whose task has references, the `report` job reads whether
-`/examen/out/agent.json` exists through Cella's file routes (`GET
-/v1/sandboxes/{id}/files/stat`), and once it does, mints the read link
-on the task's references folder, expiring at the trial's deadline, and
-writes it to `/examen/in/reference.link` (`PUT
-/v1/sandboxes/{id}/files`). By then the driver has stopped every
-process the program started, so nothing of the program can read the
-link. The checks start up to one `REPORT_INTERVAL` later, within the
-trial's `TRIAL_GRACE`.
+**Checks in the check sandbox.** Once a replica's evidence is exported
+(below), examend enqueues its trial's `check_sandbox` job, which runs
+the task's checks in a check sandbox exactly as for an external trial
+(The check sandbox, below), over the outputs as the export kept them,
+with the transcript and final message the forwarder wrote. The job is
+examend's, started by the export Cella reports, never by anything the
+replica writes, and the replica is gone before the check sandbox
+exists, so no process of the program can read a reference or a check's
+files, or change a check's result. The trial is `checking` from its
+replica's end until its check sandbox ends, and `done` after; its
+outcome is the one the replica's end gave.
 
 **Evidence.** Cella collects each replica's paths into the results
 Volume under `<index>/` when the replica ends. A Volume has no read
@@ -975,9 +999,10 @@ results Volume attached read-only, and for each replica Cella reports
 `collected: true` it runs `examen-trial export <index> <trial>` in it
 through Cella's exec. That uploads `<index>/` to
 `<Evidence.Prefix>/<trial>/` with `If-None-Match: *`, computes each
-object's SHA-256, and prints the manifest, which with `agent.json`,
-`requests.jsonl` and the check results is the trial's report. A replica
-with `collected: false` is `infra_failed`, `collect_failed`.
+object's SHA-256, and prints the manifest, which with `agent.json` is
+the trial's report; its `sent` and `observed` layers come from Lux's
+records. A replica with `collected: false` is `infra_failed`,
+`collect_failed`.
 
 **Outcomes.**
 
@@ -999,10 +1024,11 @@ decline judge.
 completion command and results collection (Cella spec 020), Volumes
 with an image source (Cella spec 019), and the `workspace.git` source.
 Secrets with egress substitution, a Secret's value replaced in place,
-the file routes and the exec route (`POST /v1/sandboxes/{id}/exec`)
-exist. Cancel is the set's `stop`, followed by releasing the rollout's
-Key and deleting its credential Secrets; Resize is the set's mutable
-`parallelism`. The rollout's content, for contract rule 1, leaves out
+single sandboxes with their file routes and the exec route (`POST
+/v1/sandboxes/{id}/exec`), on which the check sandbox runs, exist.
+Cancel is the set's `stop`, followed by releasing the rollout's Key,
+deleting its credential Secrets and deleting its trials' check
+sandboxes; Resize is the set's mutable `parallelism`. The rollout's content, for contract rule 1, leaves out
 its `Lease`: a restarted examend that resubmits a set already created
 gets its handle, and the Lux Key in the set's Secret serves on.
 
@@ -1131,29 +1157,9 @@ the rest, and, when the task has checks, enqueues its `check_sandbox`
 job. The outcome is the harness's, set once, and examend never changes
 it (rule 4).
 
-**The check sandbox.** The checks of an external trial run in a fresh
-Cella sandbox, created as the owner with the purpose `trial` (spec 004),
-from the task's environment template: its image, resources and network
-policy, with `lifecycle.ttl` at the trial's deadline. examend writes
-into it through Cella's file routes (`PUT /v1/sandboxes/{id}/files`) the
-inputs under `/examen/inputs/`, the outputs under `/examen/outputs/`,
-the references under `/examen/reference/`, the checks' files, and the
-transcript and final message the harness submitted, empty files when it
-submitted none, each read from the owner's Arca space with its digest
-checked. Each check's `image` is attached as a read-only Volume, as the
-`cella` executor attaches it. examend then runs each check in order
-through Cella's exec route (`POST /v1/sandboxes/{id}/exec`), with spec
-006's environment, under `CHECK_TIMEOUT` for all of them; keeps the
-first `CHECK_MAX_OUTPUT_BYTES` of each stdout for spec 006's contract;
-writes each whole stdout and stderr to evidence; records each run as a
-check run record; and deletes the sandbox. `EXAMEN_WORKSPACE` there is
-the sandbox's empty working directory, since the harness's workspace is
-not Examen's: an external trial's checks read its outputs. Examen still
-executes no check code: Cella runs each command, and examend reads what
-it printed. A single Cella sandbox, its file routes and exec are built,
-so this path does not wait for SandboxSet; a check that names an
-`image`, a comparator among them, also needs Cella's image Volumes
-(Cella spec 019).
+**Checks.** When the task has checks, a submitted trial's `check_sandbox`
+job runs them in a check sandbox (The check sandbox, below), over the
+outputs examend wrote from the submit.
 
 **Attribution and cost.** An external trial's model calls are its
 harness's, on Keys its owner gave it. Examen reads their records from
@@ -1193,6 +1199,37 @@ grader `self:<harness>`, with `self_reported` true (spec 007). Such a
 value is never headlined, and every result that reads one lists
 `self_reported` among its confounds (spec 008).
 
+### The check sandbox
+
+The checks of a `cella` or `external` trial run in a fresh Cella
+sandbox, created as the owner with the purpose `trial` (spec 004), from
+the task's environment template: its image and resources, with network
+`none` whatever the template's policy, so a check reaches nothing
+beyond the sandbox, and with `lifecycle.ttl` at the check deadline. No
+system under test ever ran in it. examend writes into it through
+Cella's file routes (`PUT /v1/sandboxes/{id}/files`) the inputs under
+`/examen/inputs/`, the outputs as kept under `/examen/outputs/` with
+the output manifest, the references under `/examen/reference/`, the
+checks' files, and the transcript and final message, those a `cella`
+trial's forwarder wrote or an external harness submitted, empty files
+when there are none, each read from the owner's Arca space with its
+digest checked. Each check's `image` is attached as a read-only Volume,
+verified by its source digest at the attach. examend then runs each
+check in order through Cella's exec route (`POST
+/v1/sandboxes/{id}/exec`), with spec 006's environment, under
+`CHECK_TIMEOUT` for all of them; keeps the first
+`CHECK_MAX_OUTPUT_BYTES` of each stdout for spec 006's contract; writes
+each whole stdout and stderr to evidence; records each run as a check
+run record of the trial; and deletes the sandbox. `EXAMEN_WORKSPACE`
+there is the sandbox's empty working directory: a `cella` or `external`
+trial's checks read its outputs, and a task whose checks need a
+program's whole working directory names it as a directory output.
+Examen still executes no check code: Cella runs each command, and
+examend reads what it printed. A single Cella sandbox, its file routes
+and exec are built, so this path does not wait for SandboxSet; a check
+that names an `image`, a comparator among them, also needs Cella's
+image Volumes (Cella spec 019).
+
 ### Limits
 
 The constants of spec 002 this spec holds: `SMOKE_TRIALS`,
@@ -1201,8 +1238,8 @@ The constants of spec 002 this spec holds: `SMOKE_TRIALS`,
 `CHECK_MAX_OUTPUT_BYTES`, `ADOPTION_MAX_AGE`, `COST_ESTIMATE_MARGIN`,
 `TRIAL_GRACE`, `TRIAL_START_TIMEOUT`, `EXTERNAL_LEASE`,
 `REPORT_INTERVAL`, `USAGE_SETTLE_DELAY`, `OWNER_TOKEN_MAX_LIFETIME`,
-`OWNER_TOKEN_RENEWAL`, `MAX_OUTPUT_FILES`, `MAX_OUTPUT_BYTES` and
-`OUTPUT_FILE_KEEP_MAX_BYTES`.
+`OWNER_TOKEN_RENEWAL`, `MAX_OUTPUT_FILES`, `MAX_OUTPUT_BYTES`,
+`OUTPUT_FILE_KEEP_MAX_BYTES` and `INPUT_LINK_TTL`.
 
 ## Not in this spec
 
@@ -1238,21 +1275,22 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 | An imported Topos session yields a trial with `imported` true, its tuple read from the records, no checks, and evidence digests taken at import; the first import of a tuple creates its cell and later ones join it; a tuple field that differs from the named task's and candidate's or is unpinned refuses it as `provenance_mismatch`; a session not ended is refused | `topos.TestImport` |
 | An external past run imports with its past times and declared harness version and image, its outputs are written under its trial's folder and graded in a check sandbox, its provenance is declared, and a harness version other than its candidate's is refused | `external.TestImportPastRun` |
 | A program's `service_usage`, and a harness's, are kept in `observed` and never summed into the trial's cost or a built-in metric; the HTTP runner reads it from the last response | `cmd/examen-http.TestServiceUsage`, `luxread.TestServiceUsageKeptApart` |
-| An experiment run through a benchmark copies the benchmark owner's Arca inputs, references and check files through the version's links, digests checked | `execute.TestPrepareThroughBenchmarkLinks` |
+| An experiment run through a benchmark copies the benchmark owner's Arca inputs, references and check files through links its `prepare` job mints for that run as the benchmark's owner, each expiring after `INPUT_LINK_TTL`, digests checked; the links leave the job's row and are revoked when it ends, and no span, log line or answer carries one, by canary | `execute.TestPrepareThroughBenchmarkLinks` |
 | A trial's cost is the sum of Lux's records for its Key ids, and for its request label when the Key is shared; spend without a label is the rollout's unattributed usage; a difference from Topos's own figure is logged | `luxread.TestCostFromRecords` |
-| `sent` and `observed` join per request by the Lux request id | `luxread.TestLayersJoinByRequestID` |
+| `sent` and `observed` join per request by the Lux request id; a `cella` trial's `sent` is read from Lux's records, and a `requests.jsonl` the program rewrote changes neither layer | `luxread.TestLayersJoinByRequestID`, `cella.TestSentFromLux` |
 | Each built-in metric is filled as its row says, and none for a trial that is not finished | `execute.TestBuiltinMetrics` |
 | Every label value is written verbatim, the trial id with its underscore | `execute.TestLabelsVerbatim` |
 | Each row of the `topos` outcome table maps as written | `topos.TestOutcomes`, over recorded session logs |
 | A `topos` rollout's sessions are found by its rollout id, and by `metadata.examen.rollout` when the handle is missing; a `topos` trial's evidence refs point into its session's folder, and Examen copies nothing | `topos.TestFindsSessionsByRollout`, `topos.TestFindsSessionsByLabel`, `topos.TestEvidenceStaysInTheSessionFolder` |
-| A `cella` rollout applies the SandboxSet above, with the environment image as the template, the program's image, each check image and the tools mounted read-only, one Key leased from the key source and its Secret when the candidate names a model, one Secret per credential, and one variant per trial | `cella.TestSetFromRollout` |
+| A `cella` rollout applies the SandboxSet above, with the environment image as the template, the program's image and the tools mounted read-only and no check image, one Key leased from the key source and its Secret when the candidate names a model, one Secret per credential, and one variant per trial; a reused Volume whose source digest differs from its name's is never attached | `cella.TestSetFromRollout`, `cella.TestVolumeDigestAtAttach` |
 | A task's inputs and references are copied once per experiment into its folder with their SHA-256; a digest that does not match parks the task's cells `blocked` with `input_changed` | `execute.TestPrepareCopiesInputsAndReferences` |
-| No sandbox holds a link to a task's references while its system under test can run: a `cella` replica's references link is written only after `agent.json` exists, a `topos` rollout names them for R8 alone, and a lease answer carries none | `cella.TestReferencesAfterTheProgram`, `topos.TestReferencesOnlyForChecks`, `external.TestLeaseCarriesNoReference` |
+| No sandbox a system under test ran in holds a task's references while it can run: a `cella` replica never holds the references, a link to them or the checks' files, and its checks run in a check sandbox started by examend after the export; a `topos` rollout names them for R8 alone; a lease answer carries none | `cella.TestChecksInTheCheckSandbox`, `topos.TestReferencesOnlyForChecks`, `external.TestLeaseCarriesNoReference` |
+| Every check sandbox runs with network `none` whatever the task's network policy, and a `topos` rollout asks R8 for it in the check phase | `execute.TestCheckPhaseHasNoNetwork` |
 | A `program` candidate's credentials are minted with the purpose `trial` for their audiences, carried as Secrets scoped to their hosts, replaced before the token expires, and deleted at the rollout's end; no value enters a replica | `cella.TestCredentialSecrets` |
 | The HTTP runner sends the configured steps in order with their templates expanded, an upload step as multipart, and the trial's label, polls until `until`, `fail` or its timeout, writes each extract to its output, records the service version in `/examen/observed.json`, and exits 0, 1 or 2 as its rule says; the driver keeps the service versions | `cmd/examen-http.TestRunner`, `cmd/examen-trial.TestObservedVersions` |
 | An `external` rollout leases only smoke trials before its cost check, never more than its share; a lapsed lease returns its trials to pending with no retry spent; a submit writes the outputs, and the trial's checks run in a check sandbox through exec with the outputs and references written in and the sandbox deleted after; a cancel ends every lease | `external.TestLeaseFollowsTheQueue`, `external.TestLeaseLapses`, `external.TestCheckSandbox`, `external.TestCancel` |
 | An external trial's cost and sent layer are read from the owner's Lux records by its submitted request ids, or else by its request label, each record once; one with no record Lux can attribute has cost `unknown`, never zero; its self-reported values are stored under `self:<harness>` with `self_reported` true | `luxread.TestExternalAttribution`, `luxread.TestUnknownCost`, `external.TestSelfReported` |
 | A directory output is kept as one archive and the output manifest, a file above `OUTPUT_FILE_KEEP_MAX_BYTES` by digest and size alone; outputs past `MAX_OUTPUT_FILES` or `MAX_OUTPUT_BYTES` keep nothing more and record the constant; an archive with a link, an absolute path or `..` is refused whole; an external trial over a limit or refused runs no check | `evidence.TestDirectoryOutputs`, `external.TestOutputLimits` |
-| A rollout's Key names the candidate's one surface, and a request on another surface is refused | `cella.TestKeySurface`, against the stub Lux |
-| The trial driver runs the agent, stops every process the agent left before the first check, runs the checks without the key variable, idles until the checks end, and marks every forwarded request with the trial's label | `cmd/examen-trial.TestDriver`, on the native Cella driver |
+| A rollout's Key names the candidate's one surface, and, once Lux's Keys name one (L2), a request on another surface is refused | `cella.TestKeySurface`, against the stub Lux |
+| The trial driver runs the agent, stops every process the agent left before the replica is collected, runs no check, idles until it is collected, and marks every forwarded request with the trial's label | `cmd/examen-trial.TestDriver`, on the native Cella driver |
 | Each row of the `cella` outcome table maps as written, and a collected replica's evidence lands under its trial's folder with its SHA-256 | `cella.TestOutcomes`, `cella.TestExport` |

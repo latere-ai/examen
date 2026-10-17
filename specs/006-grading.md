@@ -11,7 +11,7 @@ depends_on:
 affects: [internal/grade/, internal/grade/check/, internal/grade/judge/, internal/grade/annotate/, internal/calibrate/, cmd/examen-compare/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -43,7 +43,7 @@ produces a guessed value.
 
 | Kind | Runs | When | Reads | Costs |
 |---|---|---|---|---|
-| `check` | the task's command, in the trial's machine, run by the executor, or for an external trial in the check sandbox (spec 005) | after the system under test ends, before the machine is released | the machine's files, the trial's outputs, transcript and final message, and the task's references | machine time; no model call of Examen's |
+| `check` | the task's command, with network `none`: in a `topos` trial's machine, run by the executor, or for a `cella` or `external` trial in the check sandbox (spec 005) | after the system under test ends: before a `topos` machine is released, or once a `cella` trial's outputs are exported or an external trial's submitted | the machine's or the check sandbox's files, the trial's outputs, transcript and final message, and the task's references | machine time; no model call of Examen's |
 | `model_judge` | one structured call through Lux, made by examend on a Key from the key source | after the trial is `done`; at level `candidate`, once per candidate after its cells are graded | the trial's evidence through its references, or at level `candidate` every finished trial's of the candidate, at most `JUDGE_MAX_INPUT_BYTES` | one Lux call on the experiment's Budget, per attempt |
 | `agent_judge` | a session of a pinned Topos agent version, through the `topos` executor | after the trial is `done` | the trial's evidence, read-only | a session on the experiment's Budget |
 | `annotation` | a person, through the API | when the trial is queued for them | the trial's evidence, through Examen | none on the Budget |
@@ -68,12 +68,15 @@ calibrated, and takes no part in this spec.
 
 ### Checks
 
-**Where.** The executor runs each check (spec 005); examend never runs
-check code. The executor reports one check run per check, and examend
-turns it into measurements under the contract below.
+**Where.** The `topos` executor runs each check of a `topos` trial in
+the trial's machine, and Cella runs each check of a `cella` or
+`external` trial in its check sandbox, through examend's exec calls
+(spec 005); examend never runs check code. Each check yields one check
+run, which examend turns into measurements under the contract below.
 
-**Environment.** A check runs as the sandbox's user, under the sandbox's
-network policy, in the order the task lists, each with:
+**Environment.** A check runs as the sandbox's user, with network
+`none` for the whole check phase, in the order the task lists, each
+with:
 
 | Variable | Value |
 |---|---|
@@ -91,23 +94,23 @@ network policy, in the order the task lists, each with:
 | `EXAMEN_CHECK_IMAGE` | the read-only mount of the grader's `image`, when it names one; `command[0]` is then a path inside that image, run from this mount |
 | the grader's `env` | as declared; a key beginning `EXAMEN_` is refused at apply |
 
-The trial's model key is not in a check's environment, the forwarder
-that marks the trial's requests is stopped, and every process the agent
-started is ended before checks begin (spec 005).
+The trial's model key is not in a check's environment. On `topos`
+every process the agent started is ended before checks begin; the
+check sandbox holds no process of a system under test (spec 005).
 
-**What a check may trust.** The agent worked in the same machine, so a
-check trusts no file the agent could have changed. A check's own files
-come from the environment image at a path the sandbox's user cannot
-write, or from the grader's `files`, a pinned Arca folder and its digest
-(spec 002), which the executor delivers read-only at
-`EXAMEN_CHECK_FILES`: after the agent ends on `topos` (spec 005,
-requirement 8), so the agent never sees them; on `cella`, through a
-read link whose token is in the replica from the start, so the agent
-can read them but not change them. A task's references are delivered
-read-only after the system under test's processes have stopped, on
-every executor, so it never reads them (spec 005); a grader's `image`
-is mounted read-only. In the check sandbox, no system under test ever
-ran: it holds only what examend wrote into it.
+**What a check may trust.** On `topos` the agent worked in the same
+machine, so a check trusts no file the agent could have changed. A
+check's own files come from the environment image at a path the
+sandbox's user cannot write, or from the grader's `files`, a pinned
+Arca folder and its digest (spec 002), delivered read-only at
+`EXAMEN_CHECK_FILES`: on `topos` after the agent ends (spec 005,
+requirement 8), and otherwise into the check sandbox alone, so no
+system under test sees them. A task's references are delivered
+read-only only after the system under test's processes have stopped on
+`topos`, and only into the check sandbox for a `cella` or `external`
+trial (spec 005); a grader's `image` is mounted read-only. In the check
+sandbox no system under test ever ran: it holds only what examend wrote
+into it.
 
 The working directory is the grader's `workdir`,
 resolved against `EXAMEN_WORKSPACE`; a `workdir` that is absolute or
@@ -163,7 +166,7 @@ reads a missing one as `false`.
 | exit 1 with stdout; any other exit; ended by a signal | `error` | none |
 | the command could not start: not found or not executable | `not_runnable` | none |
 | killed when `CHECK_TIMEOUT` ran out | `timed_out` | none |
-| not started because `CHECK_TIMEOUT` had run out, or, for an external trial, because its outputs passed a limit or its archive was refused (spec 005), with the reason `outputs_over_limit` or `outputs_refused` | `not_run` | none |
+| not started because `CHECK_TIMEOUT` had run out, or, for a `cella` or `external` trial, because its outputs passed a limit or its archive was refused (spec 005), with the reason `outputs_over_limit` or `outputs_refused` | `not_run` | none |
 
 A run yields all its measurements or none: a check that names one
 value wrongly yields nothing, so it cannot report a convenient subset.
@@ -518,9 +521,11 @@ an ordered list of canonical labels and a map from raw labels to them.
 Results, summaries and reports read an open-vocabulary metric as the
 canonical label its raw label maps to at one named record, and name
 that record (spec 008). A trial whose raw label the record does not map
-has no canonical value at that record: it counts as missing, and every
-result that reads it carries `missing`, so an unmapped label is never
-guessed and never headlined.
+has no canonical value at that record: its normalized raw label counts
+as a label of its own, beside the canonical labels and marked unmapped,
+and the summary's `unmapped` counts it (spec 008). It is never guessed
+into a canonical label and never read as missing, since a label nobody
+named yet is still the judge's answer.
 
 **Changing it.** A change to the mapping is never a rewrite. It appends
 the lineage's next record, which maps every raw label the one before it
@@ -540,11 +545,14 @@ records:
   `judge`, whose system content is Examen's canonicalizer preamble, the
   grader's `prompt` and `rubric`, and the current record's canonical
   labels, and whose user message is one evidence block listing each
-  unmapped raw label of the experiment with its count. It offers one
-  tool, `record_taxonomy`, taking `{canonical, map}`: the canonical
-  labels, which keep every current one in its order and may add new
-  ones up to `MAX_LABELS_PER_METRIC`, and a map of some of the listed
-  raw labels to them. examend validates the answer as a judge's, with
+  unmapped raw label, with its count, of the experiment's trials and of
+  the trials every reference side of its comparisons reads, such as a
+  baseline's, so a raw label is mapped for both sides of a comparison
+  or for neither. It offers one tool, `record_taxonomy`, taking
+  `{canonical, map}`: the canonical labels, which keep every current
+  one in its order and may add new ones up to
+  `MAX_LABELS_OPEN_VOCABULARY`, and a map of some of the listed raw
+  labels to them. examend validates the answer as a judge's, with
   the same states and attempts as a candidate-level judge's, and
   appends a record of the current map
   with the new entries, `source` naming the canonicalizer, the
@@ -558,8 +566,9 @@ records:
 comparison moves to the current record when it is recomputed. A final
 comparison keeps the record it read, and a record appended after it
 makes a new comparison of the same pair, as a later grading does (spec
-008); the earlier stays. A taxonomy record is never deleted, so every
-past comparison can be reproduced.
+008); the earlier stays. A bar reads comparisons at the record it pinned
+when it was applied (spec 009). A taxonomy record is never deleted, so
+every past comparison can be reproduced.
 
 ### Generations and re-grading
 
@@ -614,7 +623,11 @@ same trials.
   stored on a measurement. `GET /graders/{ref}/calibration` reads the
   flag, the alpha, its interval and the pair count (spec 003), and a
   console's and a report's calibration column shows them beside every
-  result of m from J, once that column is built (spec 010).
+  result of m from J, once that column is built (spec 010). A result of
+  a label metric m, or of a cell-level metric of m, read while J is
+  uncalibrated for m carries the confound `uncalibrated` and is never
+  headlined (spec 008); until annotations are built, no judge has a
+  pair, so every judge is uncalibrated.
 - **A new version starts uncalibrated**: agreement of one judge version
   says nothing of another.
 - **Not calibrated:** a candidate-level judge, since people annotate
@@ -629,8 +642,8 @@ The constants of spec 002 this spec holds: `CHECK_TIMEOUT`,
 `JUDGE_MAX_RATIONALE_BYTES`, `AGENT_JUDGE_TIMEOUT`,
 `ANNOTATION_CLAIM_TTL`, `CALIBRATION_MIN_PAIRS`,
 `CALIBRATION_MIN_AGREEMENT`, `CONFIDENCE_LEVEL`, `MAX_INFRA_RETRIES`,
-`LABEL_MAX_BYTES`, `MAX_LABELS_PER_METRIC` and
-`MAX_TAXONOMY_RAW_LABELS`.
+`LABEL_MAX_BYTES`, `MAX_LABELS_PER_METRIC`,
+`MAX_LABELS_OPEN_VOCABULARY` and `MAX_TAXONOMY_RAW_LABELS`.
 
 ## Not in this spec
 
@@ -670,6 +683,7 @@ calibration (spec 010); the threats to judges (spec 012).
 | A check re-grade parses the stored stdout again and is refused for a version whose command differs | `check.TestRegradeReparses` |
 | Krippendorff's alpha matches reference values for nominal and interval data; a judge with fewer than `CALIBRATION_MIN_PAIRS` pairs or alpha below `CALIBRATION_MIN_AGREEMENT` is reported uncalibrated with its alpha, interval and count | `calibrate.TestAlpha`, `calibrate.TestUncalibrated` |
 | An open-vocabulary value is stored normalized and never rewritten; one longer than `LABEL_MAX_BYTES` makes the run `malformed` | `grade.TestOpenVocabularyValues` |
-| A taxonomy record never changes, a new one keeps every mapped raw label, and an unmapped raw label reads as missing | `grade.TestTaxonomyLineage` |
-| A canonicalizer runs once for an experiment of the suite's owner with unmapped labels, reads only the raw labels and their counts, adds labels and maps only unmapped ones, appends one record naming itself, and never runs for a grantee's experiment | `grade.TestCanonicalizer`, against the stub Lux |
+| A taxonomy record never changes, a new one keeps every mapped raw label, and an unmapped raw label counts as a label of its own and never as missing | `grade.TestTaxonomyLineage` |
+| A canonicalizer runs once for an experiment of the suite's owner with unmapped labels, reads only the raw labels and their counts, of the experiment's trials and of its comparisons' reference sides, adds labels up to `MAX_LABELS_OPEN_VOCABULARY` and maps only unmapped ones, appends one record naming itself, and never runs for a grantee's experiment | `grade.TestCanonicalizer`, against the stub Lux |
+| Every check runs with network `none`, in a `topos` machine's check phase and in every check sandbox | `check.TestNoNetworkInTheCheckPhase`, e2e tier |
 | A candidate-level judge runs once per candidate after its cells are graded, bounds its input at `JUDGE_MAX_INPUT_BYTES` in equal shares per trial, appends one generation per candidate with no trial, and holds the experiment from completing until it ends | `grade.TestCandidateLevelJudge` |

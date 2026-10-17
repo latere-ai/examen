@@ -69,8 +69,9 @@ rollouts can feed a training loop.
 
 ## What it is not
 
-Not a benchmark dataset and not a leaderboard: a published benchmark
-groups results its data cannot tell apart instead of ranking them. Not
+Not a benchmark dataset and not a bare leaderboard: a published
+benchmark gives each entry a rank interval its data supports and a
+comparison with a reference entry, never a single rank. Not
 an agent runtime, sandbox, model gateway or HTTP client of the APIs it
 evaluates. Examen calls the services that run things through their
 APIs, and an API under evaluation is called by a program inside a
