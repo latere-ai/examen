@@ -2,7 +2,7 @@
 
 Design specs for Examen, a service that runs experiments on agents: it
 runs each combination of task, agent, model and environment many times
-through the services that run them, grades every run, and reports
+through the services that run them, grades every trial, and reports
 outcomes that can be compared, with their noise and confounds stated.
 One spec covers one component. Each states the problem, the design with
 enough precision to build from, and acceptance criteria that are
@@ -28,20 +28,31 @@ flowchart LR
 
 | Spec | Status | What it fixes |
 |---|---|---|
-| [001 Architecture](001-architecture.md) | drafted | the objects, the provenance tuple, the principles, how a run executes, and the interfaces Examen depends on |
+| [001 Architecture](001-architecture.md) | drafted | the thin core, the cores it composes, how an experiment executes, the decisions, and the spec index |
+| [002 Objects](002-objects.md) | drafted | every object, its fields, states, identifiers and limits |
+| [003 API](003-api.md) | drafted | the contract a client codes against, and its errors |
+| [004 Identity and authorization](004-identity-and-authorization.md) | drafted | the authorizer contract, actions, the built-in owner policy, sharing, acting as the owner |
+| [005 Execution](005-execution.md) | drafted | the executor contract, the `topos` and `cella` executors, smoke, budget, retries, cancellation, imported trials |
+| [006 Grading](006-grading.md) | drafted | checks, model judges, agent judges, annotations, the decline judge, generations, calibration |
+| [007 Measurements and evidence](007-measurements-and-evidence.md) | drafted | the measurement store, provenance layers, evidence references, retention, dataset export |
+| [008 Analysis](008-analysis.md) | drafted | aggregation, noise floors, tests, multiple comparisons, confounds, baselines, verdicts, trends |
+| [009 Bars](009-bars.md) | drafted | bar rules, evaluation, release use, alerts |
+| [010 Reports](010-reports.md) | drafted | the console view, what a report shows, export, sharing |
+| [011 Distribution](011-distribution.md) | drafted | the binary, configuration, Postgres, upgrades, versioning |
+| [012 Security](012-security-and-threat-model.md) | drafted | untrusted task content, judges reading hostile output, cost exhaustion, evidence privacy |
 
 ## Build order
 
-The specs that follow 001, in the order they are written and built. Each
-is a number reserved for its component; none is written yet.
+The first consumer is a person comparing agents in a console (spec
+001, decision 16), so the first slice is the path a comparison needs,
+and the rest follows in this order.
 
-| Spec | Component |
+| Step | What is built |
 |---|---|
-| 002 | Objects: suite, task, cell, run, grade, comparison; fields, states, identifiers |
-| 003 | API: the contract a client codes against, and its errors |
-| 004 | Identity and authorization: the authorizer contract and the built-in owner policy |
-| 005 | Runner: starting, following and ending sessions; budgets, retries, smoke runs |
-| 006 | Evidence: what is copied from a run and where it is kept |
-| 007 | Graders: deterministic graders, pinned judges, generations, calibration |
-| 008 | Comparisons and noise: confounds, noise floors, gates |
-| 009 | Reports: what a report contains and how it is exported |
+| first slice | 002 objects; 003 the API's read side for the console; 004; 005 the `topos` executor with smoke trials and the budget gate; 006 checks, model judges and the decline judge; 007 measurements and evidence; 008 analysis; 010 the console view |
+| bars | 009 |
+| dataset export | 007 |
+| agent judges and annotations | 006 |
+| imported trials | 005 |
+| the `cella` executor | 005 |
+| static report exports | 010 |
