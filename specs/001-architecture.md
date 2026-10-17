@@ -6,7 +6,7 @@ depends_on: []
 affects: [cmd/examend/, internal/, api/, authorizer/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -381,13 +381,19 @@ Each decision names the alternative it rejects.
     Examen asks the authorizer `publication.list` and keeps no review
     of its own. A reader who does not sign in reads published versions
     only, and the authorizer is still asked, with no subject. A
-    benchmark groups entries whose intervals overlap and never ranks
-    them bare (spec 013). *Rejected:* anonymous reads of live objects,
-    which change under a reader and expose what was never chosen for
-    publication; a review flow in the core, which would duplicate the
-    installation's; file links minted by Examen, which would make it a
-    second file server beside Arca; and a ranking, which reads
-    differences the data cannot show.
+    benchmark orders its entries by their point estimates and shows
+    each a rank interval that holds across the whole table, from paired
+    tests over the entries' own trial values adjusted for every pair,
+    and its comparison with a reference entry; the order is never shown
+    as a rank by itself (specs 008 and 013). *Rejected:* anonymous
+    reads of live objects, which change under a reader and expose what
+    was never chosen for publication; a review flow in the core, which
+    would duplicate the installation's; file links minted by Examen,
+    which would make it a second file server beside Arca; a bare
+    ranking, which reads differences the data cannot show; and groups
+    of entries whose intervals overlap, which is not a test, does not
+    chain, ignores the pairing by task and ignores how many pairs a
+    table compares.
 23. **A metric has a level, and a label may have an open vocabulary.**
     A metric belongs to a trial, to a cell, as a statistic Examen
     computes from the cell's trial values (`mode_share`,

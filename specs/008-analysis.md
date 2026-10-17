@@ -1,5 +1,5 @@
 ---
-title: "Analysis: per-cell summaries and their intervals by metric type and level, Boschloo's exact test, permutation tests and the label tests, suite-level summaries with task weights and coverage, the primary result and the one corrected family, verdicts and their reasons, computed confounds and declared provenance, automatic and progressive comparisons, and trends, all computed deterministically and stored"
+title: "Analysis: per-cell summaries and their intervals by metric type and level, Boschloo's exact test, permutation tests and the label tests, suite-level summaries with task weights and coverage, the primary result and the one corrected family, verdicts and their reasons, computed confounds and declared provenance, automatic and progressive comparisons, a benchmark's pair results and simultaneous rank intervals, and trends, all computed deterministically and stored"
 status: drafted
 track: core
 depends_on:
@@ -11,7 +11,7 @@ depends_on:
 affects: [internal/analysis/, internal/store/, api/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -245,7 +245,8 @@ counted even when floating-point rounding puts it a hair below.
 10,000 and `ceil(20 * m / FALSE_DISCOVERY_RATE)`, where `m` is the
 number of p-values in the test's family, the corrected family's size
 for every result in it and 1 for the primary metric's suite-level
-result (spec 002). A Monte Carlo p-value is at least `1 / (1 + B)`, and
+result (spec 002); a benchmark's results table resolves it with its own
+family and level (Benchmark entries, below). A Monte Carlo p-value is at least `1 / (1 + B)`, and
 a lone discovery in a family of `m` passes Benjamini and Hochberg's
 procedure only with `p` at most `FALSE_DISCOVERY_RATE / m`. At this `B`
 the smallest p-value a test can give is about a twentieth of that, so
@@ -493,6 +494,8 @@ verdict is what it is, built from fixed templates with numbers in spec
 | a delta of zero | "no difference between the two sides" |
 | a label result, in the first slice | "descriptive: label tests are not built yet" |
 | a candidate-level result | "descriptive: one value per candidate, so nothing to test" |
+| a pair result of two benchmark entries | "p = 0.003; one comparison at 5%, not adjusted for the table's other entries" |
+| a pair result below coverage | "the two entries share 70% of the suite's weight; 80% needed; left out: t3 (3 trials)" |
 
 A result with `missing` among its confounds adds the counts, such as
 "; 2 of 20 candidate trials have no value", and one with
@@ -592,7 +595,9 @@ tested alone and uncorrected, and every other result is the family. Its
 tuple confounds are computed over the two cells as for a paired task,
 so two tasks that also differ in environment or workspace name it.
 
-A result's `confounds` are spec 002's confound entries, of five kinds.
+A comparison's result's `confounds` are spec 002's confound entries, of
+five kinds; a pair result of two benchmark entries adds a sixth,
+`declared` (Benchmark entries, below).
 
 **Tuple confounds** are computed per paired task by comparing the two
 cells' tuples field by field. `tools` is compared as a sorted set, an
@@ -642,7 +647,9 @@ Examen made.
 
 **`window`.** Once adoption is built (spec 005), a task whose cells
 read adopted trials carries `window`, since those trials ran in an
-earlier time window than the experiment's own.
+earlier time window than the experiment's own. A pair result of two
+benchmark entries carries it when the entries' windows do not overlap
+(Benchmark entries, below).
 
 The comparison's `confounds` are the union of the names of its results'
 confounds.
@@ -650,7 +657,8 @@ confounds.
 **Declared provenance.** A side whose candidate is of kind `external`
 is listed in the comparison's `declared_provenance`: its tuple, outcome,
 times and outputs are what its harness declared, which Examen cannot
-observe (spec 005). It changes no verdict and no confound. A console
+observe (spec 005). In a comparison it changes no verdict and no
+confound. A console
 and a report show it beside the comparison (spec 010).
 
 ### Comparisons
@@ -771,6 +779,123 @@ a comparison stays reproducible when the stored analysis moves on.
 
 Each comparison also stores its `verdict_counts`, which a headline shows.
 
+### Benchmark entries
+
+A benchmark's results table (spec 013) compares entries of different
+experiments, often of different owners, through the `values` each
+entry copied at submission (spec 002): per task, the task's weight,
+the trials' values of the benchmark's primary metric, the cells' tuple
+fields outside the candidate and the layer counts. It makes no
+comparison record; it holds the figures below.
+
+**A pair result.** For two entries `a` and `b` of one benchmark
+version, `a` the one of the lower submission id, the pair result is the
+primary metric's suite-level result between them, computed as for a
+comparison with `a` as the candidate side and `b` as the reference
+side. Both entries ran the one suite digest, so their tasks pair by
+name and carry the suite's weights. A task of weight above zero is
+included when both entries hold at least `MIN_TRIALS_PER_TASK_IN_SUITE`
+valued trials of it, and `coverage` is the share of the weight the
+included tasks hold. The delta is `S_a - S_b` with the stratified
+bootstrap's interval, and the test is the stratified permutation
+(Suite-level summaries, above): the tasks are fixed, weighted as
+declared, and only the labels within each task are relabeled. A pair
+below `MIN_SUITE_COVERAGE` is `insufficient` and has no `p`. Otherwise
+its verdict follows the verdict rule with `q` equal to `p`: one
+comparison, tested alone at `FALSE_DISCOVERY_RATE`, as a primary result
+is. Read the other way, `b` against `a`, the delta and its interval are
+negated, `p` is the same, and each confound's counts change sides. A
+pair result is stored as spec 002's result of level `suite`, naming
+`a` and `b`, with `h`, its adjusted value below, in place of `q`; it
+belongs to no comparison's family.
+
+**Its confounds.** A pair varies the candidate: the tuple fields of the
+logical variables `agent`, `model`, `reasoning` and `tools`. Over its
+included tasks it names:
+
+- each tuple field outside the candidate that differs between the two
+  entries' copied fields: `task_hash`, `environment_digest`,
+  `workspace_ref` or `grader_digests`;
+- the layer confounds (Confounds and the variable, above), from the
+  copied counts, with the variable read as the logical variables whose
+  fields differ between the two candidates: `declared.image` is named
+  only for two candidates that agree on `agent`, and `sent.reasoning`
+  only for two that agree on `agent`, `model` and `reasoning`;
+- `missing` and `self_reported`, with their counts per side;
+- `declared`, with the finished trials of each side whose candidate is
+  `external`, which a comparison keeps in `declared_provenance`
+  instead; and
+- `window`, when the two entries' windows (spec 002) do not overlap:
+  their trials ran at different times, and a change at a model provider
+  between them is in no tuple field.
+
+**Rank intervals.** A table's K ranked entries (spec 013) give
+`m = K(K - 1) / 2` pair results, whose p-values are adjusted together
+by Holm's step-down procedure at the family-wise level
+`1 - CONFIDENCE_LEVEL`. With the p-values sorted ascending, ties in the
+order of the pairs' submission ids, `p(1) <= ... <= p(m)`, the adjusted
+values are
+
+```
+h(i) = max over j <= i of min(1, (m - j + 1) * p(j))
+```
+
+Tied p-values receive the same `h`. An insufficient pair has no
+p-value, still counts in `m`, and is never apart. A pair is apart when
+its `h` is at most `1 - CONFIDENCE_LEVEL` and its delta is not zero;
+the entry its delta favors in the metric's direction, the higher one
+for direction `none`, is then significantly better than the other. An
+entry's rank interval is
+
+```
+[1 + B, K - W]
+```
+
+`B` the number of entries significantly better than it and `W` the
+number significantly worse. With probability at least
+`CONFIDENCE_LEVEL` no pair without a difference is called apart, so the
+K intervals hold together, not one at a time. An entry apart from
+neither of two neighbors that are apart from each other keeps an
+interval that spans both.
+
+A rank interval states every pair at once, and one false separation
+moves two intervals, so the family is held to no false separation at
+all, not to a share of them as Benjamini and Hochberg's procedure holds
+a comparison's family. Holm's procedure holds that level under any
+dependence between pairs that share an entry, and rejects whatever
+Bonferroni's rejects and often more. Grouping entries whose intervals
+overlap is rejected: overlap is not a test, since two 95% intervals
+stop overlapping only near 3.9 standard errors apart while a
+difference is significant at about 2.8; it does not chain, since A may
+overlap B and B overlap C while A and C differ; it ignores that two
+entries ran the same tasks, which the stratified test pairs; and it
+ignores how many pairs a table compares.
+
+**Resamples.** The table's pair tests are one family held at
+`1 - CONFIDENCE_LEVEL`, so `PERMUTATION_RESAMPLES` resolves with its
+`m` and that level, and the smallest p-value a pair test can give stays
+below Holm's first threshold, `(1 - CONFIDENCE_LEVEL) / m`.
+`MAX_BENCHMARK_ENTRIES` bounds `m`. The table's comparison of each
+entry with the reference and a comparison of two entries on demand
+read the stored pair result, so their p-values are drawn at the table's
+resamples.
+
+**The stored table.** The table's inputs document is the canonical JSON
+of `analysis_version`, `parameters`, the suite's weights and primary
+metric, the version's `reference`, and each accepted entry's submission
+id and `values`, ascending by submission id. Its `inputs_digest` and
+root seed follow Determinism (below), and a pair's procedure seed is
+that formula's with `"pair:" || a || ":" || b` in place of the task
+name, `a` and `b` its two submission ids ascending, and the procedure
+`delta_interval` or `test`. The work queue computes the table when the
+version's accepted entries or its reference change, and stores a pair
+result for every two accepted entries; a pair with an unranked entry is
+`insufficient` by the coverage rule, since its shared tasks are a part
+of that entry's own. No figure of the table, of its comparisons with
+the reference or of a comparison on demand is computed when it is
+read. Recomputing a table from the same inputs is bit-identical; after
+a change, every pair is drawn again from the new root seed.
+
 ### Trends across successive baselines
 
 Trends are a later build step than the console path; the design is
@@ -864,8 +989,8 @@ The constants of spec 002 this spec holds: `MIN_TRIALS_FOR_VERDICT`,
 `MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`,
 `MIN_TRIALS_FOR_P90_INTERVAL`, `FALSE_DISCOVERY_RATE`,
 `CONFIDENCE_LEVEL`, `BOOTSTRAP_RESAMPLES`, `PERMUTATION_RESAMPLES`,
-`PERMUTATION_EXACT_MAX`, `BOSCHLOO_GRID_POINTS`, `TIE_TOLERANCE` and
-`MAX_TREND_POINTS`.
+`PERMUTATION_EXACT_MAX`, `BOSCHLOO_GRID_POINTS`, `TIE_TOLERANCE`,
+`MAX_TREND_POINTS` and `MAX_BENCHMARK_ENTRIES`.
 
 ## Not in this spec
 
@@ -882,7 +1007,8 @@ Generalizing beyond a suite's tasks.
 The first slice builds everything above but label tests, open
 vocabularies and cell-level and candidate-level metrics, trends and the
 cross-architecture run of the golden comparison, which follow as later
-steps (specs/README.md). Label tests, with open vocabularies and the
+steps (specs/README.md). Benchmark entries come with publishing (spec
+013). Label tests, with open vocabularies and the
 two levels, come right after the `external` executor.
 
 ## Acceptance criteria
@@ -919,5 +1045,9 @@ two levels, come right after the `external` executor.
 | A re-graded baseline is read at the candidate's grader and the grader confound disappears; a partly re-graded one is not | `analysis.TestReferenceReadAtCandidatesGrader` |
 | The automatic comparison is recomputed in place with `final` false as trials finish, keeps its id, becomes `final` true once both sides are final, and never changes after | `analysis.TestAutomaticComparisonIsProgressive` |
 | A final comparison recomputed from its recorded inputs is byte-identical, and its seeds are the recorded ones | `analysis.TestRecomputeFromRecordedInputs` |
+| A pair result of two benchmark entries is the stratified permutation over their copied values, tasks fixed and weighted as the suite declares; a pair whose shared tasks fall below `MIN_SUITE_COVERAGE` is `insufficient`; read the other way it negates the delta and its interval and keeps `p`; it names a differing tuple field outside the candidate, the layer confounds by the variable rule, `missing`, `self_reported`, `declared`, and `window` when the entries' windows do not overlap | `analysis.TestEntryPairs`, `analysis.TestEntryPairConfounds` |
+| Holm's adjusted values match a reference implementation, ties included; an insufficient pair counts in `m` and is never apart; `PERMUTATION_RESAMPLES` for a table resolves with its `m` at `1 - CONFIDENCE_LEVEL` | `analysis.TestHolm` |
+| Three entries where the first and the third are apart and the second is apart from neither give the intervals `[1, 2]`, `[1, 3]` and `[2, 3]`; every interval is `[1 + B, K - W]` | `analysis.TestRankIntervals` |
+| A results table recomputed from its recorded inputs is byte-identical, and its pairs' seeds are the recorded ones | `analysis.TestRecomputeResultsTable` |
 | Every figure of the console's grid, verdict tables and cost table is read from a stored comparison or the stored analysis; the console bundle contains no statistical routine | `analysis.TestEveryShownFigureIsStored`, `console.TestNoStatisticsInTheClient` |
 | Later steps: a golden comparison yields identical verdicts and figures agreeing to 12 significant digits on amd64 and arm64; a trend over a lineage of three baselines shows three points and two step comparisons | `analysis.TestGoldenAcrossArchitectures`, run on both in CI; `analysis.TestTrend` |

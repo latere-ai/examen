@@ -7,7 +7,7 @@ depends_on:
 affects: [api/, internal/store/, internal/id/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -190,7 +190,7 @@ else. The last column names the spec that explains its use.
 | `FALSE_DISCOVERY_RATE` | 0.05 | the rate the multiple-comparison correction holds | 008 |
 | `CONFIDENCE_LEVEL` | 0.95 | the level of every reported interval | 008 |
 | `BOOTSTRAP_RESAMPLES` | 10,000 | resamples of every bootstrap interval | 008 |
-| `PERMUTATION_RESAMPLES` | the larger of 10,000 and ceil(20 · m / `FALSE_DISCOVERY_RATE`), with m the number of p-values in the test's family, 1 for the primary metric's suite-level result | relabelings of a Monte Carlo permutation test | 008 |
+| `PERMUTATION_RESAMPLES` | the larger of 10,000 and ceil(20 · m / α), with m the number of p-values in the test's family and α the level that family is held at: for a comparison, m is the corrected family's size, 1 for the primary metric's suite-level result, and α is `FALSE_DISCOVERY_RATE`; for a benchmark's results table, m is K(K − 1) / 2 over its K ranked entries and α is 1 − `CONFIDENCE_LEVEL` | relabelings of a Monte Carlo permutation test | 008 |
 | `PERMUTATION_EXACT_MAX` | 100,000 | the most relabelings a permutation test, or tables Freeman and Halton's test, enumerates instead of sampling | 008 |
 | `BOSCHLOO_GRID_POINTS` | 1000 | points of the fixed grid of nuisance values over which Boschloo's test takes its largest p-value | 008 |
 | `TIE_TOLERANCE` | 1e-9 | relative tolerance when a test compares a probability or a discrepancy with the observed one | 008 |
@@ -230,6 +230,7 @@ else. The last column names the spec that explains its use.
 | `PUBLICATION_TEXT_MAX_BYTES` | 16 KiB | a publication's description, and a dataset's citation as canonical JSON | 013 |
 | `PUBLICATION_EVIDENCE_MAX_BYTES` | 10 GiB | the evidence and files one publication version copies into its folder | 013 |
 | `SECRET_SCAN_TIMEOUT` | 30 minutes | wall time of one publication version's secret scan | 013 |
+| `MAX_BENCHMARK_ENTRIES` | 32 | accepted entries of one benchmark version; its results table tests every pair of them, so the tests grow with the square of the entries and each test's relabelings grow with it again | 013 |
 | `SHUTDOWN_GRACE` | 25 seconds | how long open requests have to finish after the stop signal | 011 |
 | `IMAGE_MAX_SIZE` | 40 MiB | the largest the `examend` image may be | 011 |
 
@@ -640,7 +641,7 @@ A **result** is one row of `results`:
 | `delta_interval` | the delta's interval at `CONFIDENCE_LEVEL`, for `per_label` an object from each label to its interval; absent where spec 008 computes none |
 | `method`, `exact`, `resamples` | the test: `boschloo_exact`, `permutation`, `stratified_permutation`, and once label tests are built `fisher_freeman_halton` or, when its tables are too many to enumerate, `chi_square_permutation` (spec 008); whether it enumerated every case; how many relabelings or tables it enumerated or drew, absent for `boschloo_exact`; all three absent on a `candidate` result |
 | `seed` | this result's derived seed, hex |
-| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE`; on the primary metric's suite-level result, which is not corrected, `q` equals `p` |
+| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE`; on the primary metric's suite-level result, which is not corrected, `q` equals `p`; on a pair result of two benchmark entries, `h`, its Holm-adjusted value, in place of `q` (spec 008) |
 | `verdict` | one of the verdicts of the glossary; absent on a `candidate` result, and on a result of a `label` metric until label tests are built (spec 008) |
 | `reason` | one plain sentence saying why the verdict is what it is, such as "p = 0.048; q = 0.19 after correcting 40 results at 5%" or "task t3 has 3 trials; 5 needed" (spec 008) |
 | `left_out` | on a `suite` result: each task of weight above zero that the result does not include, `{task, why, candidate, reference}`, `why` either `unpaired` or `too_few_trials`, with each side's valued trials |
@@ -653,9 +654,9 @@ A **confound** is one entry of a result's `confounds`:
 
 | Member | Meaning |
 |---|---|
-| `name` | a tuple field besides `variable`; a layer confound, `observed.model`, `sent.model`, `sent.reasoning`, `observed.service_versions` or `declared.image`; `missing`; `self_reported`; or, once adoption is built, `window` (spec 008) |
+| `name` | a tuple field besides `variable`; a layer confound, `observed.model`, `sent.model`, `sent.reasoning`, `observed.service_versions` or `declared.image`; `missing`; `self_reported`; `window`, once adoption is built and on a pair result of two benchmark entries; or, on a pair result only, `declared` (spec 008) |
 | `tasks` | on a suite result, the task names it applies to |
-| `candidate`, `reference` | per side: for `observed.model`, `sent.model` and `sent.reasoning` the number of requests it covers; for `observed.service_versions`, `declared.image` and `self_reported` the number of finished trials it covers; for `missing` the number of finished trials without a value; absent for a tuple field and for `window` |
+| `candidate`, `reference` | per side: for `observed.model`, `sent.model` and `sent.reasoning` the number of requests it covers; for `observed.service_versions`, `declared.image`, `self_reported` and `declared` the number of finished trials it covers; for `missing` the number of finished trials without a value; absent for a tuple field and for `window` |
 
 A **summary** describes one metric over one set of trials, a cell or a
 candidate's tasks:
@@ -805,6 +806,8 @@ own:
 | `folder` | string | for a version that carries files: `files/evals/publications/<publication id>/<number>/` in the owner's Arca space (spec 007) |
 | `evidence_link` | object | for a version with a folder, while `published` and not paused: `{id}`, the Arca link on its folder; its token is held for building links and leaves Examen only inside the links of a read |
 | `input_links` | []object | for a `benchmark` while `published` and not paused: `{task, name, id}` per Arca input and reference of the suite's tasks and per check's `files`, each an Arca link on that object or folder, read only by the `prepare` job of an experiment run through the benchmark (spec 013); never answered |
+| `reference` | submission id | for a `benchmark`: the accepted entry of this version every other entry is compared with: the one the publication's owner names, else the owner's own accepted entry of the lowest submission id; absent when there is none (spec 013) |
+| `results` | object | for a `benchmark`, computed: its results table as last computed, `{method, reference, entries, unranked, pairs}`, with `method` holding the test, the adjustment, the levels, the number of pairs, the resamples, the table's `inputs_digest` and `seed`, and `computed_at`, and `pairs` every pair result of two accepted entries (spec 008); recomputed when the version's accepted entries or its `reference` change, and never part of the snapshot (spec 013) |
 | `scan` | object | for `outputs` and `full`: `{image, findings, scanned_at}`, each finding `{path, rule, line}` and never the text it matched |
 | `error` | object | when `failed`: an error object of spec 003 |
 | `published_by` | subject | the subject that asked for the version |
@@ -828,7 +831,7 @@ results table (spec 013). Its owner is the submitter.
 | `report` | object | `{publication, version}`: the submitter's report publication version |
 | `candidate` | candidate digest | the candidate of the report's experiment the entry shows |
 | `state` | enum | `pending`, `accepted`, `rejected`, `withdrawn` |
-| `entry` | object | the figures the entry shows, copied from the report version at submission: `{attribution, candidate, summary, confounds, declared_provenance, self_reported}`; `candidate` its name, kind, digest, model and reasoning, and for `external` its declared `harness` and `version`; `summary` its suite-level summary of the benchmark's primary metric (spec 013) |
+| `entry` | object | the figures the entry shows, copied at submission: `{attribution, candidate, summary, confounds, declared_provenance, self_reported, window, values}`; `candidate` its name, kind, digest, model and reasoning, and for `external` its declared `harness` and `version`; `summary` its suite-level summary of the benchmark's primary metric; `window` the earliest `started_at` and the latest `ended_at` of the trials `values` holds; and `values`, per task of the suite, `{task, weight, values, tuple, layers}`: the task's name and weight, the primary metric's value of each of the candidate's finished trials in trial id order, a number or a boolean, or for a cell-level metric the canonical label of its `of` metric that the statistic is computed from, `null` for a trial without one, and never other trial content (spec 013); the cells' tuple fields outside the candidate, `task_hash`, `environment_digest`, `workspace_ref` and `grader_digests`; and the counts the confounds of spec 008 read: requests served by another model, requests of trials that sent none to the configured model, each reasoning value sent with its requests, each service version with its finished trials, each declared image with its finished trials, and the finished trials whose value is self-reported |
 | `created_by` | subject | the subject that submitted it |
 | `decided_by`, `decided_at` | subject, time | for an accepted submission of a `reviewed` benchmark, and a rejected one |
 

@@ -1,5 +1,5 @@
 ---
-title: "Publishing: the one definition of sharing, from share grants to links and listings; reports, benchmarks and datasets published as immutable snapshots with an evidence level and a secret scan; evidence served through Arca read-only links; reads without sign-in; benchmark submissions and a results table grouped where the data cannot tell entries apart; withdrawal, pause and attribution"
+title: "Publishing: the one definition of sharing, from share grants to links and listings; reports, benchmarks and datasets published as immutable snapshots with an evidence level and a secret scan; evidence served through Arca read-only links; reads without sign-in; benchmark submissions and a results table of ordered entries with simultaneous rank intervals and a comparison with a reference entry; withdrawal, pause and attribution"
 status: drafted
 track: core
 depends_on:
@@ -11,10 +11,10 @@ depends_on:
   - specs/007-measurements-and-evidence.md
   - specs/008-analysis.md
   - specs/010-reports.md
-affects: [internal/publish/, internal/httpapi/, internal/access/, cmd/examen-scan/, api/]
+affects: [internal/publish/, internal/analysis/, internal/httpapi/, internal/access/, cmd/examen-scan/, api/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -306,7 +306,7 @@ resolves while it is `unlisted` or `public`, or by its public id, its
 hold every `public` publication that is not paused. A read answers the
 snapshot, the version list and, for a version with a folder, the
 evidence objects with their Arca links; for a benchmark, its results
-table. It never answers a live object: no experiment, trial, measurement
+table and the comparison of two of its entries. It never answers a live object: no experiment, trial, measurement
 or comparison is reachable from it, and a figure's source in a report's
 document reads as plain text.
 
@@ -351,7 +351,7 @@ sees leads to the report behind it. The benchmark's owner sets
 The owner may reject an accepted submission later, and the submitter
 may withdraw its own; a withdrawn report version withdraws its
 submissions. At submission Examen copies the entry's figures from the
-report version's document into the submission's `entry`, so the table
+report version's document into the submission's `entry`, so an entry
 never changes under a reader: the candidate's attribution; its name,
 kind, digest, model and reasoning, and for an `external` candidate its
 declared `harness` and `version`; its suite-level summary of the
@@ -360,38 +360,93 @@ coverage, as the report's grid holds it; its confounds that a side
 carries alone, `missing`, `self_reported`, `observed.model` and
 `sent.model`, with their counts; whether its provenance is declared,
 true for an `external` candidate; and whether its summary reads
-self-reported values. An entry shows its own report's
-summary; it is never a comparison between two owners' experiments.
+self-reported values. Beside these figures Examen copies the entry's
+`values` from the report's experiment, as the report's figures read
+them (spec 007): for each task of the suite, the task's weight and the
+primary metric's value of each of the candidate's finished trials,
+with the cells' tuple fields outside the candidate, the counts spec
+008's confounds read, and the entry's `window`, when its trials ran
+(spec 002). A value is a number or a boolean, or for a cell-level
+primary metric the canonical label of its `of` metric that the
+statistic is computed from; no output, transcript, rationale or other
+trial content is copied, whatever the report's evidence level. A report
+whose experiment was deleted can no longer be submitted, since its
+values cannot be read (spec 003). An entry's figures are its own
+report's, and entries meet only in the tests of the results table,
+over the values each copied.
 
 A benchmark's primary metric is of level `trial` or `cell` and not a
 `label`, since its results are ordered by one figure; a suite whose
 primary metric is not is refused at publish, `400 invalid_field` on
 `source`.
 
-**The results table.** For a benchmark version, the accepted entries,
-ordered and grouped so that the table never shows a bare ranking, and
-never hides an order the data does show by showing none:
+**The reference.** A benchmark version's `reference` is the accepted
+entry every other entry is compared with: the one the benchmark's owner
+names (`PATCH /publications/{id}`, spec 003), and otherwise the
+owner's own accepted entry of the lowest submission id. When the named
+entry is rejected or withdrawn, the default applies again. With no
+accepted entry of the owner's and none named, the version has no
+reference, and no entry carries a comparison with one.
 
-1. Entries are ordered by their summary's value in the primary metric's
-   direction, best first: descending for `higher_is_better`, ascending
-   for `lower_is_better`, and descending for `none`, which the table
-   says has no better end. Ties keep submission id order.
-2. Walking that order, an entry joins the current group when its
-   interval overlaps the group's span, the union of its members'
-   intervals, ends included; otherwise it starts the next group. Groups
-   are numbered from 1 and carry no rank of their own.
-3. An entry whose summary has no interval, or covers less than
-   `MIN_SUITE_COVERAGE` of the suite's weight, is listed after every
-   group, ungrouped, with why.
+**The results table.** For a benchmark version, its accepted entries,
+at most `MAX_BENCHMARK_ENTRIES`: an acceptance beyond it, at submission
+or by the owner, is refused `409 benchmark_full` (spec 003). The table
+never shows a bare ranking, and never hides an order the data does
+show by showing none:
 
-The table says what a group means: entries in one group are results
-this data cannot tell apart, because their intervals overlap. Overlap
-of intervals is a display rule and errs toward grouping; it is not a
-test, and two entries of one group may still differ under a comparison
-of spec 008, which is how an owner who runs both candidates in one
-experiment finds out. Each entry is marked when its provenance is
-declared and when its summary reads self-reported values, and names
-its confounds in its own row.
+1. **Ranked and unranked.** An entry is ranked when its tasks of weight
+   above zero that hold at least `MIN_TRIALS_PER_TASK_IN_SUITE` valued
+   trials in its `values` hold at least `MIN_SUITE_COVERAGE` of the
+   suite's weight. Any other entry is unranked: listed after the ranked
+   entries, in the same order, with why, and with no rank interval and
+   no comparison with the reference.
+2. **Order.** Ranked entries are ordered by their summary's value in
+   the primary metric's direction, best first: descending for
+   `higher_is_better`, ascending for `lower_is_better`, and descending
+   for `none`, which the table says has no better end. Ties keep
+   submission id order. An entry's `order` is its place, from 1. It is
+   a display order and never shown as a rank by itself.
+3. **Rank intervals.** Each ranked entry shows `rank: {low, high}`,
+   which hold together across the table at `CONFIDENCE_LEVEL` (spec
+   008, Benchmark entries): every two ranked entries are tested with
+   the paired test of the primary metric's suite-level result, the
+   stratified permutation over their per-task values with the tasks
+   fixed and weighted as declared, and Holm's procedure adjusts all
+   K(K − 1) / 2 pairs together at 1 − `CONFIDENCE_LEVEL`, K the number
+   of ranked entries. `low` is 1 plus the number of entries
+   significantly better than it, and `high` is K less the number
+   significantly worse. An entry apart from neither of two neighbors
+   that are apart from each other spans both. For direction `none`,
+   better is the higher value, and the table says the interval is a
+   place in that order, not a rank of better and worse.
+4. **Against the reference.** Each ranked entry but the reference
+   itself carries `vs_reference`, spec 008's pair result of the entry
+   against the reference entry, unadjusted, as a primary result is
+   elsewhere: `delta`, the entry less the reference, its `interval`,
+   `p`, `verdict` (`improved`, `regressed`, `within_noise` or
+   `insufficient`, and `changed` in place of the first two for
+   direction `none`), `reason` and `confounds`. The confounds are the
+   tuple fields outside the candidate that differ, the layer confounds
+   (a served model, a harness's image or a service version that
+   differs), `declared` for an `external` side, `self_reported`,
+   `missing`, and `window` when the two entries' trials ran in time
+   windows that do not overlap.
+5. **Two entries on demand.** `GET /publications/{id}/results/compare`
+   and its public twin answer the pair result of any two accepted
+   entries of a version with the members of 4, unadjusted, and say that
+   it is one comparison and that the table's rank intervals are the
+   adjusted statement (spec 003).
+
+The work queue computes the table when the version's accepted entries
+or its reference change, and stores it with the version (spec 002)
+with its inputs digest and seed, deterministic as spec 008 requires;
+the results routes answer the table as last computed. Each entry is
+marked when its provenance is declared and when its summary reads
+self-reported values, and names its own confounds in its row.
+
+The table does not group entries whose intervals overlap, for the
+reasons spec 008 gives: overlap is not a test, does not chain, ignores
+the pairing by task, and ignores how many pairs a table compares.
 
 ### Datasets
 
@@ -451,7 +506,9 @@ report version's attribution.
 The constants of spec 002 this spec holds:
 `PUBLIC_REQUESTS_PER_MINUTE`, `PUBLICATION_LINE_MAX_BYTES`,
 `PUBLICATION_TEXT_MAX_BYTES`, `PUBLICATION_EVIDENCE_MAX_BYTES`,
-`SECRET_SCAN_TIMEOUT` and `MIN_SUITE_COVERAGE`.
+`SECRET_SCAN_TIMEOUT`, `MAX_BENCHMARK_ENTRIES`,
+`MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`,
+`CONFIDENCE_LEVEL` and `FALSE_DISCOVERY_RATE`.
 
 ## Not in this spec
 
@@ -459,9 +516,11 @@ The objects and their fields (002), the routes, their answers and
 errors (003), the actions, the owner policy and the attribution limit
 (004). Rendering pages, share images and a share dialog: a console or
 an installation renders them from the public reads. Reviewing a
-listing, which the installation does. A DOI for a dataset. A ranking:
-the results table groups. Comparing two owners' entries statistically,
-which a comparison of spec 008 does within one experiment.
+listing, which the installation does. A DOI for a dataset. A bare
+ranking: the results table reports rank intervals adjusted across the
+table, and the statistics behind them are spec 008's. Comparing two
+entries per task or on another metric than the primary one, which a
+comparison of spec 008 does within one experiment.
 
 ## Acceptance criteria
 
@@ -479,8 +538,10 @@ which a comparison of spec 008 does within one experiment.
 | A public read answers without a bearer, by link token while `unlisted` or `public` and by public id while `public`; it asks `publication.read` with no subject; a denied read and an unknown key answer alike; no answer reaches a live object | `publish.TestPublicReads` |
 | The link token is in no list, log line, span, event or error, and replacing it stops the old one | `publish.TestLinkTokenStaysSecret`, with a canary |
 | A withdrawn version answers `410 publication_withdrawn` and moves the latest to the newest published one; a paused publication answers `410 publication_paused` and leaves the listings | `publish.TestWithdrawAndPause` |
-| A submission needs a published report of the benchmark's exact suite digest, follows `submissions`, and copies its entry at submission; a withdrawn report withdraws its submissions | `publish.TestSubmissions` |
-| The results table orders entries in the primary metric's direction, groups every entry whose interval overlaps its group's span, lists entries without an interval or below coverage after the groups, and marks declared provenance and self-reported values | `publish.TestResultsTableGroups`, over committed entries |
+| A submission needs a published report of the benchmark's exact suite digest, follows `submissions`, and copies its entry and its values at submission and no trial content, whatever the report's evidence level; a report whose experiment was deleted is refused; a withdrawn report withdraws its submissions | `publish.TestSubmissions` |
+| The results table orders ranked entries in the primary metric's direction; gives each the rank interval `[1 + B, K - W]` from the pair tests adjusted by Holm's procedure across all K(K − 1) / 2 pairs, an entry between two neighbors that are apart spanning both; lists entries below `MIN_TRIALS_PER_TASK_IN_SUITE` or `MIN_SUITE_COVERAGE` after the ranked ones with why and without a rank interval or verdict; marks declared provenance and self-reported values; refuses an acceptance past `MAX_BENCHMARK_ENTRIES` with `409 benchmark_full`; and is recomputed when an entry is accepted, rejected or withdrawn | `publish.TestResultsTableRankIntervals`, over committed entries |
+| Each ranked entry but the reference carries its unadjusted pair result against the reference entry, with its verdict, reason and confounds, `window` included when the two entries' trials ran in windows that do not overlap; the reference is the owner's choice, defaults to the owner's first accepted entry, returns to that default when the named entry leaves, and is absent when the owner has none | `publish.TestResultsTableReference` |
+| The compare route and its public twin answer the stored pair result of two accepted entries, the same figures the reference column shows for that pair, negated when read the other way, unadjusted and saying so | `publish.TestResultsPairwise` |
 | A version shows the authorizer's attribution over the request's, and keeps it after the owner is renamed | `publish.TestAttribution` |
 | After a suite share, the grantee reads the suite's versions and the objects they pin and runs an experiment on it under its own owner and budget, and cannot apply under the name or read the sharer's experiments; after a baseline share, the grantee's comparison is computed against it and no route answers the sharer's trials or measurements; after the share is removed, a new reference is refused and an experiment that pinned the shared version still reads it | `access.TestSuiteAndBaselineShares` |
 | After a suite share, the grantee pins a baseline and applies a bar of its own on the suite; after an experiment share, the grantee reads the experiment, its trials and its comparisons and cannot change, cancel, re-grade or delete it; after a publication share, the grantee reads its published versions and cannot change or withdraw it | `access.TestExperimentAndPublicationShares` |

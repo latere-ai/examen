@@ -399,7 +399,8 @@ The statistics behind every figure (008). The routes' envelopes and
 errors (003), the action vocabulary and how grants are stored (004).
 The reference console, which ships apart from `examend` (011). Bar
 evaluations, which a report links to (009). Publishing a report, and a
-benchmark's results table, which groups and never ranks (013).
+benchmark's results table, with its rank intervals and its comparisons
+with the reference entry (013).
 Cross-experiment and cross-suite meta-reports, and narrative in
 languages other than English.
 
