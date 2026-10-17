@@ -16,9 +16,12 @@ besides the thing you meant to change.
 The name is Latin for the tongue of a balance, the pointer that shows
 which way it tips.
 
-> Examen is at the design stage. Nothing here runs yet. The design is
-> [`specs/001-architecture.md`](specs/001-architecture.md), and
-> [`specs/README.md`](specs/README.md) lists the specs in build order.
+> Examen is being built. `examend` starts, migrates its database,
+> verifies callers and serves its contract and probes; suites,
+> experiments and their comparisons are not served yet. The design is
+> [`specs/001-architecture.md`](specs/001-architecture.md),
+> [`specs/README.md`](specs/README.md) lists the specs in build order,
+> and [`CHANGELOG.md`](CHANGELOG.md) says what each release serves.
 
 ## What it is for
 
