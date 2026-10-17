@@ -127,7 +127,7 @@ func (s *Server) handler(served []route) http.Handler {
 	if b != "" {
 		mux.Handle("/", notFound)
 	}
-	return otel.Handler(identified(bounded(mux)), "examend",
+	return otel.Handler(identified(s.bounded(mux)), "examend",
 		otel.WithRouteTemplate(func(r *http.Request) string { return r.Pattern }),
 		otel.WithSkip(func(r *http.Request) bool { return isProbe(r.URL.Path) }))
 }
@@ -260,10 +260,10 @@ func visibleASCII(s string, n int) bool {
 // bounded holds every request body to MAX_REQUEST_BYTES: one that declares
 // more is refused before a byte of it is read, and one that sends more is
 // cut at the bound, which a read reports.
-func bounded(next http.Handler) http.Handler {
+func (s *Server) bounded(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ContentLength > limits.MaxRequestBytes {
-			apierr.Write(w, apierr.Newf(apierr.CodeRequestTooLarge, "the body declares %d bytes, above MAX_REQUEST_BYTES (%d)", r.ContentLength, limits.MaxRequestBytes))
+			s.answer(w, r, apierr.Newf(apierr.CodeRequestTooLarge, "the body declares %d bytes, above MAX_REQUEST_BYTES (%d)", r.ContentLength, limits.MaxRequestBytes))
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, limits.MaxRequestBytes)

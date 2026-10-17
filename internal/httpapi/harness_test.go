@@ -16,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"latere.ai/x/examen/authorizer"
 	"latere.ai/x/examen/internal/access"
@@ -238,16 +237,4 @@ func failing(path string, err error) route {
 	return route{method: http.MethodPost, path: path, idempotent: true, handle: func(*Server, http.ResponseWriter, *http.Request, access.Caller) error {
 		return err
 	}}
-}
-
-// waitFor polls a condition for up to a few seconds.
-func waitFor(t *testing.T, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatal("the condition did not hold in time")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 }

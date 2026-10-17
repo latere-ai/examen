@@ -174,8 +174,11 @@ func TestInternal(t *testing.T) {
 		t.Fatalf("an unknown code answered %+v", b)
 	}
 	known := New(CodeNotFound, "no route")
-	if known.Cause() != known || Classify(known) != known {
-		t.Fatal("a classified error is its own cause")
+	if !errors.Is(known.Cause(), known) {
+		t.Fatal("a classified error is not its own cause")
+	}
+	if got := Classify(fmt.Errorf("wrapped: %w", known)); got.Code != CodeNotFound || got.Detail != "no route" {
+		t.Fatalf("a wrapped classified error is %+v", got)
 	}
 	if got := OnField(CodeInvalidField, "limit", "above 200").Error(); got != "apierr: invalid_field: above 200 (limit)" {
 		t.Fatalf("%q", got)
