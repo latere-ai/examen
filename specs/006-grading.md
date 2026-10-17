@@ -292,7 +292,12 @@ same request:
    spec 007 renders it to text; each of `files` is that evidence file,
    included when it is UTF-8 text and otherwise named with its size and
    digest alone. Each of `outputs` is that output of the trial, read the
-   same way. For an external trial, `transcript` and `final_message`
+   same way; an output that is a directory archive (spec 007) is read
+   through its manifest, the grader naming the files it reads as
+   `<output>/<path>`, each extracted from the archive and its digest
+   checked against the manifest, and the manifest itself, paths, sizes
+   and digests, given when the grader names the output alone. Examen
+   reads the archive as data and runs nothing from it. For an external trial, `transcript` and `final_message`
    are what its harness submitted, and one it did not submit is an
    empty block.
 2. **Bound.** The inputs together take at most `JUDGE_MAX_INPUT_BYTES`,

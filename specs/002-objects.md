@@ -841,14 +841,16 @@ the submitter or when its report version is withdrawn.
 One entry of an experiment's event log (spec 003), written in the same
 transaction as the change it reports. The **sink events**,
 `experiment.completed`, `experiment.canceled`, `cell.parked`,
-`bar.passed` and `bar.failed`, are also delivered to the installation's
+`bar.passed`, `bar.failed`, `publication.published`,
+`publication.withdrawn` and `listing.requested`, are also delivered to the installation's
 event sink (spec 003).
 
 | Field | Type | Meaning |
 |---|---|---|
-| `experiment` | experiment id | the log it belongs to |
+| `experiment` | experiment id | the log it belongs to; empty on a publication event |
+| `publication` | publication id | on a publication event (spec 013), the publication whose own log it belongs to; empty otherwise |
 | `seq` | int | its position in that log, from 1 |
-| `type` | enum | `experiment`, `cell`, `trial`, `graded`, `comparison`, `experiment.completed`, `experiment.canceled`, `cell.parked` (spec 003), `bar.passed`, `bar.failed` (spec 009) |
+| `type` | enum | `experiment`, `cell`, `trial`, `graded`, `comparison`, `experiment.completed`, `experiment.canceled`, `cell.parked` (spec 003), `bar.passed`, `bar.failed` (spec 009), `publication.published`, `publication.withdrawn`, `listing.requested` (spec 013) |
 | `data` | object | what changed, by type (specs 003 and 009) |
 | `at` | time | when the change happened, which is the event's `created_at` |
 | `delivery` | enum | for a sink event: `pending`, `acknowledged` or `dropped` (spec 003) |

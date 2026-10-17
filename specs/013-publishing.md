@@ -195,7 +195,10 @@ Before a version at `outputs` or `full` publishes, a secret scan runs
 over everything it will publish. Examen creates a Cella sandbox as the
 owner, with the purpose `publish`, from Examen's secret scanner image,
 `examen-scan`, whose digest the examend build pins as it pins the trial
-driver's (spec 011), with network `none`. It writes the version's
+driver's (spec 011), with network `none`. The scanner opens tar and zip
+archives, a directory output among them, and scans every file inside;
+an archive it cannot open is a finding on that archive, so nothing is
+published unread. It writes the version's
 folder into the sandbox through Cella's file routes, each file read
 from the owner's Arca space with its digest checked, runs
 `examen-scan` over it through Cella's exec route under
@@ -244,8 +247,13 @@ Origo input is read at its commit as the runner, and inline text comes
 with the task.
 
 Every link of a version is revoked through Arca's link API (`DELETE
-/v1/shares/links/{id}`) when the version is withdrawn, and every link
-of a publication when it is paused; a resume creates new ones. A revoke
+/v1/shares/links/{id}`) when its owner withdraws it, during the owner's
+request. A pause revokes nothing: while a publication is paused, Examen
+answers no public read of it and lists no link of it, and an
+installation whose file store serves links without asking (Arca's link
+reads ask its authorizer) refuses those links' reads there, so a
+resume, which an administrator takes with no owner present, needs no
+owner token. A revoke
 that fails is retried until Arca accepts it, and the version reads as
 withdrawn or paused from the moment the request commits.
 
@@ -418,10 +426,10 @@ exports and report bundles do (spec 007), for the owner to delete.
 **Pause** is an administrator's (`publication.pause`), as for anything
 an installation lists: `POST /publications/{id}/pause` with a reason
 sets `paused`, every public read of the publication answers `410
-publication_paused`, the listings leave it out, and every Arca link of
-it is revoked. Its visibility does not change, and its owner still
+publication_paused`, the listings leave it out, and its Arca links stop
+answering (above). Its visibility does not change, and its owner still
 reads it through the signed-in routes. `POST /publications/{id}/resume`
-clears `paused` and creates new Arca links. Under the owner policy no
+clears `paused`, and its links answer again. Under the owner policy no
 one pauses (spec 004).
 
 ### Attribution

@@ -1025,22 +1025,32 @@ program:
   command: ["/examen-http"]
   config:
     format: examen.http-runner/v1
-    request:
-      method: POST
-      url: https://lectio.example/v1/parses
-      headers:
-        Content-Type: application/json
-        Authorization: "Bearer {{env.LECTIO_TOKEN}}"
-      body: '{"document": "{{input.invoice:base64}}", "reader": "layout"}'
+    steps:
+      - name: upload
+        method: POST
+        url: https://lectio.example/v1/files
+        headers:
+          Authorization: "Bearer {{env.LECTIO_TOKEN}}"
+        upload: {field: file, input: invoice}
+      - name: parse
+        method: POST
+        url: https://lectio.example/v1/parses
+        headers:
+          Content-Type: application/json
+          Authorization: "Bearer {{env.LECTIO_TOKEN}}"
+        body: '{"file": "{{steps.upload.body:$.id}}", "reader": "layout"}'
     poll:
-      url: "{{response.body:$.status_url}}"
+      url: "https://lectio.example/v1/parses/{{steps.parse.body:$.id}}"
+      headers:
+        Authorization: "Bearer {{env.LECTIO_TOKEN}}"
       interval: 2s
-      until: {path: "$.state", in: ["done"]}
-      fail: {path: "$.state", in: ["failed"]}
+      until: {path: "$.status", in: ["succeeded"]}
+      fail: {path: "$.status", in: ["failed", "canceled"]}
       timeout: 10m
     extract:
-      - {from: "$.result.fields", to: fields.json}
+      - {from: "$.fields", to: fields.json}
     service_version: {name: lectio, header: X-Service-Version}
+    service_usage: {name: lectio, cost_usd: "$.cost", units: "$.usage"}
   credentials:
     - {audience: lectio, host: lectio.example, env: LECTIO_TOKEN}
 ```
@@ -1048,17 +1058,18 @@ program:
 | `config` member | Meaning |
 |---|---|
 | `format` | `examen.http-runner/v1` |
-| `request` | `method`, `url`, `headers`, and a `body` template; or `body_input`, the name of an input sent as the body unchanged |
-| `poll` | optional, for an API that answers at once and completes later: `url` and `method` (default `GET`), templates over the first response; `interval`; `until` and `fail`, each a path selector (spec 006) into the polled JSON body and the values that end the polling as done or as failed; and `timeout`, within the task's |
+| `steps` | the requests sent in order, each `{name, method, url, headers}` with one of a `body` template, `body_input` (an input sent as the body unchanged) or `upload` (`{field, input}`, a multipart upload of an input, for an API that takes a file before the request that uses it); a later step's templates read an earlier step's answer through `{{steps.<name>.body:<selector>}}` and `{{steps.<name>.header:<name>}}`, and a step that answers an error status ends the trial as a failure. `request` is accepted as the one-step form |
+| `poll` | optional, for an API that answers at once and completes later: `url`, `method` (default `GET`) and `headers`, templates over the steps' answers; `interval`; `until` and `fail`, each a path selector (spec 006) into the polled JSON body and the values that end the polling as done or as failed; and `timeout`, within the task's |
 | `extract` | the files written from the last response: each `{from, to}`, `from` being `body` for the whole body, `header:<name>`, or a path selector into a JSON body, and `to` one of the task's `outputs` |
 | `service_version` | optional: `{name, header}` reads a service's version from a header of the last response, or `{name, url, path}` from a version endpoint, with a path selector into its JSON body |
-| `service_usage` | optional: `{name, cost_usd_micro, units}` reads the service's own usage from the last response's JSON body: `cost_usd_micro` a path selector to a number of micro-dollars, and `units` a path selector to an object of numbers, such as a parse answer's `usage`; either may be absent |
+| `service_usage` | optional: `{name, cost_usd, cost_usd_micro, units}` reads the service's own usage from the last response's JSON body: `cost_usd` a path selector to a decimal string or number of dollars, converted to micro-dollars with exact decimal arithmetic, or `cost_usd_micro` to an integer of micro-dollars; and `units` a path selector to the API's usage object, kept verbatim as JSON whatever its values are, such as a parse answer's `usage`; each may be absent |
 
 A template expands `{{input.<name>}}` to an input's content as UTF-8
 text, `{{input.<name>:base64}}` to its bytes in standard base64,
 `{{env.<variable>}}` to a variable of the replica, such as a
-credential's placeholder, and, in `poll`, `{{response.body:<selector>}}`
-and `{{response.header:<name>}}` to a value of the first response.
+credential's placeholder, and, in a later step and in `poll`,
+`{{steps.<name>.body:<selector>}}` and `{{steps.<name>.header:<name>}}`
+to a value of an earlier step's answer.
 
 The runner sends each request with `Lux-Labels: examen.trial=<trial
 id>`, so a service that passes the label on with the model calls it
@@ -1238,7 +1249,7 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 | A task's inputs and references are copied once per experiment into its folder with their SHA-256; a digest that does not match parks the task's cells `blocked` with `input_changed` | `execute.TestPrepareCopiesInputsAndReferences` |
 | No sandbox holds a link to a task's references while its system under test can run: a `cella` replica's references link is written only after `agent.json` exists, a `topos` rollout names them for R8 alone, and a lease answer carries none | `cella.TestReferencesAfterTheProgram`, `topos.TestReferencesOnlyForChecks`, `external.TestLeaseCarriesNoReference` |
 | A `program` candidate's credentials are minted with the purpose `trial` for their audiences, carried as Secrets scoped to their hosts, replaced before the token expires, and deleted at the rollout's end; no value enters a replica | `cella.TestCredentialSecrets` |
-| The HTTP runner sends the configured request with its templates expanded and the trial's label, polls until `until`, `fail` or its timeout, writes each extract to its output, records the service version in `/examen/observed.json`, and exits 0, 1 or 2 as its rule says; the driver keeps the service versions | `cmd/examen-http.TestRunner`, `cmd/examen-trial.TestObservedVersions` |
+| The HTTP runner sends the configured steps in order with their templates expanded, an upload step as multipart, and the trial's label, polls until `until`, `fail` or its timeout, writes each extract to its output, records the service version in `/examen/observed.json`, and exits 0, 1 or 2 as its rule says; the driver keeps the service versions | `cmd/examen-http.TestRunner`, `cmd/examen-trial.TestObservedVersions` |
 | An `external` rollout leases only smoke trials before its cost check, never more than its share; a lapsed lease returns its trials to pending with no retry spent; a submit writes the outputs, and the trial's checks run in a check sandbox through exec with the outputs and references written in and the sandbox deleted after; a cancel ends every lease | `external.TestLeaseFollowsTheQueue`, `external.TestLeaseLapses`, `external.TestCheckSandbox`, `external.TestCancel` |
 | An external trial's cost and sent layer are read from the owner's Lux records by its submitted request ids, or else by its request label, each record once; one with no record Lux can attribute has cost `unknown`, never zero; its self-reported values are stored under `self:<harness>` with `self_reported` true | `luxread.TestExternalAttribution`, `luxread.TestUnknownCost`, `external.TestSelfReported` |
 | A directory output is kept as one archive and the output manifest, a file above `OUTPUT_FILE_KEEP_MAX_BYTES` by digest and size alone; outputs past `MAX_OUTPUT_FILES` or `MAX_OUTPUT_BYTES` keep nothing more and record the constant; an archive with a link, an absolute path or `..` is refused whole; an external trial over a limit or refused runs no check | `evidence.TestDirectoryOutputs`, `external.TestOutputLimits` |
