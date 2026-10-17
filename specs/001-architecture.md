@@ -321,6 +321,6 @@ client and any console use the same API. Spec 011 covers distribution.
 
 ## Open questions
 
-- **Which judge models an owner trusts with their data.** A judge sends
-  the owner's transcripts and work to a model provider; the owner
-  chooses, and the hosting platform states each model's data terms.
+None in the core. Which judge models an owner trusts with their data is
+the owner's choice, and the hosting installation states each model's
+data terms and may narrow the choice through `judge_models` (spec 004).
