@@ -12,7 +12,7 @@ depends_on:
 affects: [internal/store/, internal/evidence/, internal/export/, api/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -168,7 +168,8 @@ experiment is the measurement of its producing grader's highest
 generation for that experiment and candidate. An open-vocabulary
 metric's current value is the raw label; analysis reads it as its
 canonical label at the taxonomy record a comparison or summary names,
-and a raw label the record does not map as missing (spec 006). A
+and a raw label the record does not map as a label of its own, marked
+unmapped and never missing (specs 006 and 008). A
 cell-level metric has no current value of its own: analysis computes
 it from the cell's current values of its `of` (spec 008).
 
@@ -239,7 +240,7 @@ keeps the three layers apart and never merges them.
 | Layer | Fields | Source | Kept on |
 |---|---|---|---|
 | configured | the provenance tuple of spec 002: `candidate.kind`, `agent_or_image_digest`, `program`, `model`, `reasoning`, `tools`, `task_hash`, `environment_digest`, `workspace_ref`, `grader_digests` | resolved by Examen when the experiment is applied, from the candidate, the task and the suite | the cell's `tuple`; not copied onto trials |
-| sent | `requests`: the number of model requests the trial's system under test made; `by_setting`: a list of `{model, reasoning, requests}`, one entry per distinct pair, sorted by `model` and then `reasoning` | the executor, from the request records of the system under test, and for an external trial Lux's records of its requests (spec 005 fixes how each executor captures them) | the trial's `sent` |
+| sent | `requests`: the number of model requests the trial's system under test made; `by_setting`: a list of `{model, reasoning, requests}`, one entry per distinct pair, sorted by `model` and then `reasoning` | for a `topos` trial, the session's records of its requests; for a `cella` or `external` trial, Lux's records of them, never a file the program could write (spec 005) | the trial's `sent` |
 | observed | `served`: a list of `{model, requests}`, the model Lux records as having served each request, sorted by `model`; `input_tokens`, `output_tokens`, `reasoning_tokens`, `cost_usd`; `cost_state`: `known`, `unpriced` when a record has `priced` false, or `unknown` for an external trial Lux holds no attributable record of (spec 005), and `cost_usd` is absent but for `known`; `turns`, `tool_calls`; `duration`; `service_versions`: an object from a service's name to its version; `service_usage`: an object from a service's name to `{cost_usd_micro, units}`, the usage that API reported for itself | Lux's usage records of the trial's requests for `served`, the token counts and `cost_usd`; the executor for `turns` and `tool_calls`; Examen for `duration`, as `agent_ended_at` less `started_at`; for `service_versions` and `service_usage`, the program's `/examen/observed.json` or the external harness's submission (spec 005) | the trial's `observed` |
 | declared | for an `external` trial: `harness_version` and `image`, as its harness declared them | the harness's submit or import (spec 005) | the trial's `declared` |
 
@@ -289,9 +290,9 @@ bytes, and fully against `digest`.
 | `output` | one file under `/examen/outputs/` that the task's `outputs` names, as the system under test left it; for a directory output, one tar archive of its kept files (spec 005) | the executor's core; examend, from the submit or the import, for an external trial | when the system under test ends, or at the submit |
 | `output_manifest` | every output file with its path, size and SHA-256 and whether it was kept, and, when the outputs passed a limit or an archive was refused, which | the executor's core; examend for an external trial | with the outputs |
 | `observed` | the service versions a program recorded, as the trial driver kept them | the `cella` trial driver | when the system under test ends |
-| `requests` | one JSON line per model request: the request id, the model and reasoning sent, the model served, the token counts and the cost | the `cella` trial driver; a Topos session's requests are in its log | when the agent ends |
+| `requests` | one JSON line per model request as the forwarder saw it: the request id, the model and reasoning sent; kept as evidence and never read as the sent or observed layer, which come from Lux's records | the `cella` trial driver; a Topos session's requests are in its log | when the agent ends |
 | `file` | one workspace file the task's `evidence` names, as it stood after the agent ended | the executor's core | before the checks run |
-| `check_output` | for each check: `result.json`, the output document of spec 006, and `stdout.txt` and `stderr.txt` | the executor's core; examend, from the check sandbox, for an external trial | after the checks |
+| `check_output` | for each check: `result.json`, the output document of spec 006, and `stdout.txt` and `stderr.txt` | the executor's core for a `topos` trial; examend, from the check sandbox, for a `cella` or `external` trial | after the checks |
 | `judge_rationale` | for each judge grading: the digest of the inputs the judge read, its whole structured answer and its rationale; for a candidate-level judge and a canonicalizer, kept with the experiment rather than a trial | Examen for a model judge; Examen, from the judge session's final answer, for an agent judge | when the grading is recorded |
 
 **Writes are create-only.** Every evidence object is written once, with
@@ -376,11 +377,12 @@ files/evals/
 - Examen writes `experiment.json` once, when the experiment is
   applied, and each `cell.json` once, when the cell is created, so the
   tree is readable without Examen's database. The `cella` trial driver
-  writes each `cella` trial's folder except `judges/`, under the prefix
-  the rollout names (spec 005). Examen writes `tasks/`, `judges/`,
-  `candidates/`, `taxonomies/`, `exports/`, `reports/` and
-  `publications/`, and an external trial's folder from its submit or
-  import and its check sandbox.
+  writes each `cella` trial's folder except `checks/` and `judges/`,
+  under the prefix the rollout names (spec 005). Examen writes `tasks/`,
+  `judges/`, `candidates/`, `taxonomies/`, `exports/`, `reports/` and
+  `publications/`, an external trial's folder from its submit or
+  import, and a `cella` or external trial's `checks/` from its check
+  sandbox.
 - `publications/` holds copies, each with the digest of the object it
   copies, so a published version stands without the evidence it came
   from; spec 013 fixes what each version copies.
@@ -574,7 +576,7 @@ operator's.
 |---|---|
 | A grading's measurements share one generation and appear together or not at all; two concurrent gradings of one trial by one grader get generations 1 and 2 | `store.TestAGradingIsOneTransaction`, `store.TestConcurrentGradingsTakeSuccessiveGenerations` |
 | A candidate-level measurement names an experiment and a candidate and no trial, takes generations per experiment, candidate and grader, and a row with both a trial and a candidate, or neither, is refused by the database; a cell-level measurement is refused | `store.TestMeasurementScopes` |
-| An open-vocabulary value is stored normalized, read through a taxonomy record, and missing when that record does not map it; an export record carries its canonical label and the record | `store.TestOpenVocabularyReads`, `export.TestCanonicalLabels` |
+| An open-vocabulary value is stored normalized, read through a taxonomy record, and read as a label of its own, never missing, when that record does not map it; an export record carries its canonical label, `null` for an unmapped one, and the record | `store.TestOpenVocabularyReads`, `export.TestCanonicalLabels` |
 | A trial's `service_usage` is kept in `observed` and `cost_usd` equals Lux's records alone | `store.TestServiceUsageKeptApart` |
 | An `UPDATE` of a measurement and a direct `DELETE` are refused by the database; deleting the experiment removes its measurements | `store.TestMeasurementsAreAppendOnly` |
 | A value of the wrong type, a score outside its range, a label outside its labels, NaN, infinity and a negative count are each refused naming the field | `store.TestMeasurementValidation` |

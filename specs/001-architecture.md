@@ -39,8 +39,9 @@ else:
   rollouts.
 - [Cella](https://github.com/latere-ai/cella) runs sandboxes. A trial of
   a program packaged as an image is one replica of a Cella SandboxSet;
-  every executed trial's checks run in its Cella machine, and an
-  external trial's in a fresh Cella sandbox, the check sandbox.
+  an agent trial's checks run in its Cella machine, and a program's or
+  an external trial's in a fresh Cella sandbox, the check sandbox, each
+  with network `none`.
 - [Lux](https://github.com/latere-ai/lux) carries every model call. An
   experiment's spend is one Lux Budget, its cost comes from Lux's
   records, and a model judge is one call through Lux on a Key from
@@ -115,7 +116,7 @@ flowchart TB
   C -->|program candidate: one set per rollout| CE[Cella: SandboxSet, one replica per trial]
   C -->|external candidate: leased trials| H[The owner's harness]
   H -->|outcome and outputs| X
-  X -->|external trial's checks: check sandbox| CE
+  X -->|program and external trials' checks: check sandbox| CE
   T -->|machine| CE
   T -->|checks run in the machine before the session ends| EV[("Arca: session folders and files/evals/")]
   CE --> EV
@@ -156,13 +157,16 @@ flowchart TB
    trials round robin, so candidates compared within one experiment run
    in one time window. Trials that failed for an infrastructure reason
    run again in retry rollouts.
-5. **Trials.** Topos or Cella runs each trial to its end, runs the
-   task's checks inside the trial's Cella machine, keeps the evidence
-   in Arca, and reports the trial: outcome, the measurements the checks
-   produced, what was sent and what served, where the evidence is,
-   cost. An external harness runs its leased trials and submits each
-   one's outcome and outputs; its checks run in a check sandbox, and
-   its cost is read from Lux by the trial's request ids or label.
+5. **Trials.** Topos runs each agent trial to its end, runs the task's
+   checks inside the trial's Cella machine once the agent's processes
+   have stopped, keeps the evidence in Arca, and reports the trial:
+   outcome, the measurements the checks produced, what was sent and
+   what served, where the evidence is, cost. Cella runs each program
+   trial to its end and keeps its evidence; its checks then run in a
+   check sandbox, apart from the program. An external harness runs its
+   leased trials and submits each one's outcome and outputs; its checks
+   run in a check sandbox, and its cost is read from Lux by the trial's
+   request ids or label.
 6. **Judges.** Graders that need judgment run over the stored evidence
    after the trial: a model judge as one structured call through Lux,
    an agent judge as a session of a pinned Topos agent, and the decline
@@ -188,7 +192,7 @@ and cancels it. Spec 005 fixes the contract.
 | Executor | Candidate kind | Executes through | Built today |
 |---|---|---|---|
 | `topos` | `topos`: a Topos agent version, with a model, reasoning and tools override | Topos rollouts: one session per trial, each in its own Cella machine, the checks run in the machine before the session ends | Topos sessions, budgets and metadata are built; the rollout and the model override are proposed |
-| `cella` | `program`: a program packaged as an image, pinned by digest, with its command, environment and configuration: an agent command-line tool of any vendor, the HTTP runner that calls an API, or any other | one Cella SandboxSet per rollout: one replica per trial of the task's environment template, with the program mounted read-only into it from its image, so the environment is identical across candidates; the checks as the completion command, results collected | designed (Cella spec 020), not built |
+| `cella` | `program`: a program packaged as an image, pinned by digest, with its command, environment and configuration: an agent command-line tool of any vendor, the HTTP runner that calls an API, or any other | one Cella SandboxSet per rollout: one replica per trial of the task's environment template, with the program mounted read-only into it from its image, so the environment is identical across candidates; results collected, then each trial's checks run in a check sandbox | designed (Cella spec 020), not built |
 | `external` | `external`: a configuration of the owner's own harness, its name, version and an optional digest, declared and not observed | none of Examen's: the harness leases pending trials and submits each one's outcome, outputs and the Lux request ids of its model calls; each trial's checks run in a check sandbox, one Cella sandbox from the task's environment template | a single Cella sandbox with its file routes and exec is built; a check with an image also needs Cella's image Volumes (Cella spec 019) |
 
 ## Place in the platform
@@ -219,13 +223,19 @@ Each decision names the alternative it rejects.
    starting and tracking sessions itself, which builds a second rollout
    mechanism beside the SandboxSet Cella designs for this, and drifts
    from both.
-2. **Checks run inside the trial's Cella machine, before it ends.** The
-   executor runs them and returns measurements. An external trial's
-   work was not done in a machine of Examen's, so its checks run in a
+2. **An agent's checks run in its machine; a program's and an external
+   harness's run apart.** A `topos` trial's checks run inside its Cella
+   machine before it ends, after every process of the turn has stopped,
+   with network `none`. A `cella` or `external` trial's checks run in a
    fresh Cella sandbox from the task's environment template, the check
-   sandbox, with its outputs delivered. *Rejected:* copying artifacts
-   out after an executed trial and grading elsewhere, which loses the
-   environment the work was done in; and a sandbox of Examen's own.
+   sandbox, with network `none` and the trial's outputs delivered: a
+   program shares no machine with the checks that grade it or the
+   references they read, and an external trial's work was not done in
+   a machine of Examen's. *Rejected:* checks in a program's replica,
+   where a process the program left could read the references or
+   change a result; copying an agent trial's artifacts out and grading
+   elsewhere, which loses the environment its work was done in; and a
+   sandbox of Examen's own.
 3. **Two judge kinds, the model judge by default.** A model judge is one
    structured call through Lux with a pinned model, prompt and rubric:
    cheap and reproducible. An agent judge is a session of a pinned
@@ -269,16 +279,22 @@ Each decision names the alternative it rejects.
    `MIN_TRIALS_FOR_VERDICT` finished trials, and no suite-level verdict
    below `MIN_SUITE_COVERAGE`. Noise comes from within-cell spread.
    Binary task-level results use Boschloo's exact unconditional test on
-   a fixed grid, numeric ones a permutation test of their declared
-   aggregate, label distributions Fisher, Freeman and Halton's exact
-   test, or a permutation of the chi-square statistic with a fixed seed
-   when its tables are too many to enumerate, and intervals are Wilson
-   and Newcombe for rates,
-   bootstrap-t for means and exact order-statistic intervals for
-   quantiles. Each comparison's p-values form two parts: the primary
-   metric's suite-level result, one pre-declared test reported without
-   correction, and one family of every other result, corrected by
-   Benjamini and Hochberg's procedure at `FALSE_DISCOVERY_RATE`.
+   a fixed grid; numeric ones a permutation test of their declared
+   aggregate's studentized statistic, Welch's for a mean and Chung and
+   Romano's for a quantile, so unequal trial counts and spreads keep
+   the level; a label's repeat rate a permutation of its difference;
+   label distributions Fisher, Freeman and Halton's exact test, or a
+   permutation of the chi-square statistic with a fixed seed when its
+   tables are too many to enumerate. Intervals are Wilson and Newcombe
+   for rates, Wilson on Kish's effective sample size and Agresti and
+   Caffo's for suite-level rates, bootstrap-t for means and exact
+   order-statistic intervals for quantiles. Each comparison's p-values
+   form two parts: the primary metric's suite-level result, one
+   pre-declared test reported without correction when the comparison
+   was declared before the experiment ran, and one family of every
+   other result, corrected by Benjamini and Hochberg's procedure at
+   `FALSE_DISCOVERY_RATE`; a comparison made later is exploratory, its
+   primary result is in the family, and it is never headlined.
    *Rejected:* raw deltas with a fixed threshold, which over-report;
    and correcting the primary result with every task-level result,
    which makes the result a release rests on depend on how many tasks
@@ -286,9 +302,9 @@ Each decision names the alternative it rejects.
 8. **Confounds are computed, never asserted.** Every tuple field that
    differs besides the declared variable is a confound, and only
    single-variable comparisons are headlined; what was sent and what
-   served are confounds of the tasks they affect, and missing values of
-   the results they touch. *Rejected:* trusting the label a person
-   gives a comparison.
+   served are confounds of the tasks they affect, and missing values,
+   excluded trials and time windows far apart of the results they
+   touch. *Rejected:* trusting the label a person gives a comparison.
 9. **Judges are pinned and grades are generations.** Changing a judge's
    model, prompt or rubric makes a new grader version; re-grading
    appends a generation and never overwrites. Human annotations are
@@ -344,7 +360,8 @@ Each decision names the alternative it rejects.
 18. **APIs are evaluated through programs.** An API is called by a
     program in a trial's sandbox, under its network policy: Examen's
     HTTP runner, driven by the candidate's configuration, with owner
-    tokens for the APIs it calls placed as Cella Secrets. *Rejected:* a
+    tokens for the APIs it calls placed as Cella Secrets, never for a
+    service Examen acts through. *Rejected:* a
     direct HTTP executor in examend, which would make examend an
     outbound client of arbitrary hosts and an SSRF surface; and asking
     every user to write a client.
@@ -375,17 +392,20 @@ Each decision names the alternative it rejects.
     another; anyone with the link and listed reach a publication, a
     report, a benchmark or a dataset published as immutable versions
     with a digest, at the evidence level its owner chose, after a
-    secret scan in a Cella sandbox for any trial content, with evidence
-    served through Arca read-only links Examen creates and revokes.
+    secret scan in a Cella sandbox of its snapshot and any trial
+    content, with evidence served for download only through Arca
+    read-only links Examen creates and revokes.
     `public` comes only through a listing the installation approves:
     Examen asks the authorizer `publication.list` and keeps no review
     of its own. A reader who does not sign in reads published versions
     only, and the authorizer is still asked, with no subject. A
-    benchmark orders its entries by their point estimates and shows
-    each a rank interval that holds across the whole table, from paired
+    benchmark is open, not held out: whoever runs it reads its
+    references and checks. It orders its ranked entries by their point
+    estimates over the tasks all of them cover and shows each a rank
+    interval that holds across the whole table, from task-stratified
     tests over the entries' own trial values adjusted for every pair,
-    and its comparison with a reference entry; the order is never shown
-    as a rank by itself (specs 008 and 013). *Rejected:* anonymous
+    and its comparison with a reference entry, adjusted with them; the
+    order is never shown as a rank by itself (specs 008 and 013). *Rejected:* anonymous
     reads of live objects, which change under a reader and expose what
     was never chosen for publication; a review flow in the core, which
     would duplicate the installation's; file links minted by Examen,
@@ -396,14 +416,16 @@ Each decision names the alternative it rejects.
     table compares.
 23. **A metric has a level, and a label may have an open vocabulary.**
     A metric belongs to a trial, to a cell, as a statistic Examen
-    computes from the cell's trial values (`mode_share`,
-    `distinct_count`), or to a candidate, from a judge over all its
-    trials, with generations. A label metric may leave its labels open:
-    a judge proposes a raw label per trial, and the suite's taxonomy,
-    versioned and changed by the owner or a pinned canonicalizer, maps
-    it to a canonical label; results name the taxonomy version they
-    read, and a change appends a version, never rewriting a
-    measurement (specs 006 and 008). *Rejected:* forcing every label
+    computes from the cell's trial values (the tested `repeat_rate`,
+    and `mode_share` and `distinct_count`, which depend on the number
+    of trials and are descriptive), or to a candidate, from a judge
+    over all its trials, with generations. A label metric may leave its
+    labels open: a judge proposes a raw label per trial, and the
+    suite's taxonomy, versioned and changed by the owner or a pinned
+    canonicalizer, maps it to a canonical label, a label not yet mapped
+    counting as its own; results name the taxonomy version they read,
+    and a change appends a version, never rewriting a measurement
+    (specs 006 and 008). *Rejected:* forcing every label
     into a closed list before a study runs, which loses what nobody
     expected; and rewriting stored labels when a taxonomy changes,
     which makes a past comparison irreproducible.
@@ -425,7 +447,7 @@ client and any console use the same API. Spec 011 covers distribution.
 | 005 Execution | the executor contract, the `topos`, `cella` and `external` executors, task inputs and references, the HTTP runner, the check sandbox, smoke and the cost check, retries and retrying a parked cell, cancellation, imported trials and external past runs, an API's own cost |
 | 006 Grading | checks, the built-in comparators, model judges, candidate-level judges, agent judges, annotations, the decline judge, generations, open vocabularies and their taxonomies, calibration |
 | 007 Measurements and evidence | the measurement store, provenance layers, evidence references and where evidence lives, retention, dataset export |
-| 008 Analysis | aggregation and intervals by metric level, tests and the label tests, the primary result and the corrected family, confounds, automatic comparisons, verdicts and reasons, trends |
+| 008 Analysis | aggregation and intervals by metric level, studentized permutation tests and the label tests, the repeat rate, score intervals for weighted rates, the primary result, exploratory comparisons and the corrected family, confounds, automatic comparisons, verdicts, reasons and the power floor, a benchmark's rank intervals, trends |
 | 009 Bars | bar rules, evaluation, release use, bar events |
 | 010 Reports | what a console reads and shows, the report document, export |
 | 011 Distribution | the binary, configuration, Postgres, upgrades, versioning |
@@ -457,7 +479,8 @@ client and any console use the same API. Spec 011 covers distribution.
 - Re-grading with a changed judge appends a generation; earlier ones
   are unchanged.
 - No sandbox holds a task's references while its system under test can
-  run, and no lease answer carries one.
+  run, no program's sandbox ever holds one, and no lease answer carries
+  one.
 - A value an external harness reports for itself is never headlined,
   and every result that reads it names `self_reported`; a comparison
   with an external side marks its provenance declared.

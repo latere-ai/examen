@@ -26,7 +26,7 @@ other specs refer to them by name.
 | Word | Meaning | Not to be confused with |
 |---|---|---|
 | task | one versioned unit of work a system under test attempts, with its inputs, its reference outputs and its checks | a Topos session's goal; Topos spec 025's tasks are the same concept and move here |
-| check | a command run after the system under test ends, in the trial's machine or, for an external trial, in the check sandbox, producing measurements | a CI check |
+| check | a command run after the system under test ends, in a `topos` trial's machine or, for a `cella` or `external` trial, in the check sandbox, producing measurements | a CI check |
 | input | a named file a task gives the system under test at `/examen/inputs/<name>` (spec 005) | |
 | reference (of a task) | a named expected output a task holds, delivered only to its checks and never to the system under test (spec 005) | an experiment's `reference`, what a candidate is compared with |
 | output | a file, or a directory with every file in it, that the system under test writes under `/examen/outputs/`, which a task names, keeps as evidence and its checks read; a directory output is carried as an archive with an output manifest (spec 005) | |
@@ -45,7 +45,7 @@ other specs refer to them by name.
 | program | a program in an image, pinned by digest, that a candidate of kind `program` runs in a Cella sandbox: an agent command-line tool of any vendor, Examen's HTTP runner that calls an API, or any other (spec 005) | the tuple field `program`, which holds how it is started and configured |
 | external harness | the owner's own program that runs the trials of a candidate of kind `external` wherever it likes, leasing them from Examen and submitting their outcomes and outputs (spec 005) | an executor, which is Examen's |
 | lease (of external trials) | an external harness's hold on pending trials for `EXTERNAL_LEASE`, renewable, after which they return to pending (spec 005) | a Key leased from the key source, the delivery lease, and a work queue job's lease |
-| check sandbox | a fresh Cella sandbox from a task's environment template in which the checks of an external trial run, with its outputs and references delivered (spec 005) | the trial's machine, in which a `topos` or `cella` trial's checks run |
+| check sandbox | a fresh Cella sandbox from a task's environment template, with network `none`, in which the checks of a `cella` or `external` trial run, with its outputs and references delivered; no system under test ever ran in it (spec 005) | the trial's machine, in which a `topos` trial's checks run |
 | experiment | one execution of a suite against candidates | |
 | cell | one task × one candidate in an experiment; the unit of comparison | |
 | trial | one attempt by a candidate at a task | Topos's retired word "run"; a trial of a Topos agent is one Topos session |
@@ -57,6 +57,8 @@ other specs refer to them by name.
 | baseline | a record that pins one candidate's cells in one complete experiment as a reference; a baseline's name identifies a lineage of records | |
 | reference | what a candidate's cells are compared with: a baseline, or another candidate of the same experiment; an experiment's `reference` is its first candidate unless it names another | a task's `reference`, its expected outputs |
 | comparison | the per-metric verdicts of a candidate's cells against a reference | |
+| exploratory comparison | a comparison not declared before its experiment ran: one computed on request, or an automatic one against a reference set after a cell left `pending`; never headlined, and its primary metric is corrected with every other result (spec 008) | the automatic comparison against the reference the experiment declared before it ran |
+| repeat rate | the cell-level statistic `repeat_rate` of a label metric: the share of pairs of a cell's trials that hold one label, an unbiased estimate of the probability that two of its trials agree (spec 008) | a mode share, which depends on the number of trials and is descriptive only |
 | verdict | `improved`, `regressed`, `changed`, `within_noise` or `insufficient`, per metric | |
 | changed | the verdict of a significant change in a metric whose direction is `none`, which is neither better nor worse | `improved` and `regressed`, which need a direction |
 | bar | a rule on a comparison that passes or fails | a lateregate gate |
@@ -68,7 +70,7 @@ other specs refer to them by name.
 | visibility | who may read a publication: `private`, its owner and the owners it invites; `unlisted`, anyone with its link; `public`, also listed for everyone (spec 013) | |
 | link token | the capability in a publication's link: whoever holds it reads the publication's published versions without signing in, while it is `unlisted` or `public` (spec 013) | an Arca link's token, which addresses files |
 | evidence level | how much trial content a publication version carries: `aggregates`, `outputs` or `full` (spec 013) | |
-| benchmark | a publication of a suite version that others may run, with the results submitted to it (spec 013) | a public benchmark's content, imported as ordinary tasks (spec 001) |
+| benchmark | a publication of a suite version that others may run, with the results submitted to it; open, not held out: whoever runs it reads its references and checks (spec 013) | a public benchmark's content, imported as ordinary tasks (spec 001) |
 | submission | one candidate of a report publication version entered in a benchmark's results table (spec 013) | an external trial's submit |
 | event | one entry of an experiment's event log; a sink event is also delivered to the installation's event sink (spec 003) | a telemetry event |
 | key source | what leases the Lux Keys that model judges, `cella` rollouts and narrative drafts call through: `lux` or `endpoint` (spec 004) | the Keys Topos issues its own sessions |
@@ -155,7 +157,7 @@ else. The last column names the spec that explains its use.
 | `MIN_TRIALS_FOR_VERDICT` | 5 | finished trials, holding a current value of the metric, each side of a task-level result needs before a verdict other than `insufficient` | 008 |
 | `MIN_TRIALS_PER_TASK_IN_SUITE` | 2 | finished trials, holding a current value of the metric, each side needs for a task to be included in a suite-level result | 008 |
 | `MIN_SUITE_COVERAGE` | 0.8 | the share of the suite's weight a suite-level result must include before a verdict other than `insufficient` | 008 |
-| `MIN_TRIALS_FOR_P90_INTERVAL` | 35 | valued trials below which a `p90` summary and its delta carry no interval | 008 |
+| `MIN_TRIALS_FOR_P90_INTERVAL` | 29 | valued trials below which a `p90` summary carries no interval: the fewest for which a pair of order statistics covers the 90th percentile at a `CONFIDENCE_LEVEL` of 0.95, since below it every value lies under that percentile with probability 0.9^n, above 5%; a suite-level `p90` needs it of every task it includes | 008 |
 | `MAX_INFRA_RETRIES` | 2 | retries of a trial that failed for an infrastructure reason | 005 |
 | `MAX_CELLS_PER_EXPERIMENT` | 2000 | tasks × candidates in one experiment | 003 |
 | `MAX_TASKS_PER_SUITE` | 1000 | tasks in one suite version | 002 |
@@ -190,8 +192,10 @@ else. The last column names the spec that explains its use.
 | `FALSE_DISCOVERY_RATE` | 0.05 | the rate the multiple-comparison correction holds | 008 |
 | `CONFIDENCE_LEVEL` | 0.95 | the level of every reported interval | 008 |
 | `BOOTSTRAP_RESAMPLES` | 10,000 | resamples of every bootstrap interval | 008 |
-| `PERMUTATION_RESAMPLES` | the larger of 10,000 and ceil(20 · m / α), with m the number of p-values in the test's family and α the level that family is held at: for a comparison, m is the corrected family's size, 1 for the primary metric's suite-level result, and α is `FALSE_DISCOVERY_RATE`; for a benchmark's results table, m is K(K − 1) / 2 over its K ranked entries and α is 1 − `CONFIDENCE_LEVEL` | relabelings of a Monte Carlo permutation test | 008 |
-| `PERMUTATION_EXACT_MAX` | 100,000 | the most relabelings a permutation test, or tables Freeman and Halton's test, enumerates instead of sampling | 008 |
+| `PERMUTATION_RESAMPLES` | the larger of 10,000 and ceil(20 · m / α), with m the number of p-values in the test's family and α the level that family is held at: for a comparison, m is the corrected family's size, 1 for the primary metric's suite-level result of a comparison that is not exploratory, and α is `FALSE_DISCOVERY_RATE`; for a benchmark's results table, m is K(K − 1) / 2 over its K ranked entries and α is 1 − `CONFIDENCE_LEVEL` | relabelings of a Monte Carlo permutation test | 008 |
+| `PERMUTATION_EXACT_MAX` | 200,000 | the most relabelings a permutation test, or tables Freeman and Halton's test, enumerates instead of sampling; it holds C(20, 10) = 184,756, so two cells of 10 trials are tested exactly | 008 |
+| `PERMUTATION_STOP_EXCEEDANCES` | 200 | the relabelings at least as extreme as the observed one after which a Monte Carlo permutation test stops drawing (Besag and Clifford's sequential rule); a stopped estimate's relative standard error is about 1 / sqrt(200), 7% | 008 |
+| `WINDOW_TOLERANCE` | 7 days | how far apart the starts, or the ends, of two sides' trial time windows may lie before a result carries the confound `window` | 008 |
 | `BOSCHLOO_GRID_POINTS` | 1000 | points of the fixed grid of nuisance values over which Boschloo's test takes its largest p-value | 008 |
 | `TIE_TOLERANCE` | 1e-9 | relative tolerance when a test compares a probability or a discrepancy with the observed one | 008 |
 | `MAX_TREND_POINTS` | 100 | baseline records one trend reads, once trends are built | 008 |
@@ -222,7 +226,8 @@ else. The last column names the spec that explains its use.
 | `MAX_OUTPUT_BYTES` | 1 GiB | bytes of the output files one trial keeps | 005 |
 | `OUTPUT_FILE_KEEP_MAX_BYTES` | 16 MiB | the largest output file kept; a larger one is kept by its digest and size alone, listed in the trial's output manifest | 005 |
 | `LABEL_MAX_BYTES` | 128 | one label: declared by a metric, proposed by a judge for an open-vocabulary metric, or canonical in a taxonomy | 002 |
-| `MAX_LABELS_PER_METRIC` | 64 | the labels a closed-vocabulary metric declares, and the canonical labels of one taxonomy version | 006 |
+| `MAX_LABELS_PER_METRIC` | 64 | the labels a closed-vocabulary metric declares | 006 |
+| `MAX_LABELS_OPEN_VOCABULARY` | 4096 | the canonical labels of one taxonomy version of an open-vocabulary metric, which grows with every topic its judges meet | 006 |
 | `MAX_TAXONOMY_RAW_LABELS` | 10,000 | the raw labels one taxonomy version maps | 006 |
 | `BUDGET_STATUS_TTL` | 15 seconds | how long an experiment's budget figures, read through the key source, are reused for its answers | 004 |
 | `PUBLIC_REQUESTS_PER_MINUTE` | 120 | requests one client address may make to the public routes of one replica in a minute | 013 |
@@ -230,6 +235,7 @@ else. The last column names the spec that explains its use.
 | `PUBLICATION_TEXT_MAX_BYTES` | 16 KiB | a publication's description, and a dataset's citation as canonical JSON | 013 |
 | `PUBLICATION_EVIDENCE_MAX_BYTES` | 10 GiB | the evidence and files one publication version copies into its folder | 013 |
 | `SECRET_SCAN_TIMEOUT` | 30 minutes | wall time of one publication version's secret scan | 013 |
+| `INPUT_LINK_TTL` | 1 hour | how long an Arca link a `prepare` job mints on a published benchmark's input, reference or check files serves | 005 |
 | `MAX_BENCHMARK_ENTRIES` | 32 | accepted entries of one benchmark version; its results table tests every pair of them, so the tests grow with the square of the entries and each test's relabelings grow with it again | 013 |
 | `SHUTDOWN_GRACE` | 25 seconds | how long open requests have to finish after the stop signal | 011 |
 | `IMAGE_MAX_SIZE` | 40 MiB | the largest the `examend` image may be | 011 |
@@ -250,7 +256,7 @@ A named, typed quantity a suite is measured on.
 | `applies_to` | []outcome | for a trial-level metric: the outcomes of the trials it applies to, among `completed`, `declined`, `timed_out` and `turn_limit`; every one of them when absent. A finished trial of another outcome has no value of the metric and is not missing it (spec 008) |
 | `of` | metric digest | for `level: cell`: the trial-level `label` metric whose values it summarizes |
 | `exclude_labels` | []string | for `level: cell`: labels of `of` whose trials the statistic leaves out, so a cell of declines does not read as fixed on one answer; `["declined", "none"]` when absent, `[]` to leave none out. Each given entry is one of the `of` metric's `labels` when its vocabulary is closed, and any label of at most `LABEL_MAX_BYTES` otherwise, matched after normalization against canonical labels (spec 008) |
-| `aggregate` | enum | how a cell summarizes its trials: `rate` (binary), `mean`, `median`, `p90`, `distribution` (label); for a cell-level metric, `mode_share` (the share of the cell's valued trials that hold its most frequent label; type `score`, range [0, 1]) or `distinct_count` (the number of distinct labels among them; type `count`); absent for a candidate-level metric, whose one value is its summary |
+| `aggregate` | enum | how a cell summarizes its trials: `rate` (binary), `mean`, `median`, `p90`, `distribution` (label); for a cell-level metric, `repeat_rate` (the share of pairs of the cell's valued trials that hold one label; type `score`, range [0, 1]; tested), `mode_share` (the share of the cell's valued trials that hold its most frequent label; type `score`, range [0, 1]; descriptive only) or `distinct_count` (the number of distinct labels among them; type `count`; descriptive only) (spec 008); absent for a candidate-level metric, whose one value is its summary |
 | `unit` | string | for display, such as `s` or `USD` |
 | `description` | string | for people |
 
@@ -372,7 +378,7 @@ One fully pinned system under test.
 | `name` | string | unique per owner |
 | `kind` | enum | `topos`, `program` or `external` |
 | `topos` | object | for `topos`: `agent` (a Topos agent version digest), `model` (a pinned model id that overrides the agent's), `reasoning` (the reasoning level, overriding the agent's), `tools` (optional narrowing of the agent's tools) |
-| `program` | object | for `program`: `image` (digest-pinned), `command`, `env` (no secrets), `config` (an object the program defines and reads, such as the HTTP runner's request, spec 005), `model` and `reasoning` (optional: the model and reasoning level the program is told to use; model access comes from the trial's Lux Key), `credentials` (optional: each `{audience, host, env}` or `{audience, host, file}`, an owner token for `audience` delivered as a Cella Secret scoped to `host`, the API's host name, with its placeholder under the variable `env` or in the file `file`), and `lux` (`surface`: the Lux API the program speaks, `anthropic_messages`, `openai_responses`, `openai_chat_completions`, `gemini` or `lux`, default `lux`, for which its Key is scoped; `key_env`, the variable the Key is mounted under, default `LUX_KEY`; `url_env`, the variable set to the surface's base URL, default `LUX_URL`) (spec 005) |
+| `program` | object | for `program`: `image` (digest-pinned), `command`, `env` (no secrets), `config` (an object the program defines and reads, such as the HTTP runner's request, spec 005), `model` and `reasoning` (optional: the model and reasoning level the program is told to use; model access comes from the trial's Lux Key), `credentials` (optional: each `{audience, host, env}` or `{audience, host, file}`, an owner token for `audience` delivered as a Cella Secret scoped to `host`, the API's host name, with its placeholder under the variable `env` or in the file `file`; never an audience Examen acts through, a core's of spec 004 or Examen's own, which is refused at apply, spec 003), and `lux` (`surface`: the Lux API the program speaks, `anthropic_messages`, `openai_responses`, `openai_chat_completions`, `gemini` or `lux`, default `lux`, for which its Key is scoped; `key_env`, the variable the Key is mounted under, default `LUX_KEY`; `url_env`, the variable set to the surface's base URL, default `LUX_URL`) (spec 005) |
 | `external` | object | for `external`: `harness` (the harness's name, 1 to 63 characters of `[a-z0-9._-]`), `version` (a string the harness declares for itself), `digest` (optional: a digest the harness declares for its build), `model` and `reasoning` (optional: the pinned model id and the reasoning level the harness runs its system with), and `flags` (optional: an object from a setting's name to its value, each a string, at most `METADATA_MAX_PAIRS` pairs: the harness's own settings that change what it runs); declared by the harness, never observed (spec 005) |
 | `metadata` | map | at most `METADATA_MAX_PAIRS` |
 
@@ -417,7 +423,7 @@ One execution of a suite against candidates.
 | `budget` | object | `{name}`: the Lux Budget every model call of this experiment is metered against, as resolved at create: the Budget the request named, the one an authorizer's `budget` limit assigned, or the one created for the cap the request gave (specs 003 and 004). Read with `cap_usd_micro`, `spent_usd_micro` and `remaining_usd_micro` beside `name`, computed through the key source when read, at most `BUDGET_STATUS_TTL` old, and never stored |
 | `benchmark` | object | `{publication, version}`: the published benchmark version through which the experiment runs another owner's suite (spec 013); absent otherwise |
 | `parallelism` | int | `DEFAULT_PARALLELISM` when unset, at most `MAX_PARALLELISM` |
-| `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset |
+| `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset. The reference set before any cell leaves `pending` is the declared one; a reference set later makes exploratory comparisons (spec 008) |
 | `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE`; a later build step (spec 005) |
 | `mode` | enum | `execute` (the default): Examen runs every cell; `import`: Examen runs no trial, and each cell is made from the resolved provenance tuple of the first trial imported into it (below) |
 | `state` | enum | below |
@@ -561,7 +567,7 @@ of its name. Its owner is the suite's owner.
 | `suite` | object | the suite, every version of it: `{owner, name}` |
 | `metric` | metric digest | an open-vocabulary `label` metric some version of the suite lists |
 | `version` | int | 1 for the lineage's first record, then the next |
-| `canonical` | []string | the canonical labels in the order results list them, at most `MAX_LABELS_PER_METRIC`, each at most `LABEL_MAX_BYTES` |
+| `canonical` | []string | the canonical labels in the order results list them, at most `MAX_LABELS_OPEN_VOCABULARY`, each at most `LABEL_MAX_BYTES` |
 | `map` | object | each raw label it maps to one of `canonical`, at most `MAX_TAXONOMY_RAW_LABELS` entries |
 | `source` | object | `{owner}`, applied by a person, or `{canonicalizer, experiment, generation}`, proposed by a canonicalizer's run for an experiment, whose judgment record the experiment keeps |
 | `previous` | taxonomy id | the record this one follows; absent on the first |
@@ -610,21 +616,22 @@ true it never changes, and computing again makes a new comparison.
 | `reference_candidate` | candidate digest | the reference, when it is another candidate of the same experiment |
 | `task`, `reference_task` | task digest | for a comparison whose variable is `task`: the candidate's task, and the task of the same experiment whose cell of the same candidate is the reference (spec 008), whose `unpaired_tasks` and `candidate_suite` are then empty; exactly one of `baseline`, `reference_candidate` and `reference_task` is set |
 | `automatic` | bool | true for the comparison Examen keeps of a candidate against its experiment's `reference`; false for one computed on request (spec 003) |
+| `exploratory` | bool | true for a comparison computed on request, and for an automatic one against a reference set after a cell left `pending`: it is never headlined, and its primary metric's suite-level result is corrected in the family (spec 008); false for the automatic comparison against the declared reference |
 | `state` | enum | `computing`, `complete`, `failed` |
 | `final` | bool | true once both sides are final: every declared trial of each side is `done` and graded; false while a figure can still change |
 | `variable` | []tuple field | what the comparison intends to vary: the tuple fields of one logical variable, `task_hash` for a comparison across tasks (spec 008) |
-| `single_variable` | bool | no tuple field besides `variable` differs on any paired task (spec 008); layer confounds, missing values and self-reported values are scoped to the results they affect and leave it unchanged |
+| `single_variable` | bool | no tuple field besides `variable` differs on any paired task (spec 008); layer confounds, missing, self-reported and excluded values, differing time windows and an uncalibrated judge are scoped to the results they affect and leave it unchanged |
 | `declared_provenance` | []string | the sides, `candidate` and `reference`, whose candidate is of kind `external`, so whose tuple its harness declared rather than an executor observed; empty otherwise (spec 008) |
 | `confounds` | []string | the name of every confound of its results, computed: the union of its results' `confounds` names |
 | `results` | []result | per metric and task, and per metric over the suite; below |
-| `taxonomies` | object | for each open-vocabulary metric it reads: the id of the taxonomy record its canonical labels were read at (spec 006) |
+| `taxonomies` | object | for each open-vocabulary metric it reads: the id of the taxonomy record its canonical labels were read at, the suite's current record, or the record a bar pins for a comparison a bar evaluation asked for (specs 006, 008 and 009) |
 | `unpaired_tasks` | object | `{candidate_only, reference_only}`, task names held by one side alone |
 | `candidate_suite` | object | per metric, the candidate's own suite-level summary over the tasks of its suite with weight greater than zero, whatever the reference holds |
-| `windows` | object | for each side, the earliest `started_at` and the latest `ended_at` of the trials it read |
+| `windows` | object | for each side, the earliest `started_at` and the latest `ended_at` of every trial the comparison read; a result's `window` confound carries the same figures over that result's trials alone, which may be narrower (spec 008) |
 | `verdict_counts` | object | per metric, the number of task-level results with each verdict |
-| `correction` | object | `{method, primary, family}`: the correction applied, `benjamini_hochberg`; `primary`, the digest of the metric whose suite-level result is tested alone and reported uncorrected; and `family`, how many p-values the one corrected family held (spec 008) |
+| `correction` | object | `{method, primary, family}`: the correction applied, `benjamini_hochberg`; `primary`, the digest of the metric whose suite-level result is tested alone and reported uncorrected, absent on an exploratory comparison, whose primary result is in the family; and `family`, how many p-values the one corrected family held (spec 008) |
 | `analysis_version` | string | `examen.analysis/v1` |
-| `parameters` | object | the values it was computed with of `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL`, `MIN_TRIALS_FOR_VERDICT`, `MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`, `MIN_TRIALS_FOR_P90_INTERVAL`, `BOOTSTRAP_RESAMPLES`, `PERMUTATION_EXACT_MAX`, `BOSCHLOO_GRID_POINTS` and `TIE_TOLERANCE`, and `PERMUTATION_RESAMPLES` as resolved for the primary result and for the family |
+| `parameters` | object | the values it was computed with of `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL`, `MIN_TRIALS_FOR_VERDICT`, `MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`, `MIN_TRIALS_FOR_P90_INTERVAL`, `BOOTSTRAP_RESAMPLES`, `PERMUTATION_EXACT_MAX`, `PERMUTATION_STOP_EXCEEDANCES`, `BOSCHLOO_GRID_POINTS`, `TIE_TOLERANCE` and `WINDOW_TOLERANCE`, and `PERMUTATION_RESAMPLES` as resolved for the primary result and for the family |
 | `inputs_digest` | string | the digest of its inputs document (spec 008) |
 | `seed` | string | the root seed, hex |
 | `computed_at` | time | |
@@ -639,10 +646,11 @@ A **result** is one row of `results`:
 | `candidate`, `reference` | the two sides' summaries, below |
 | `delta`, `delta_kind` | the change, candidate less reference, and its kind: `difference`, or for a `label` metric `per_label`, an object from each label to the difference of its proportions |
 | `delta_interval` | the delta's interval at `CONFIDENCE_LEVEL`, for `per_label` an object from each label to its interval; absent where spec 008 computes none |
-| `method`, `exact`, `resamples` | the test: `boschloo_exact`, `permutation`, `stratified_permutation`, and once label tests are built `fisher_freeman_halton` or, when its tables are too many to enumerate, `chi_square_permutation` (spec 008); whether it enumerated every case; how many relabelings or tables it enumerated or drew, absent for `boschloo_exact`; all three absent on a `candidate` result |
+| `no_delta_interval` | when `delta_interval` is absent on a result that is not `insufficient`: one plain sentence saying why, from spec 008's templates |
+| `method`, `statistic`, `exact`, `resamples` | the test: `boschloo_exact`, `permutation`, `stratified_permutation`, and once label tests are built `fisher_freeman_halton` or, when its tables are too many to enumerate, `chi_square_permutation`; the statistic it orders by: `fisher_p` for `boschloo_exact`, `welch_t`, `studentized_quantile`, `difference`, `table_probability`, `pearson_x2` or `label_distance` (spec 008); whether it enumerated every case; how many relabelings or tables it enumerated or drew, absent for `boschloo_exact`; all four absent on a descriptive result |
 | `seed` | this result's derived seed, hex |
-| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE`; on the primary metric's suite-level result, which is not corrected, `q` equals `p`; on a pair result of two benchmark entries, `h`, its Holm-adjusted value, in place of `q` (spec 008) |
-| `verdict` | one of the verdicts of the glossary; absent on a `candidate` result, and on a result of a `label` metric until label tests are built (spec 008) |
+| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE`; on the primary metric's suite-level result of a comparison that is not exploratory, which is not corrected, `q` equals `p`; on a result that reads self-reported values, which stays outside the family, `p` alone; on a pair result of two benchmark entries, `h`, its Holm-adjusted value, in place of `q` (spec 008) |
+| `verdict` | one of the verdicts of the glossary; absent on a descriptive result: a `candidate` result, a `mode_share` or `distinct_count` result, a result that reads self-reported values, and a result of a `label` metric until label tests are built (spec 008) |
 | `reason` | one plain sentence saying why the verdict is what it is, such as "p = 0.048; q = 0.19 after correcting 40 results at 5%" or "task t3 has 3 trials; 5 needed" (spec 008) |
 | `left_out` | on a `suite` result: each task of weight above zero that the result does not include, `{task, why, candidate, reference}`, `why` either `unpaired` or `too_few_trials`, with each side's valued trials |
 | `confounds` | the result's confounds, below: on a task result for that task's cells, on a suite result for the tasks it includes |
@@ -654,9 +662,10 @@ A **confound** is one entry of a result's `confounds`:
 
 | Member | Meaning |
 |---|---|
-| `name` | a tuple field besides `variable`; a layer confound, `observed.model`, `sent.model`, `sent.reasoning`, `observed.service_versions` or `declared.image`; `missing`; `self_reported`; `window`, once adoption is built and on a pair result of two benchmark entries; or, on a pair result only, `declared` (spec 008) |
+| `name` | a tuple field besides `variable`; a layer confound, `observed.model`, `sent.model`, `sent.reasoning`, `observed.service_versions` or `declared.image`; `missing`; `self_reported`; `incomplete`; `window`; `uncalibrated`; or, on a pair result of two benchmark entries only, `declared` or `taxonomy` (spec 008) |
 | `tasks` | on a suite result, the task names it applies to |
-| `candidate`, `reference` | per side: for `observed.model`, `sent.model` and `sent.reasoning` the number of requests it covers; for `observed.service_versions`, `declared.image`, `self_reported` and `declared` the number of finished trials it covers; for `missing` the number of finished trials without a value; absent for a tuple field and for `window` |
+| `candidate`, `reference` | per side: for `observed.model`, `sent.model` and `sent.reasoning` the number of requests it covers; for `observed.service_versions`, `declared.image`, `self_reported` and `declared` the number of finished trials it covers; for `missing` the number of finished trials without a value; for `incomplete` the number of trials excluded from analysis that no finished retry replaced; for `window` the side's window, `{from, to}`, the earliest `started_at` and the latest `ended_at` of the trials the result read; for `taxonomy` the taxonomy record the entry's values were read at; absent for a tuple field and for `uncalibrated` |
+| `grader` | for `uncalibrated`: the judge version whose calibration the result read (spec 006) |
 
 A **summary** describes one metric over one set of trials, a cell or a
 candidate's tasks:
@@ -666,16 +675,17 @@ candidate's tasks:
 | `aggregate` | the metric's `aggregate`; absent for a candidate-level metric |
 | `n` | the finished trials of the set that the metric applies to |
 | `not_applicable` | the finished trials of the set outside the metric's `applies_to`, which are in neither `n` nor `missing` |
-| `value` | the rate, mean, median or p90; for `distribution`, an object from each label to its share; for `mode_share` and `distinct_count`, the statistic; for a candidate-level metric, its one current value |
+| `value` | the rate, mean, median or p90; for `distribution`, an object from each label to its share; for `repeat_rate`, `mode_share` and `distinct_count`, the statistic; for a candidate-level metric, its one current value |
 | `numerator` | for `rate`: the finished trials whose value is true; for `mode_share`: the trials holding the most frequent label |
 | `denominator` | the finished trials holding a current value of the metric; for a cell-level metric, of its `of` metric, less those `exclude_labels` leaves out |
 | `excluded_labels` | for a cell-level metric: the valued trials its `exclude_labels` left out, by label |
 | `missing` | `n` less `denominator`, and for a cell-level metric less the trials `excluded_labels` counts |
 | `interval` | `[low, high]` at `CONFIDENCE_LEVEL`; absent where spec 008 computes none, such as a `p90` of fewer than `MIN_TRIALS_FOR_P90_INTERVAL` values |
+| `no_interval` | when `interval` is absent: one plain sentence saying why, from spec 008's templates |
 | `mean`, `sd`, `min`, `max` | for a numeric metric, whatever its aggregate |
 | `distribution`, `mode` | for a label metric, and for a cell-level metric of the label metric it summarizes: each label's count and proportion, and the mode |
-| `unmapped` | for an open-vocabulary metric: the finished trials whose raw label the taxonomy record read does not map, which are counted in `missing` (spec 006) |
-| `tasks`, `coverage`, `advice` | at suite level: the number of tasks included, the share of the suite's weight they hold, and one sentence saying whether more trials or more tasks would narrow the interval more (spec 008); the tasks left out are named in the result's `left_out` |
+| `unmapped` | for an open-vocabulary metric: the finished trials whose raw label the taxonomy record read does not map; each such raw label counts as a label of its own in `distribution`, marked unmapped, and never as missing (spec 006) |
+| `tasks`, `coverage` | at suite level: the number of tasks included, and the share of the suite's weight they hold (spec 008); the tasks left out are named in the result's `left_out` |
 | `excluded` | the trials of the set not counted in `n`, by reason: `retried`, `infra_failed`, `over_budget`, `canceled`, `not_done` |
 | `final` | true once every declared trial of the set is `done` and graded; false while the figure can still change |
 
@@ -689,7 +699,8 @@ A rule on a comparison that passes or fails.
 | `suite` | object | the suite, every version of it: `{owner, name}` |
 | `rules` | []object | at most `MAX_RULES_PER_BAR`; each: `metric` (a metric digest), exactly one of `no_regression` (true: fails on any `regressed` verdict for the metric in its scope), `at_least` and `at_most` (a value the candidate's suite-level summary must hold), and for `no_regression` a `scope`: `all` (the default), `suite` or `tasks` (spec 009) |
 | `require_single_variable` | bool | fails when the comparison is confounded |
-| `allow_partial` | bool | false by default: a bar fails `incomplete` when any task of the suite is left out of a suite-level result it reads; true lets a result covering at least `MIN_SUITE_COVERAGE` stand (spec 009) |
+| `allow_partial` | bool | false by default: a bar fails `incomplete` when any task of the suite is left out of a suite-level result it reads, or any result it reads carries the confound `incomplete`; true lets a result covering at least `MIN_SUITE_COVERAGE` stand (spec 009) |
+| `taxonomies` | object | for each open-vocabulary metric a rule reads, directly or as a cell-level metric's `of`: the id of the taxonomy record the bar reads comparisons at; filled at apply with the suite's current record when the body leaves it out, and covered by the digest (spec 009) |
 
 A bar's owner is the owner that applied it, which may differ from its
 suite's owner when the suite is shared with it (spec 004).
@@ -782,7 +793,7 @@ versions, each a snapshot (spec 013).
 | `visibility` | enum | `private` (the default), `unlisted` or `public`; `public` is reached only through a listing (spec 013) |
 | `listing` | object | while `public`: `{listed_at, listed_by}` |
 | `paused` | object | while an administrator holds it paused: `{at, by, reason}` |
-| `submissions` | enum | for `benchmark`: `owner_only` (the default), `reviewed` or `open` |
+| `submissions` | enum | for `benchmark`: `owner_only` (the default), `reviewed` or `open`; a listed benchmark is `reviewed`, with at most one accepted entry per owner besides its own (spec 013) |
 | `link` | object | `{token, url}`: the link token, 256 bits from `crypto/rand` in base64url, and the link built on `EXAMEN_PUBLIC_URL`; answered only to a caller the authorizer allows `publication.update`, and never in a list, an event, a log line or an error |
 | `versions` | []object | its publication versions, below, oldest first |
 | `latest` | int | computed: the `number` of its newest version in state `published`; absent when none is |
@@ -804,11 +815,10 @@ own:
 | `snapshot` | object | the snapshot document, format `examen.publication/v1`, set at `published` and never changed (spec 013) |
 | `digest` | string | `sha256:` of the snapshot's canonical JSON |
 | `folder` | string | for a version that carries files: `files/evals/publications/<publication id>/<number>/` in the owner's Arca space (spec 007) |
-| `evidence_link` | object | for a version with a folder, while `published` and not paused: `{id}`, the Arca link on its folder; its token is held for building links and leaves Examen only inside the links of a read |
-| `input_links` | []object | for a `benchmark` while `published` and not paused: `{task, name, id}` per Arca input and reference of the suite's tasks and per check's `files`, each an Arca link on that object or folder, read only by the `prepare` job of an experiment run through the benchmark (spec 013); never answered |
+| `evidence_link` | object | for a version with a folder, while `published`: `{id}`, the Arca link on its folder, replaced when the publication's link token is replaced or it is made `private`; its token is held for building links and leaves Examen only inside the links of a read |
 | `reference` | submission id | for a `benchmark`: the accepted entry of this version every other entry is compared with: the one the publication's owner names, else the owner's own accepted entry of the lowest submission id; absent when there is none (spec 013) |
-| `results` | object | for a `benchmark`, computed: its results table as last computed, `{method, reference, entries, unranked, pairs}`, with `method` holding the test, the adjustment, the levels, the number of pairs, the resamples, the table's `inputs_digest` and `seed`, and `computed_at`, and `pairs` every pair result of two accepted entries (spec 008); recomputed when the version's accepted entries or its `reference` change, and never part of the snapshot (spec 013) |
-| `scan` | object | for `outputs` and `full`: `{image, findings, scanned_at}`, each finding `{path, rule, line}` and never the text it matched |
+| `results` | object | for a `benchmark`, computed: its results table as last computed, `{method, reference, common, entries, unranked, pairs}`, with `method` holding the test, the adjustment, the levels, the number of pairs, the resamples, the table's `inputs_digest` and `seed`, and `computed_at`; `common` the tasks every ranked entry is compared over, with the share of the suite's weight they hold; and `pairs` every pair result of two accepted entries (spec 008); recomputed when the version's accepted entries or its `reference` change, and never part of the snapshot (spec 013) |
+| `scan` | object | for every version: `{image, findings, scanned_at}`, each finding `{path, rule, line}` and never the text it matched; `path` names the snapshot itself for a finding in its JSON |
 | `error` | object | when `failed`: an error object of spec 003 |
 | `published_by` | subject | the subject that asked for the version |
 | `published_at`, `withdrawn_at` | time | |
@@ -816,9 +826,10 @@ own:
 
 States: `preparing` → `scanning` → `published` → `withdrawn`;
 `blocked` from `scanning` when the scan finds a secret; `failed` from
-`preparing` or `scanning` on any other failure. A version of evidence
-level `aggregates` skips `scanning`. A `blocked` or `failed` version
-never publishes; the owner publishes a new version (spec 013).
+`preparing` or `scanning` on any other failure. Every version passes
+`scanning`, since its snapshot's JSON is scanned at every evidence
+level. A `blocked` or `failed` version never publishes; the owner
+publishes a new version (spec 013).
 
 ## Submission
 
@@ -831,7 +842,7 @@ results table (spec 013). Its owner is the submitter.
 | `report` | object | `{publication, version}`: the submitter's report publication version |
 | `candidate` | candidate digest | the candidate of the report's experiment the entry shows |
 | `state` | enum | `pending`, `accepted`, `rejected`, `withdrawn` |
-| `entry` | object | the figures the entry shows, copied at submission: `{attribution, candidate, summary, confounds, declared_provenance, self_reported, window, values}`; `candidate` its name, kind, digest, model and reasoning, and for `external` its declared `harness` and `version`; `summary` its suite-level summary of the benchmark's primary metric; `window` the earliest `started_at` and the latest `ended_at` of the trials `values` holds; and `values`, per task of the suite, `{task, weight, values, tuple, layers}`: the task's name and weight, the primary metric's value of each of the candidate's finished trials in trial id order, a number or a boolean, or for a cell-level metric the canonical label of its `of` metric that the statistic is computed from, `null` for a trial without one, and never other trial content (spec 013); the cells' tuple fields outside the candidate, `task_hash`, `environment_digest`, `workspace_ref` and `grader_digests`; and the counts the confounds of spec 008 read: requests served by another model, requests of trials that sent none to the configured model, each reasoning value sent with its requests, each service version with its finished trials, each declared image with its finished trials, and the finished trials whose value is self-reported |
+| `entry` | object | the figures the entry shows, copied at submission: `{attribution, candidate, summary, confounds, declared_provenance, self_reported, window, taxonomy, values}`; `candidate` its name, kind, digest, model and reasoning, and for `external` its declared `harness` and `version`; `summary` its suite-level summary of the benchmark's primary metric; `window` the earliest `started_at` and the latest `ended_at` of the trials `values` holds; `taxonomy`, for a primary metric that reads an open vocabulary, the taxonomy record its labels were read at; and `values`, per task of the suite, `{task, weight, values, tuple, layers}`: the task's name and weight, the primary metric's value of each of the candidate's finished trials in trial id order, a number or a boolean, or for a cell-level metric the canonical label of its `of` metric that the statistic is computed from, `null` for a trial without one, and never other trial content (spec 013); the cells' tuple fields outside the candidate, `task_hash`, `environment_digest`, `workspace_ref` and `grader_digests`; and the counts the confounds of spec 008 read: requests served by another model, requests of trials that sent none to the configured model, each reasoning value sent with its requests, each service version with its finished trials, each declared image with its finished trials, the finished trials whose value is self-reported, and the trials excluded from analysis that no finished retry replaced |
 | `created_by` | subject | the subject that submitted it |
 | `decided_by`, `decided_at` | subject, time | for an accepted submission of a `reviewed` benchmark, and a rejected one |
 
@@ -918,6 +929,10 @@ statistics (008), bar evaluation (009), reports (010) and sharing (013).
   two producers of one metric other than annotation graders, is refused
   at apply, naming the field.
 - A measurement for a metric its grader does not declare is refused.
+- A `program` candidate whose `credentials` name the audience of a core
+  Examen acts through, or Examen's own, is refused at apply, naming the
+  credential; a taxonomy version with more than
+  `MAX_LABELS_OPEN_VOCABULARY` canonical labels is refused.
 - A measurement is never updated; a re-grade appends the next
   generation.
 - Every limit in this spec is enforced where it applies, with an error

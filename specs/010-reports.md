@@ -14,7 +14,7 @@ depends_on:
 affects: [internal/view/, internal/report/, internal/narrative/, api/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-17
+updated: 2026-10-18
 author: changkun
 ---
 
@@ -98,29 +98,36 @@ in force; and the experiment's Budget: its name, cap, spend and
 remainder as the experiment's answer carries them, read through the
 key source (spec 004).
 
-**Headline.** For each automatic comparison, in candidate order:
+**Headline.** For each automatic comparison that is not exploratory, in
+candidate order:
 
 1. First, always, the primary metric's suite-level result, whatever
    its verdict, with its delta, the delta's interval, both sides'
    summaries with their denominators, and its `reason`: an improvement,
-   a regression, a change, "no clear difference" or "insufficient";
-   then the suite-level summary's `advice`.
+   a regression, a change, "no clear difference" or "insufficient".
 2. Then every other suite-level result whose verdict is `improved`,
    `regressed` or `changed`, with its delta, interval and `q`.
 3. Then, per metric, how many task-level results were `improved`,
    `regressed`, `changed`, `within_noise` and `insufficient`.
 
-A layer confound of a headlined result is named in its line with its
-tasks and request or trial counts; it does not take the comparison out
-of the headline. A result with `missing` among its confounds is not
-headlined: its line says "not a finding" with the counts of trials
-without a value, in place of its verdict; a result with `self_reported`
-likewise, with the counts of self-reported values. A comparison whose
+A layer confound of a headlined result, and `incomplete` and `window`,
+are named in its line with their tasks and counts or windows; they do
+not take the comparison out of the headline. A result with `missing`
+among its confounds is not headlined: its line says "not a finding"
+with the counts of trials without a value, in place of its verdict; a
+result with `self_reported` likewise, with the counts of self-reported
+values, and a result with `uncalibrated` likewise, naming the judge
+that no person has yet checked. A comparison whose
 `declared_provenance` is not empty says in its headline which side's
 provenance its harness declared. A comparison that is not
 single-variable never appears in the headline. It is listed under it by
 name with its tuple confounds, "not headlined: confounded by
-`<fields>`", and its results appear in the verdict tables.
+`<fields>`", and its results appear in the verdict tables. An
+exploratory comparison, computed on request or against a reference set
+after the experiment started, never appears in the headline either: it
+is listed under it by name, "exploratory, not headlined", and its
+results appear in the verdict tables, its primary metric corrected with
+the rest (spec 008).
 
 **The candidate × task grid.** Rows are the suite's tasks in suite
 order, then a suite-level row; columns are the candidates, and the
@@ -132,14 +139,16 @@ suite-level row shows `81.0% weighted over 42 tasks; 680/840 trials`.
 A cell not yet complete shows its state and progress; a parked cell
 its parking state and reason, and that it can be retried. A cell is
 marked when it has missing values, when its values are self-reported,
-when a layer confound applies to it, and when its task weighs 0; the
+when trials of it were excluded and not replaced, when a layer confound
+applies to it, and when its task weighs 0; the
 suite-level row carries, per candidate, the confounds its own side
 carries, `missing`, `self_reported`, `observed.model` and `sent.model`,
 with their counts, which a benchmark entry copies (spec 013).
 
 **Verdict tables.** One table per comparison and metric, titled with
-the comparison's variable and its two sides. The suite-level row comes
-first, then one row per task:
+the comparison's variable and its two sides, and "exploratory" for an
+exploratory comparison. The suite-level row comes first, then one row
+per task:
 
 | Column | Shows |
 |---|---|
@@ -157,10 +166,15 @@ A `label` metric's table shows each label's proportions and their
 difference with its interval, and, from label tests on, the one
 verdict of the two distributions with its test, its `p` and its `q`;
 before them, no verdict (spec 008). An open-vocabulary metric's table
-names the taxonomy record it was read at, with its version, and counts
-its unmapped trials among the missing. A cell-level metric's table is a
-numeric one. A candidate-level metric has one row, each side's value
-and their difference, marked descriptive, with no verdict.
+names the taxonomy record it was read at, with its version, and shows
+each unmapped raw label as a label of its own, marked unmapped, never
+among the missing. A repeat rate's table is a numeric one, its
+summaries and delta without intervals and each saying why; a mode
+share's and a count of distinct labels' are descriptive: both sides'
+summaries with their denominators and the delta, marked descriptive,
+with no interval, `p`, `q` or verdict. A candidate-level metric has one
+row, each side's value and their difference, marked descriptive, with
+no verdict.
 
 **Outcomes.** Per cell, the count of each outcome of spec 002.
 `declined`, `timed_out` and `turn_limit` are each their own column and
@@ -206,8 +220,9 @@ confounds.
 A console written against this spec, and the report builder, enforce
 these, each with a test; they are not style guidance.
 
-1. Only single-variable comparisons are headlined, and a result with
-   missing or self-reported values never is; the primary metric's
+1. Only single-variable comparisons that are not exploratory are
+   headlined, and a result with missing or self-reported values, or
+   from an uncalibrated judge, never is; the declared primary metric's
    suite-level result leads the headline whatever its verdict.
 2. Every rate, and every `mode_share`, shows its
    `numerator/denominator`, its missing values when there are any, and
@@ -230,16 +245,18 @@ these, each with a test; they are not style guidance.
 7. Behavioral outcomes are their own categories (Outcomes, above).
 8. Configured and observed values are never merged: a cell whose
    served model differs from its configured model shows both.
-9. Spread across tasks is shown as the summary's `advice` sentence,
-   never as raw variances.
+9. A summary or a delta without an interval shows its `no_interval`
+   or `no_delta_interval` sentence in the interval's place, and a
+   descriptive result says it is descriptive.
 10. Every figure leads to its source.
 
 **Formats.** A rate is a percentage with one decimal; a difference of
 rates is in percentage points with one decimal and a sign. A p-value
 and a corrected value have two significant digits, and below 0.001
 read `< 0.001`. An interval is `[low, high]` in the summary's format;
-a summary without one says why, such as "no interval below 35 trials"
-for a `p90` under `MIN_TRIALS_FOR_P90_INTERVAL`. A duration is in
+a summary without one shows its `no_interval` sentence, such as "no
+interval below 29 values for a 90th percentile" for a `p90` under
+`MIN_TRIALS_FOR_P90_INTERVAL`. A duration is in
 seconds below 120 seconds and in minutes above. A cost is in US
 dollars with two decimals from one dollar up and four significant
 digits below. A count is an integer.
@@ -295,7 +312,7 @@ claims, at most `NARRATIVE_MAX_BYTES` in all:
 |---|---|
 | `no_citation` | the claim cites no result |
 | `unknown_citation` | it cites a result the report does not hold |
-| `headline_confounded` | a headline claim cites a result of a comparison that is not single-variable, or a result with `missing` or `self_reported` |
+| `headline_confounded` | a headline claim cites a result of a comparison that is not single-variable or is exploratory, or a result with `missing`, `self_reported` or `uncalibrated` |
 | `confound_omitted` | a cited result has a confound the text does not name, by its name or its display label |
 | `number_unsupported` | a number in the text is not, as formatted by this spec, a figure of a cited result: a summary's `value`, an interval bound, a delta, a delta interval bound, a `numerator`, a `denominator`, an `n`, a task count, a `p` or a `q` |
 | `rate_without_denominator` | a rate in the text lacks its `numerator/denominator`, or for a suite-level rate its tasks and trials, in the same claim |
@@ -331,7 +348,7 @@ value that is absent, and multiple values joined with `;`.
 | File | Columns |
 |---|---|
 | `grid.csv` | `task`, `task_digest`, `weight`, `candidate`, `candidate_digest`, `cell`, `state`, `metric`, `value`, `interval_low`, `interval_high`, `numerator`, `denominator`, `n`, `missing`, `verdict` |
-| `results.csv` | `comparison`, `variable`, `single_variable`, `declared_provenance`, `metric`, `metric_name`, `level`, `task`, `candidate_value`, `candidate_low`, `candidate_high`, `candidate_numerator`, `candidate_denominator`, `candidate_n`, `reference_value`, `reference_low`, `reference_high`, `reference_numerator`, `reference_denominator`, `reference_n`, `coverage`, `delta`, `delta_kind`, `delta_low`, `delta_high`, `method`, `p`, `q`, `verdict`, `reason`, `confounds` |
+| `results.csv` | `comparison`, `variable`, `single_variable`, `exploratory`, `declared_provenance`, `metric`, `metric_name`, `level`, `task`, `candidate_value`, `candidate_low`, `candidate_high`, `candidate_numerator`, `candidate_denominator`, `candidate_n`, `reference_value`, `reference_low`, `reference_high`, `reference_numerator`, `reference_denominator`, `reference_n`, `coverage`, `delta`, `delta_kind`, `delta_low`, `delta_high`, `method`, `p`, `q`, `verdict`, `reason`, `confounds` |
 | `outcomes.csv` | `cell`, `task`, `candidate`, `outcome`, `count` |
 | `costs.csv` | `candidate`, `cell`, `task`, `spend_usd`, `cost_not_known`, `finished_trials`, `cost_per_trial`, `cost_low`, `cost_high`, `cost_per_success`, `judge_spend_usd`, `service_cost_usd` |
 | `gaps.csv` | `task`, `candidate`, `state`, `experiment`, `reason`; once the gap map is built |
@@ -410,10 +427,10 @@ languages other than English.
 |---|---|
 | Every number the console shows for an experiment and a comparison is a member of a grid, comparison, row or trial answer, read from a stored comparison or the stored analysis or a count of stored records made by `examend`, and carries its source | `view.TestEveryFigureIsStoredAndSourced` |
 | The reference console holds no routine that computes a summary, an interval, a test or a verdict, and reads a page again on a stream event, never on a timer | `console.TestNoStatisticsInTheClient`, `console.TestReadsOnStreamEvents` |
-| The headline leads with the primary metric's suite-level result whatever its verdict, with its interval and reason; a confounded comparison never appears in it and is listed with its tuple confounds; a result with `missing` or `self_reported` is shown as not a finding; a layer confound in one task is named in the line and leaves the comparison in the headline; a comparison with an `external` side says its provenance is declared | `view.TestHeadline` |
+| The headline leads with the declared primary metric's suite-level result whatever its verdict, with its interval and reason; a confounded comparison and an exploratory one never appear in it and are listed with why; a result with `missing`, `self_reported` or `uncalibrated` is shown as not a finding; a layer confound, `incomplete` or `window` in one task is named in the line and leaves the comparison in the headline; a comparison with an `external` side says its provenance is declared | `view.TestHeadline` |
 | No rate in the console, a JSON export, a CSV export or an HTML bundle lacks its denominator, and a suite-level rate reads "weighted over T tasks; k/n trials" | `view.TestEveryRateHasItsDenominator`, over the golden experiment |
 | Confounds appear in the row of each confounded result with their tasks and counts; an insufficient result shows its reason and no delta finding; `within_noise` reads "no clear difference" with its delta interval and n | `view.TestConfoundsInline`, `view.TestInsufficientRendering`, `view.TestNoClearDifference` |
-| Every verdict is shown with its `reason`, and spread across tasks only as the advice sentence | `view.TestReasonsAndAdvice` |
+| Every verdict is shown with its `reason`, every absent interval with its sentence, and every descriptive result as descriptive | `view.TestReasonsAndAbsentIntervals` |
 | Behavioral outcomes are separate columns, and `infra_failed`, `over_budget` and `canceled` trials are shown as excluded | `view.TestOutcomeColumns` |
 | Spend includes smoke, failed and retried trials and judge gradings, and matches the sum of the Lux stub's records; service cost is shown beside it, labeled, and is in no other column | `view.TestCosts`, against the Lux stub |
 | A report's `document` matches its digest and never changes; a re-grade yields a new report; a report names only final comparisons | `report.TestReportIsFrozen` |
