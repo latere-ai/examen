@@ -1,0 +1,69 @@
+# The shared quality bar, read by `go tool lateregate`. The gates live in
+# latere.ai/x/ci-gate, pinned in go.mod; only what is this repository's own
+# is here (specs/011-distribution.md).
+
+cover:
+  trim_prefix: latere.ai/x/examen/
+  exempt:
+    internal/store/postgres/pgtest: >-
+      starts the containers the suites run against; the lines no run reaches
+      are the ones for a container runtime that fails
+
+license:
+  spdx: Apache-2.0
+  holder: Latere AI
+
+spec:
+  archive:
+    dir: .archive
+    statuses: [complete, superseded]
+  status:
+    - vague
+    - drafted
+    - validated
+    - dispatched
+    - in-progress
+    - testing
+    - complete
+    - stale
+    - superseded
+  require: [title, status, track, depends_on, affects, effort, created, updated, author]
+  wikilinks: true
+  numbered: true
+  # No started list: status records a spec's own criteria; review holds the depends_on order.
+  settled: [complete, superseded]
+  # Specs 001 and 002 carry their design under headings of their own (the
+  # concepts and decisions of the architecture, the identifiers and limits
+  # of the objects), so the headings every spec carries are these two.
+  require_section:
+    - Overview
+    - Acceptance criteria
+  require_section_by_status:
+    complete: [Outcome]
+
+# The identity shape of an open core (specs/004-identity-and-authorization.md):
+# examend verifies one token against the issuers it is given, hands every
+# claim to the authorizer it asks, and reads none of them. internal/access
+# holds the verifier, the authorizer client and the owner policy, and every
+# handler of internal/httpapi authenticates and asks through it.
+identity:
+  role: core
+  audience: examen
+  config_prefix: EXAMEN
+  # Examen writes no resource under an API group of its own. A core names one,
+  # and this one exempts nothing from the rule that keeps a hosted
+  # installation's values out of the tree.
+  api_group: examen
+  # The audience is the default of a server somebody runs themselves; a plane
+  # that fronts it verifies an audience of its own.
+  reached_by: self-hosted
+  # Access is by role: the roles rule runs, and it is one way once set.
+  roles_only: true
+
+# The store serves through EXAMEN_DATABASE_POOL_URL where an installation
+# names a pooled endpoint and falls back to EXAMEN_DATABASE_URL. Migrations
+# always take the direct one: the migrator holds a session lock across its
+# statements, which a transaction-mode pooler loses between two.
+postgres:
+  role: pooled
+  prefix: EXAMEN

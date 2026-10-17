@@ -1,0 +1,5 @@
+# The repository is private, so its jobs run on the organization's
+# self-hosted runner, which actionlint knows by this label.
+self-hosted-runner:
+  labels:
+    - linux-vm
