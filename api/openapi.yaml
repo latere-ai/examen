@@ -1,0 +1,241 @@
+openapi: 3.1.0
+info:
+  title: Examen
+  version: "1"
+  summary: Experiments on agents and on programs built on models, with every number's noise and confounds stated.
+  description: |
+    A client applies tasks, suites, candidates and the metrics and graders
+    they are measured by, runs experiments over them, and reads cells,
+    trials, measurements and comparisons that come back already computed.
+    Every route but this document takes a bearer token of an issuer the
+    server trusts, and every route asks the server's authorizer before it
+    acts. An object the caller may not see reads as a missing one.
+
+    This document describes the routes the running release serves; a route
+    of a later build step is added in the release that serves it.
+
+    Every error is one object: a `code` to branch on, a fixed `message`
+    for a person, and `details` for a developer. A request with a member
+    this document does not describe is `400 unknown_field`, a body longer
+    than the request bound is `413 request_too_large`, and every `429`
+    carries `Retry-After` in whole seconds. A list answers
+    `{"items": [...], "next_cursor": "..."}`, with `next_cursor` absent on
+    the last page. A create that takes an `Idempotency-Key` answers a
+    repeat of the same key and body with the first response and
+    `Idempotent-Replayed: true`.
+
+    The probes `GET /livez`, `GET /readyz` and `GET /version` sit outside
+    the base path on the same listener and take no token.
+  license:
+    name: Apache-2.0
+    identifier: Apache-2.0
+servers:
+  - url: /v1
+    description: The base path, EXAMEN_BASE_PATH.
+security:
+  - bearer: []
+tags:
+  - name: contract
+    description: This document.
+paths:
+  /openapi.yaml:
+    get:
+      tags: [contract]
+      operationId: getOpenAPI
+      summary: Read this document
+      description: |
+        The contract of the release that serves it, as OpenAPI 3.1 in YAML.
+        It takes no token and asks the authorizer nothing.
+      security: []
+      responses:
+        "200":
+          description: This document.
+          content:
+            application/yaml:
+              schema: {type: string}
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: A token of an issuer EXAMEN_OIDC_ISSUERS names, addressed to an audience EXAMEN_OIDC_AUDIENCE names.
+  parameters:
+    Limit:
+      name: limit
+      in: query
+      description: Items in a page, 50 when absent and 200 at most; a larger one is `400 invalid_field`.
+      schema: {type: integer, minimum: 1, maximum: 200, default: 50}
+    Cursor:
+      name: cursor
+      in: query
+      description: The `next_cursor` of the page before. Opaque; a cursor this list did not issue is `400 invalid_cursor`.
+      schema: {type: string}
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        1 to 255 bytes of visible ASCII. The same key from the same subject
+        within 24 hours answers the first response again, with
+        `Idempotent-Replayed: true`; the same key with another body is
+        `409 idempotency_key_reused`, and one that arrives while the first
+        is served is `409 request_in_progress`.
+      schema: {type: string, minLength: 1, maxLength: 255}
+  headers:
+    RetryAfter:
+      description: The seconds to wait before the same request may be admitted.
+      schema: {type: integer, minimum: 1}
+    RequestID:
+      description: The request's id, the one the caller sent or one the server made.
+      schema: {type: string}
+  responses:
+    Error:
+      description: An error, in the one envelope every error has.
+      headers:
+        X-Request-Id: {$ref: "#/components/headers/RequestID"}
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/ErrorEnvelope"}
+    TooManyRequests:
+      description: A rate refused, with the time to wait.
+      headers:
+        Retry-After: {$ref: "#/components/headers/RetryAfter"}
+        X-Request-Id: {$ref: "#/components/headers/RequestID"}
+      content:
+        application/json:
+          schema: {$ref: "#/components/schemas/ErrorEnvelope"}
+  schemas:
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error: {$ref: "#/components/schemas/Error"}
+    Error:
+      type: object
+      required: [code, message, details]
+      additionalProperties: false
+      properties:
+        code: {$ref: "#/components/schemas/ErrorCode"}
+        message:
+          type: string
+          description: The one sentence a person reads, the same for every occurrence of the code.
+        details: {$ref: "#/components/schemas/ErrorDetails"}
+    ErrorDetails:
+      type: object
+      required: [retryable]
+      additionalProperties: false
+      properties:
+        detail:
+          type: string
+          description: The developer detail, on every error but `internal`.
+        retryable:
+          type: boolean
+          description: Whether the same request may succeed later unchanged.
+        field:
+          type: string
+          description: The member or parameter the error is about, as a dotted path with indexes.
+        constant:
+          type: string
+          description: The limit a request exceeds, on `limit_exceeded`.
+        reason:
+          type: string
+          description: One snake_case word for this instance.
+        figure:
+          type: number
+          description: The figure a limit holds, on a `forbidden` a limit made.
+        state:
+          type: string
+          description: The object's state, on a conflict with it.
+        fields:
+          type: array
+          items: {type: string}
+          description: The fields that differ or are not pinned, on `provenance_mismatch`.
+        core:
+          type: string
+          enum: [topos, cella, lux, arca, origo]
+          description: The core an error is about.
+    ErrorCode:
+      type: string
+      description: Every code a client branches on.
+      enum:
+            - invalid_request
+            - unknown_field
+            - missing_field
+            - invalid_field
+            - invalid_cursor
+            - missing_token
+            - invalid_token
+            - forbidden
+            - sign_in_not_kept
+            - not_found
+            - metric_not_found
+            - grader_not_found
+            - task_not_found
+            - suite_not_found
+            - candidate_not_found
+            - experiment_not_found
+            - cell_not_found
+            - trial_not_found
+            - measurement_not_found
+            - baseline_not_found
+            - comparison_not_found
+            - bar_not_found
+            - evaluation_not_found
+            - export_not_found
+            - share_not_found
+            - report_not_found
+            - taxonomy_not_found
+            - publication_not_found
+            - submission_not_found
+            - annotation_not_found
+            - immutable_field
+            - experiment_finished
+            - experiment_not_complete
+            - experiment_canceled
+            - experiment_not_finished
+            - experiment_is_baseline
+            - experiment_adopted_from
+            - cell_not_parked
+            - comparison_not_complete
+            - narrative_has_findings
+            - wrong_mode
+            - cell_full
+            - source_not_finished
+            - already_imported
+            - already_annotated
+            - lease_expired
+            - lease_not_held
+            - publication_exists
+            - version_not_published
+            - publication_listed
+            - submissions_closed
+            - report_not_shared
+            - submission_decided
+            - idempotency_key_reused
+            - request_in_progress
+            - precondition_failed
+            - publication_withdrawn
+            - publication_paused
+            - request_too_large
+            - unpinned_reference
+            - reference_not_found
+            - limit_exceeded
+            - suite_mismatch
+            - no_reference
+            - not_in_experiment
+            - provenance_mismatch
+            - metric_not_declared
+            - budget_refused
+            - core_not_configured
+            - image_not_admitted
+            - instruction_required
+            - unresolved_reference
+            - too_many_streams
+            - rate_limited
+            - internal
+            - core_unavailable
+            - authorizer_unavailable
+            - owner_tokens_unavailable
+            - unavailable
+            - core_timeout
