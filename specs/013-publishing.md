@@ -369,7 +369,8 @@ primary metric is not is refused at publish, `400 invalid_field` on
 `source`.
 
 **The results table.** For a benchmark version, the accepted entries,
-ordered and grouped so that the table never shows a bare ranking:
+ordered and grouped so that the table never shows a bare ranking, and
+never hides an order the data does show by showing none:
 
 1. Entries are ordered by their summary's value in the primary metric's
    direction, best first: descending for `higher_is_better`, ascending
