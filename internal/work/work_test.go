@@ -70,7 +70,7 @@ func (f figures) Compare(context.Context, objects.Comparison, compare.Source) (o
 	return objects.Computed{Confounds: []string{}, Results: []objects.ResultRow{{Level: "suite", Verdict: "within_noise"}}, AnalysisVersion: "examen.analysis/v1"}, []string{"msr_a"}, nil
 }
 
-func (figures) Summarize(context.Context, objects.Cell, string, compare.Source) (json.RawMessage, error) {
+func (figures) Summaries(context.Context, objects.Experiment, []objects.Cell, string, compare.Source) (map[string]json.RawMessage, error) {
 	return nil, compare.ErrNotComputed
 }
 

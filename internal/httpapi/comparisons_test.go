@@ -68,8 +68,12 @@ func (f figures) Compare(ctx context.Context, c objects.Comparison, src compare.
 	return out, []string{"msr_1"}, nil
 }
 
-func (figures) Summarize(context.Context, objects.Cell, string, compare.Source) (json.RawMessage, error) {
-	return json.RawMessage(`{"aggregate":"mean","n":1}`), nil
+func (figures) Summaries(_ context.Context, _ objects.Experiment, cells []objects.Cell, _ string, _ compare.Source) (map[string]json.RawMessage, error) {
+	out := map[string]json.RawMessage{}
+	for _, c := range cells {
+		out[c.ID] = json.RawMessage(`{"aggregate":"mean","n":1}`)
+	}
+	return out, nil
 }
 
 func TestComparisons(t *testing.T) {

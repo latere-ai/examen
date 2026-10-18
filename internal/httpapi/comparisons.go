@@ -453,8 +453,8 @@ func (s *Server) grid(w http.ResponseWriter, r *http.Request, c access.Caller) e
 		}
 		start++
 	}
-	src := compare.Source{Experiments: s.Store.Experiments(), Versions: s.Store.Versions(), Baselines: s.Store.Baselines(), Taxonomies: s.Store.Taxonomies()}
 	tasks, state := q["task"], q.Get("state")
+	var shown []objects.Cell
 	for pos := start; pos < len(v.res.Suite.Tasks); pos++ {
 		td := v.res.Suite.Tasks[pos]
 		task := v.res.Tasks[td]
@@ -463,6 +463,7 @@ func (s *Server) grid(w http.ResponseWriter, r *http.Request, c access.Caller) e
 		}
 		row := gridRow{Task: taskName{Name: task.Name, Digest: td}, Cells: []gridCell{}}
 		holds := state == ""
+		var cells []objects.Cell
 		for _, col := range out.Candidates {
 			cl, ok := byTaskCand[[2]string{td, col.Digest}]
 			if !ok {
@@ -477,14 +478,6 @@ func (s *Server) grid(w http.ResponseWriter, r *http.Request, c access.Caller) e
 			if entry.Trials.Outcomes == nil {
 				entry.Trials.Outcomes = map[string]int{}
 			}
-			summary, err := s.analyzer().Summarize(r.Context(), cl, metricDigest, src)
-			switch {
-			case errors.Is(err, compare.ErrNotComputed):
-			case err != nil:
-				return apierr.Internal(err)
-			default:
-				entry.Summary = summary
-			}
 			if cmp, ok := cols[col.Digest]; ok {
 				entry.Comparison = cmp.ID
 				if res, ok := taskResult(cmp, metricDigest, task.Name); ok {
@@ -495,6 +488,7 @@ func (s *Server) grid(w http.ResponseWriter, r *http.Request, c access.Caller) e
 				}
 			}
 			row.Cells = append(row.Cells, entry)
+			cells = append(cells, cl)
 		}
 		if !holds {
 			continue
@@ -505,6 +499,18 @@ func (s *Server) grid(w http.ResponseWriter, r *http.Request, c access.Caller) e
 			break
 		}
 		out.Items = append(out.Items, row)
+		shown = append(shown, cells...)
+	}
+	// The page's summaries are computed in one pass over its cells.
+	src := compare.Source{Experiments: s.Store.Experiments(), Versions: s.Store.Versions(), Baselines: s.Store.Baselines(), Taxonomies: s.Store.Taxonomies()}
+	summaries, err := s.analyzer().Summaries(r.Context(), e, shown, metricDigest, src)
+	if err != nil && !errors.Is(err, compare.ErrNotComputed) {
+		return apierr.Internal(err)
+	}
+	for i := range out.Items {
+		for j := range out.Items[i].Cells {
+			out.Items[i].Cells[j].Summary = summaries[out.Items[i].Cells[j].Cell]
+		}
 	}
 	if out.Candidates == nil {
 		out.Candidates = []gridCandidate{}

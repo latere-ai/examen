@@ -7,10 +7,10 @@
 // a comparison shows is the analysis's; nothing on this side computes an
 // interval, a test or a verdict.
 //
-// NotComputed answers every question with ErrNotComputed, which a
-// comparison reads as its state computing with no results and a grid cell
-// as no summary yet. It stands in until the analysis is wired behind
-// Analyzer.
+// Analysis answers them with internal/analysis. NotComputed answers every
+// question with ErrNotComputed, which a comparison reads as its state
+// computing with no results and a grid cell as no summary yet: the
+// analyzer of a test that exercises what surrounds the analysis.
 package compare
 
 import (
@@ -41,13 +41,13 @@ type Analyzer interface {
 	// Compare computes a comparison from what both its sides hold now,
 	// and answers its computed members and the measurements it read.
 	Compare(ctx context.Context, c objects.Comparison, src Source) (objects.Computed, []string, error)
-	// Summarize is spec 002's summary of one metric over one cell's
-	// trials, as the analysis renders it.
-	Summarize(ctx context.Context, cell objects.Cell, metric string, src Source) (json.RawMessage, error)
+	// Summaries are spec 002's summaries of one metric over each of an
+	// experiment's cells' trials, by cell id, as the analysis renders them.
+	Summaries(ctx context.Context, e objects.Experiment, cells []objects.Cell, metric string, src Source) (map[string]json.RawMessage, error)
 }
 
-// NotComputed is the analyzer of a build without the analysis: every
-// question answers ErrNotComputed.
+// NotComputed is an analyzer that computes nothing: every question answers
+// ErrNotComputed.
 type NotComputed struct{}
 
 // Compare answers ErrNotComputed.
@@ -55,7 +55,7 @@ func (NotComputed) Compare(context.Context, objects.Comparison, Source) (objects
 	return objects.Computed{}, nil, ErrNotComputed
 }
 
-// Summarize answers ErrNotComputed.
-func (NotComputed) Summarize(context.Context, objects.Cell, string, Source) (json.RawMessage, error) {
+// Summaries answers ErrNotComputed.
+func (NotComputed) Summaries(context.Context, objects.Experiment, []objects.Cell, string, Source) (map[string]json.RawMessage, error) {
 	return nil, ErrNotComputed
 }

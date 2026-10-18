@@ -115,10 +115,10 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 		return fmt.Errorf("EXAMEN_ADDR: %w", err)
 	}
 	var draining atomic.Bool
-	engine := &work.Engine{Store: st, Authz: who.Authorizer, Analyzer: compare.NotComputed{}, Log: log}
+	engine := &work.Engine{Store: st, Authz: who.Authorizer, Analyzer: compare.Analysis{}, Log: log}
 	api := &httpapi.Server{
 		Store: st, Auth: who.Authenticator, Authz: who.Authorizer, BasePath: s.BasePath,
-		Draining: draining.Load, Log: log, Engine: engine, Analyzer: compare.NotComputed{}, Reserved: reserved(s),
+		Draining: draining.Load, Log: log, Engine: engine, Analyzer: compare.Analysis{}, Reserved: reserved(s),
 	}
 	httpSrv := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: readHeaderTimeout, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	failed := make(chan error, 1)
