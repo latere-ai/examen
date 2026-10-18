@@ -12,7 +12,6 @@ import (
 
 	"latere.ai/x/examen/api"
 	"latere.ai/x/examen/internal/apierr"
-	"latere.ai/x/examen/internal/compare"
 )
 
 func TestDurations(t *testing.T) {
@@ -103,6 +102,4 @@ func TestReadsAcrossOwnersAndOutages(t *testing.T) {
 	if (&Server{}).analyzer() == nil || (&Server{}).log() == nil {
 		t.Fatal("defaults")
 	}
-	var a compare.Analyzer = (&Server{}).analyzer()
-	_ = a
 }

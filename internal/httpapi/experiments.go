@@ -185,9 +185,9 @@ func checkCreate(in createBody) (suiteDigest string, candDigests []string, err e
 // context, with every version the suite pins.
 func (s *Server) resolvePlan(r *http.Request, owner string, in createBody, suiteDigest string, candDigests []string) (plan, error) {
 	p := plan{owner: owner, suiteDigest: suiteDigest, candDigests: candDigests}
-	vs := s.Store.Versions()
+	ctx, vs := r.Context(), s.Store.Versions()
 	read := func(kind, field, ref, digest string) (objects.Version, error) {
-		v, err := vs.ByDigest(r.Context(), kind, owner, digest)
+		v, err := vs.ByDigest(ctx, kind, owner, digest)
 		name, _, _ := objects.ParseRef(field, ref)
 		if errors.Is(err, store.ErrNotFound) || (err == nil && name != "" && v.Name != name) {
 			return v, apierr.OnField(apierr.CodeReferenceNotFound, field, "no "+kind+" the caller may use answers to "+ref)
@@ -710,12 +710,12 @@ func (s *Server) retryCell(w http.ResponseWriter, r *http.Request, c access.Call
 	if _, err := s.experimentAs(r, c, cell.Experiment, authorizer.ActionCellRetry, extra, apierr.CodeCellNotFound); err != nil {
 		return err
 	}
-	out, err := s.Store.Experiments().RetryCell(r.Context(), cid)
-	if err != nil {
+	if _, err := s.Store.Experiments().RetryCell(r.Context(), cid); err != nil {
 		return storeError(err, apierr.CodeCellNotFound, "the cell is gone")
 	}
 	s.advance(r, cell.Experiment)
-	if out, err = s.Store.Experiments().Cell(r.Context(), cid); err != nil {
+	out, err := s.Store.Experiments().Cell(r.Context(), cid)
+	if err != nil {
 		return apierr.Internal(err)
 	}
 	reply(w, http.StatusOK, out)

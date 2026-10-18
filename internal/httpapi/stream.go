@@ -183,6 +183,9 @@ func (s *Server) streamError(w http.ResponseWriter, r *http.Request, err error) 
 	_, body := e.Envelope()
 	data, mErr := json.Marshal(map[string]any{"error": body})
 	if mErr != nil {
+		// The stream is already answered; what is left is to say why it
+		// ends without its error frame.
+		s.log().ErrorContext(r.Context(), "an error frame could not be rendered", "error", mErr.Error())
 		return nil
 	}
 	if frame(w, 0, "error", data) == nil {

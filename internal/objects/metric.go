@@ -233,13 +233,13 @@ func (m Metric) validateAggregate() error {
 		TypeCost: {AggregateMean, AggregateMedian, AggregateP90}, TypeLabel: {AggregateDistribution},
 	}[m.Type]
 	if level == LevelCell {
-		switch {
-		case m.Aggregate == AggregateRepeatRate || m.Aggregate == AggregateModeShare:
+		switch m.Aggregate {
+		case AggregateRepeatRate, AggregateModeShare:
 			if m.Type != TypeScore || len(m.Range) != 2 || m.Range[0] != 0 || m.Range[1] != 1 {
 				return invalid("type", "a repeat_rate or mode_share is of type score with the range [0, 1]")
 			}
 			return nil
-		case m.Aggregate == AggregateDistinctCount:
+		case AggregateDistinctCount:
 			if m.Type != TypeCount {
 				return invalid("type", "a distinct_count is of type count")
 			}

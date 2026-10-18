@@ -168,14 +168,14 @@ func (w *world) experiment(p plan, mode string, n int) (store.NewExperiment, []s
 
 // running is a stored experiment of the plan whose smoke rollouts are
 // submitted.
-func (w *world) running(p plan, n int) (string, []string) {
+func (w *world) running(ctx context.Context, p plan, n int) (string, []string) {
 	w.t.Helper()
 	ne, cells := w.experiment(p, objects.ModeExecute, n)
-	if err := w.st.Experiments().Create(w.t.Context(), ne); err != nil {
+	if err := w.st.Experiments().Create(ctx, ne); err != nil {
 		w.t.Fatal(err)
 	}
 	for _, c := range cells {
-		if err := w.st.Experiments().SubmitRollout(w.t.Context(), c, c+".smoke"); err != nil {
+		if err := w.st.Experiments().SubmitRollout(ctx, c, c+".smoke"); err != nil {
 			w.t.Fatal(err)
 		}
 	}
@@ -213,7 +213,7 @@ func TestWritesFailWhole(t *testing.T) {
 	})
 	leased := func(o string) func() func() error {
 		return func() func() error {
-			eid, cells := w.running(p, 2)
+			eid, cells := w.running(ctx, p, 2)
 			l, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
 			if err != nil || len(l.Trials) != 1 {
 				t.Fatalf("lease %+v %v", l, err)
@@ -228,14 +228,14 @@ func TestWritesFailWhole(t *testing.T) {
 	w.eachFault("submit infra_failed", leased(objects.OutcomeInfraFailed))
 	w.eachFault("submit over_budget", leased(objects.OutcomeOverBudget))
 	w.eachFault("lease", func() func() error {
-		eid, cells := w.running(p, 2)
+		eid, cells := w.running(ctx, p, 2)
 		return func() error {
 			_, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
 			return err
 		}
 	})
 	w.eachFault("renew", func() func() error {
-		eid, cells := w.running(p, 2)
+		eid, cells := w.running(ctx, p, 2)
 		l, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
 		if err != nil {
 			t.Fatal(err)
@@ -246,14 +246,14 @@ func TestWritesFailWhole(t *testing.T) {
 		}
 	})
 	w.eachFault("cancel", func() func() error {
-		eid, cells := w.running(p, 2)
+		eid, cells := w.running(ctx, p, 2)
 		if _, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells}); err != nil {
 			t.Fatal(err)
 		}
 		return func() error { _, err := x.Cancel(ctx, eid); return err }
 	})
 	w.eachFault("park", func() func() error {
-		_, cells := w.running(p, 2)
+		_, cells := w.running(ctx, p, 2)
 		return func() error { return x.Park(ctx, cells[0], objects.StateCanceled, "run_denied") }
 	})
 	importCell := func(eid string) objects.Cell {
@@ -284,7 +284,7 @@ func TestWritesFailWhole(t *testing.T) {
 		return func() error { _, err := x.Close(ctx, eid); return err }
 	})
 	w.eachFault("retry", func() func() error {
-		eid, cells := w.running(p, 2)
+		eid, cells := w.running(ctx, p, 2)
 		if err := x.Park(ctx, cells[0], objects.StateBlocked, "smoke_infra_failed"); err != nil {
 			t.Fatal(err)
 		}
@@ -292,7 +292,7 @@ func TestWritesFailWhole(t *testing.T) {
 		return func() error { _, err := x.RetryCell(ctx, cells[0]); return err }
 	})
 	w.eachFault("compute", func() func() error {
-		eid, _ := w.running(p, 2)
+		eid, _ := w.running(ctx, p, 2)
 		cs, err := x.Comparisons(ctx, store.ComparisonFilter{Experiment: eid}, store.Page{Limit: 1})
 		if err != nil {
 			t.Fatal(err)
@@ -302,7 +302,7 @@ func TestWritesFailWhole(t *testing.T) {
 		}
 	})
 	w.eachFault("comparison", func() func() error {
-		eid, _ := w.running(p, 2)
+		eid, _ := w.running(ctx, p, 2)
 		return func() error {
 			return x.CreateComparison(ctx, objects.Comparison{ID: id.New(id.Comparison), Owner: owner, Experiment: eid, Candidate: p.b.Digest, ReferenceCandidate: p.a.Digest, State: objects.ComparisonComputing})
 		}
@@ -356,7 +356,7 @@ func TestStateRefusals(t *testing.T) {
 		}
 		return "not an apierr: " + errStr(err)
 	}
-	eid, cells := w.running(p, 2)
+	eid, cells := w.running(ctx, p, 2)
 	l, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
 	if err != nil {
 		t.Fatal(err)
@@ -562,7 +562,7 @@ func TestLapsesLeasesAndReopensFailWhole(t *testing.T) {
 	ctx := t.Context()
 	x := w.st.Experiments()
 	w.eachFault("expire", func() func() error {
-		eid, cells := w.running(p, 2)
+		eid, cells := w.running(ctx, p, 2)
 		if _, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells}); err != nil {
 			t.Fatal(err)
 		}
@@ -574,7 +574,7 @@ func TestLapsesLeasesAndReopensFailWhole(t *testing.T) {
 	})
 	// Four trials: once the smoke passes, the main rollout's three lease
 	// by index.
-	eid, cells := w.running(p, 4)
+	eid, cells := w.running(ctx, p, 4)
 	l, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
 	if err != nil {
 		t.Fatal(err)
@@ -595,7 +595,7 @@ func TestLapsesLeasesAndReopensFailWhole(t *testing.T) {
 	}
 	// A complete experiment with a parked cell reopens at its retry.
 	w.eachFault("reopen", func() func() error {
-		eid, cells := w.running(p, 1)
+		eid, cells := w.running(ctx, p, 1)
 		l, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
 		if err != nil {
 			t.Fatal(err)
