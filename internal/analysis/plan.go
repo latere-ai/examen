@@ -177,7 +177,8 @@ func (c *computer) classify() {
 			}
 			pl.primary = m.Digest == c.in.Suite.PrimaryMetric && !c.in.Exploratory
 		}
-		pl.descriptive = m.Aggregate == AggModeShare || m.Aggregate == AggDistinctCount
+		pl.descriptive = m.Aggregate == AggModeShare || m.Aggregate == AggDistinctCount ||
+			(m.Type == TypeLabel && !c.in.LabelTests)
 		pl.inFamily = !pl.insufficient && !pl.descriptive && !pl.selfReported && !pl.primary
 	}
 	for _, pl := range c.plans {
@@ -456,10 +457,13 @@ func (c *computer) taskLabel(pl *plan, r *pairRead) {
 	}
 	pl.res.Delta = &Delta{PerLabel: delta}
 	pl.res.DeltaKind = "per_label"
-	if !pl.runsTest() {
+	if pl.insufficient {
 		return
 	}
 	pl.res.DeltaInterval = &DeltaInterval{PerLabel: ivs}
+	if pl.descriptive {
+		return
+	}
 	tr, method, stat := labelTest(indices(order, r.x.values), indices(order, r.y.values), len(order), c.p.PermutationExactMax, c.mc(pl))
 	pl.setTest(method, stat, tr, true)
 }

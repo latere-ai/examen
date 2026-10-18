@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math"
 	"runtime"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -58,6 +59,7 @@ func golden() Input {
 		return cells
 	}
 	return Input{
+		LabelTests: true,
 		Parameters: Defaults(),
 		Suite:      Suite{Metrics: metrics, PrimaryMetric: pass.Digest, Weights: map[string]float64{"sha256:t2": 2}},
 		Candidate:  Side{Candidate: "sha256:cand", Cells: side("b", 0.2, 40)},
@@ -68,7 +70,7 @@ func golden() Input {
 // The golden comparison's canonical bytes, held to their SHA-256: the same
 // on amd64 and arm64, which `GOARCH=amd64 go test` checks on an arm64
 // machine.
-const goldenDigest = "8b0bc6665f3ed5008112d3f1f66d743fd854d9e73a2eeefbde93b77eee6dfc2f"
+const goldenDigest = "2186c0886bede1a7b0fe41d453ed6cde40aa9a63058e1f9d415e8c60ab0abb0f"
 
 func TestGoldenAcrossArchitectures(t *testing.T) {
 	c := mustCompare(t, golden())
@@ -196,9 +198,6 @@ func TestSeedScopes(t *testing.T) {
 		}
 		seen[k] = s.scope + "/" + s.proc
 	}
-	if resultScope(LevelSuite, "x") != "suite" || resultScope(LevelTask, "task:x") != "task:x" {
-		t.Error("result scope")
-	}
 }
 
 // Swapping the sides negates the delta and its interval and keeps an exact
@@ -246,6 +245,12 @@ func normal(g *generator) float64 {
 	}
 }
 
+// levelResamples is the relabelings each simulated test draws. The level
+// is a property of the statistic; B only resolves the p-value, and 1,000
+// draws decide p <= 0.05 as well as 10,000 do at a tenth of the time, which
+// keeps the race detector's run of the suite within its limit.
+const levelResamples = 1000
+
 // With equal means and equal medians, 50 normal trials of spread 1 against
 // 5 of spread 10, the Welch permutation test rejects at 5% in at most 10%
 // of 2,000 simulated experiments and the studentized median test in at
@@ -258,10 +263,14 @@ func TestStudentizedLevel(t *testing.T) {
 	p := Defaults()
 	bx, by := hallSheather(50, 0.5, z95), hallSheather(5, 0.5, z95)
 	stats := map[string]statistic{
-		"welch":       welchT,
-		"median":      studentizedQuantile(0.5, bx, by),
-		"bare mean":   func(x, y []float64) float64 { return mean(x) - mean(y) },
-		"bare median": func(x, y []float64) float64 { return quantile(sorted(x), 0.5) - quantile(sorted(y), 0.5) },
+		"welch":     welchT,
+		"median":    studentizedQuantile(0.5, bx, by),
+		"bare mean": func(x, y []float64) float64 { return mean(x) - mean(y) },
+		"bare median": func(x, y []float64) float64 {
+			slices.Sort(x)
+			slices.Sort(y)
+			return quantile(x, 0.5) - quantile(y, 0.5)
+		},
 	}
 	rejected := map[string]int{}
 	var mu sync.Mutex
@@ -279,7 +288,7 @@ func TestStudentizedLevel(t *testing.T) {
 					y[i] = 10 * normal(g)
 				}
 				for name, s := range stats {
-					cfg := mcConfig{g: newGenerator(ProcedureSeed(RootSeed("level"), name, fmt.Sprint(e), procTest)), b: resamples(1, p.FalseDiscoveryRate), stop: p.PermutationStopExceedances, tol: p.TieTolerance}
+					cfg := mcConfig{g: newGenerator(ProcedureSeed(RootSeed("level"), name, fmt.Sprint(e), procTest)), b: levelResamples, stop: p.PermutationStopExceedances, tol: p.TieTolerance}
 					if r := permutationTest(x, y, s, p.PermutationExactMax, cfg); r.p <= 0.05 {
 						mu.Lock()
 						rejected[name]++

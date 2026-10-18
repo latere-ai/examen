@@ -744,9 +744,10 @@ func reorient(r Result) Result {
 	if r.DeltaInterval != nil {
 		out.DeltaInterval = &DeltaInterval{Interval: Interval{-r.DeltaInterval.Interval[1], -r.DeltaInterval.Interval[0]}}
 	}
-	if out.Verdict == Improved {
+	switch out.Verdict {
+	case Improved:
 		out.Verdict = Regressed
-	} else if out.Verdict == Regressed {
+	case Regressed:
 		out.Verdict = Improved
 	}
 	out.Confounds = make([]Confound, len(r.Confounds))

@@ -82,16 +82,6 @@ const (
 	OutcomeCanceled    Outcome = "canceled"
 )
 
-// finished reports whether a trial of this outcome is a result of the
-// agent, which the analysis reads; an empty outcome is a trial not done.
-func (o Outcome) finished() bool {
-	switch o {
-	case OutcomeCompleted, OutcomeDeclined, OutcomeTimedOut, OutcomeTurnLimit:
-		return true
-	}
-	return false
-}
-
 // excluded reports whether a trial of this outcome is excluded from
 // analysis though done.
 func (o Outcome) excluded() bool {
@@ -306,6 +296,11 @@ type Input struct {
 	// holds one cell of one candidate, and they are two tasks.
 	AcrossTasks bool `json:"across_tasks,omitempty"`
 	Exploratory bool `json:"exploratory"`
+	// LabelTests is true once label tests are built (spec 008, Build
+	// order): a label result is then tested and can be changed; until then
+	// it carries its per-label figures and no p, q or verdict, outside the
+	// family. The first release builds no label tests.
+	LabelTests bool `json:"label_tests,omitempty"`
 	// Taxonomies maps an open-vocabulary metric's digest to the record it
 	// is read at, on both sides.
 	Taxonomies   map[string]Taxonomy `json:"taxonomies,omitempty"`
@@ -319,35 +314,24 @@ type Summary struct {
 	NotApplicable int       `json:"not_applicable"`
 	// Value is the rate, mean, median, p90 or cell-level statistic, or a
 	// candidate-level metric's one value; nil when nothing is valued.
-	Value          any              `json:"value,omitempty"`
-	Numerator      *int             `json:"numerator,omitempty"`
-	Denominator    int              `json:"denominator"`
-	ExcludedLabels map[string]int   `json:"excluded_labels,omitempty"`
-	Missing        int              `json:"missing"`
-	Interval       *Interval        `json:"interval,omitempty"`
-	NoInterval     string           `json:"no_interval,omitempty"`
-	Mean           *float64         `json:"mean,omitempty"`
-	SD             *float64         `json:"sd,omitempty"`
-	Min            *float64         `json:"min,omitempty"`
-	Max            *float64         `json:"max,omitempty"`
-	Distribution   []LabelShare     `json:"distribution,omitempty"`
-	Mode           string           `json:"mode,omitempty"`
-	Unmapped       int              `json:"unmapped,omitempty"`
-	Tasks          *int             `json:"tasks,omitempty"`
-	Coverage       *float64         `json:"coverage,omitempty"`
-	Excluded       map[string]int   `json:"excluded,omitempty"`
-	Final          bool             `json:"final"`
-	extra          *summaryInternal `json:"-"`
-}
-
-// summaryInternal carries what a result reads of a side beyond the
-// summary: the values in trial id order and their provenance counts.
-type summaryInternal struct {
-	values       []float64 // numeric, binary as 0 and 1, labels as their index
-	selfReported int
-	window       window
-	excluded     int // excluded trials no finished retry replaced
-	rows         int // finished and excluded trials, for the incomplete reason
+	Value          any            `json:"value,omitempty"`
+	Numerator      *int           `json:"numerator,omitempty"`
+	Denominator    int            `json:"denominator"`
+	ExcludedLabels map[string]int `json:"excluded_labels,omitempty"`
+	Missing        int            `json:"missing"`
+	Interval       *Interval      `json:"interval,omitempty"`
+	NoInterval     string         `json:"no_interval,omitempty"`
+	Mean           *float64       `json:"mean,omitempty"`
+	SD             *float64       `json:"sd,omitempty"`
+	Min            *float64       `json:"min,omitempty"`
+	Max            *float64       `json:"max,omitempty"`
+	Distribution   []LabelShare   `json:"distribution,omitempty"`
+	Mode           string         `json:"mode,omitempty"`
+	Unmapped       int            `json:"unmapped,omitempty"`
+	Tasks          *int           `json:"tasks,omitempty"`
+	Coverage       *float64       `json:"coverage,omitempty"`
+	Excluded       map[string]int `json:"excluded,omitempty"`
+	Final          bool           `json:"final"`
 }
 
 // Number returns the summary's value as a number, and whether it is one.
@@ -512,6 +496,7 @@ type Resolved struct {
 type Comparison struct {
 	Variable           []string                   `json:"variable"`
 	Exploratory        bool                       `json:"exploratory"`
+	LabelTests         bool                       `json:"label_tests"`
 	Final              bool                       `json:"final"`
 	SingleVariable     bool                       `json:"single_variable"`
 	DeclaredProvenance []string                   `json:"declared_provenance"`

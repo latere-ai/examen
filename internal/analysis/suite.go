@@ -393,10 +393,13 @@ func (c *computer) suiteLabelDelta(pl *plan, x, y []sideTask, order []string) {
 	}
 	pl.res.Delta = &Delta{PerLabel: delta}
 	pl.res.DeltaKind = "per_label"
-	if !pl.runsTest() {
+	if pl.insufficient {
 		return
 	}
 	pl.res.DeltaInterval = &DeltaInterval{PerLabel: ivs}
+	if pl.descriptive {
+		return
+	}
 	r := stratifiedTest(stratify(x, y), labelDistance(k), c.p.PermutationExactMax, c.mc(pl))
 	pl.setTest(methodStratified, statLabelDistance, r, true)
 	pl.stratFloor(r, x, y)
@@ -586,6 +589,8 @@ func (c *computer) decide(pl *plan) {
 		res.Reason = reasonModeShare
 	case m.Aggregate == AggDistinctCount:
 		res.Reason = reasonDistinctCount
+	case m.Type == TypeLabel && !c.in.LabelTests:
+		res.Reason = reasonLabelsNotBuilt
 	case !pl.tested:
 		// A side without a value of a non-descriptive metric cannot reach
 		// here: it is insufficient.

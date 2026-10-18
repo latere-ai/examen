@@ -103,10 +103,11 @@ func noIntervalSmallTask(task string, n, min int) string {
 
 // The reasons of results without a test (spec 008, Reasons).
 const (
-	reasonCandidate     = "descriptive: one value per candidate, so nothing to test"
-	reasonModeShare     = "descriptive: a mode share depends on the number of trials, so it is not tested"
-	reasonDistinctCount = "descriptive: a count of distinct labels depends on the number of trials, so it is not tested"
-	reasonZeroDelta     = "no difference between the two sides"
+	reasonCandidate      = "descriptive: one value per candidate, so nothing to test"
+	reasonModeShare      = "descriptive: a mode share depends on the number of trials, so it is not tested"
+	reasonDistinctCount  = "descriptive: a count of distinct labels depends on the number of trials, so it is not tested"
+	reasonZeroDelta      = "no difference between the two sides"
+	reasonLabelsNotBuilt = "descriptive: label tests are not built yet"
 )
 
 func reasonTaskBelow(task string, valued, need int) string {
@@ -120,8 +121,8 @@ func reasonCoverage(coverage, need float64, left []LeftOut) string {
 	}
 	parts := make([]string, len(left))
 	for i, l := range left {
-		switch {
-		case l.Why == LeftOutUnpaired:
+		switch l.Why {
+		case LeftOutUnpaired:
 			parts[i] = fmt.Sprintf("%s (not run by the %s)", l.Task, l.unpairedBy)
 		default:
 			parts[i] = fmt.Sprintf("%s (%s)", l.Task, trials(min(l.Candidate, l.Reference)))
@@ -143,7 +144,7 @@ func reasonExploratoryPrimary(p, q float64, m int, fdr float64) string {
 }
 
 func reasonSelfReported(p float64) string {
-	return pValue("p", p) + " on values the harness reported itself: not a finding, and outside the corrected family"
+	return pValue("p", p) + " on values the external harness reported itself: not a finding, and outside the corrected family"
 }
 
 func reasonPair(p, h float64, m int, level float64) string {

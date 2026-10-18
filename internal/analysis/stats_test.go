@@ -144,6 +144,22 @@ func TestSuiteRateIntervals(t *testing.T) {
 }
 
 func TestQuantileType7(t *testing.T) {
+	// Of 10,000 resampled t*, 250 at minus infinity already make Q*(α/2)
+	// infinite: h = 9999·0.025 + 1 = 250.975 reads x(250) and x(251).
+	ts := make([]float64, 10000)
+	for i := range ts {
+		ts[i] = float64(i)
+		if i < 250 {
+			ts[i] = math.Inf(-1)
+		}
+	}
+	if q := quantile(ts, 0.025); !math.IsInf(q, -1) {
+		t.Errorf("250 infinite values of 10,000: Q(0.025) = %v", q)
+	}
+	ts[249] = -1
+	if q := quantile(ts, 0.025); math.IsInf(q, 0) {
+		t.Errorf("249 infinite values of 10,000: Q(0.025) = %v", q)
+	}
 	inf := math.Inf(1)
 	for _, c := range []struct {
 		v    []float64

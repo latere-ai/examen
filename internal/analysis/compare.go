@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"time"
 )
 
 // ErrInput is the error of a comparison's input that breaks a rule of spec
@@ -329,6 +328,7 @@ func (c *computer) assemble(digest string) Comparison {
 	out := Comparison{
 		Variable:           c.varFields,
 		Exploratory:        c.in.Exploratory,
+		LabelTests:         c.in.LabelTests,
 		Final:              c.allFinal(),
 		SingleVariable:     true,
 		DeclaredProvenance: []string{},
@@ -402,13 +402,4 @@ func (c *computer) assemble(digest string) Comparison {
 		}
 	}
 	return out
-}
-
-// gap is the time between two instants, never negative.
-func gap(a, b time.Time) time.Duration {
-	d := a.Sub(b)
-	if d < 0 {
-		return -d
-	}
-	return d
 }

@@ -57,12 +57,6 @@ func ProcedureSeed(root Seed, metric, scope, procedure string) Seed {
 func taskScope(name string) string        { return "task:" + name }
 func acrossTasksScope(a, b string) string { return "task:" + a + " vs " + b }
 func pairScope(a, b string) string        { return "pair:" + a + ":" + b }
-func resultScope(level Level, task string) string {
-	if level == LevelSuite {
-		return "suite"
-	}
-	return task
-}
 
 // generator draws from the 128-bit permuted congruential generator with
 // DXSM output that math/rand/v2's PCG implements, by two methods of its

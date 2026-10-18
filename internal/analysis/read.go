@@ -189,8 +189,8 @@ func readMetric(c *Cell, ct cellTrials, m Metric, grader string, tax *Taxonomy) 
 		}
 		v := value{trial: t, m: ms}
 		ok := true
-		switch {
-		case m.Type == TypeBinary:
+		switch m.Type {
+		case TypeBinary:
 			switch b := ms.Value.(type) {
 			case bool:
 				if b {
@@ -203,7 +203,7 @@ func readMetric(c *Cell, ct cellTrials, m Metric, grader string, tax *Taxonomy) 
 					v.num = 1
 				}
 			}
-		case m.Type == TypeLabel:
+		case TypeLabel:
 			s, isString := ms.Value.(string)
 			ok = isString
 			v.label = s

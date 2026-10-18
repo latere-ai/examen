@@ -132,7 +132,8 @@ func split(pooled []float64, idx []int, x, y []float64) {
 	}
 }
 
-// statistic computes T from a relabeling's two sides.
+// statistic computes T from a relabeling's two sides. It may reorder the
+// values of each side, which a relabeling holds in buffers of its own.
 type statistic func(x, y []float64) float64
 
 // permutationTest is the two-sample permutation test of T between x and y
@@ -145,7 +146,7 @@ type statistic func(x, y []float64) float64
 // forming the candidate side.
 func permutationTest(x, y []float64, t statistic, exactMax int, cfg mcConfig) testResult {
 	pooled := slices.Concat(x, y)
-	observed := math.Abs(t(x, y))
+	observed := math.Abs(t(slices.Clone(x), slices.Clone(y)))
 	bx, by := make([]float64, len(x)), make([]float64, len(y))
 	if total := choose(len(pooled), len(x), exactMax); total <= exactMax {
 		count := 0
@@ -212,10 +213,12 @@ func sparsity(s []float64, q, b float64) float64 {
 //
 //	T = (Q_x(q) - Q_y(q)) / sqrt(q(1 - q)(r_x²/n_x + r_y²/n_y)),
 //
-// each side's bandwidth fixed by its size.
+// each side's bandwidth fixed by its size. It sorts each side in place.
 func studentizedQuantile(q, bx, by float64) statistic {
 	return func(x, y []float64) float64 {
-		sx, sy := sorted(x), sorted(y)
+		slices.Sort(x)
+		slices.Sort(y)
+		sx, sy := x, y
 		rx, ry := sparsity(sx, q, bx), sparsity(sy, q, by)
 		v := float64(rx*rx)/float64(len(x)) + float64(ry*ry)/float64(len(y))
 		den := math.Sqrt(float64(float64(q*(1-q)) * v))
@@ -256,7 +259,8 @@ type stratum2 struct {
 	x, y []float64
 }
 
-// stratStatistic computes T from every task's relabeled sides.
+// stratStatistic computes T from every task's relabeled sides. It may
+// reorder the values of each side.
 type stratStatistic func(w []float64, xs, ys [][]float64) float64
 
 // stratifiedTest is the stratified permutation test: a relabeling permutes
@@ -277,7 +281,7 @@ func stratifiedTest(tasks []stratum2, t stratStatistic, exactMax int, cfg mcConf
 		w[i] = s.w
 		pooled[i] = slices.Concat(s.x, s.y)
 		xs[i], ys[i] = make([]float64, len(s.x)), make([]float64, len(s.y))
-		obsX[i], obsY[i] = s.x, s.y
+		obsX[i], obsY[i] = slices.Clone(s.x), slices.Clone(s.y)
 		if total <= exactMax {
 			total *= choose(len(pooled[i]), len(s.x), exactMax)
 		}
@@ -365,7 +369,9 @@ func stratStudentizedQuantile(q float64, bx, by []float64) stratStatistic {
 		qy := make([]float64, len(ys))
 		v := 0.0
 		for i := range xs {
-			sx, sy := sorted(xs[i]), sorted(ys[i])
+			slices.Sort(xs[i])
+			slices.Sort(ys[i])
+			sx, sy := xs[i], ys[i]
 			qx[i], qy[i] = quantile(sx, q), quantile(sy, q)
 			rx, ry := sparsity(sx, q, bx[i]), sparsity(sy, q, by[i])
 			share := w[i] / wsum

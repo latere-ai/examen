@@ -176,6 +176,7 @@ func TestEqualSidesAreWithinNoise(t *testing.T) {
 		{label, strs("a", "a", "b", "c", "a", "b", "c")},
 	} {
 		in := pairInput(c.m, map[string][]any{"t1": c.values, "t2": c.values}, map[string][]any{"t1": c.values, "t2": c.values})
+		in.LabelTests = true
 		cmp := mustCompare(t, in)
 		for _, r := range cmp.Results {
 			if r.Verdict != WithinNoise {
@@ -186,6 +187,7 @@ func TestEqualSidesAreWithinNoise(t *testing.T) {
 	rr := cellMetric("agreement", AggRepeatRate, label)
 	in := pairInput(label, map[string][]any{"t1": strs("a", "a", "b", "c", "a", "b")}, map[string][]any{"t1": strs("a", "a", "b", "c", "a", "b")})
 	in.Suite.Metrics = append(in.Suite.Metrics, rr)
+	in.LabelTests = true
 	for _, r := range mustCompare(t, in).Results {
 		if r.Verdict != WithinNoise {
 			t.Errorf("%s %s: %s", r.MetricName, r.Level, r.Verdict)
@@ -294,7 +296,7 @@ func TestSelfReported(t *testing.T) {
 	if cf == nil || cf.Candidate != 10 || cf.Reference != 0 {
 		t.Errorf("confound %+v", cf)
 	}
-	if !strings.HasSuffix(r.Reason, "on values the harness reported itself: not a finding, and outside the corrected family") {
+	if !strings.HasSuffix(r.Reason, "on values the external harness reported itself: not a finding, and outside the corrected family") {
 		t.Errorf("reason %q", r.Reason)
 	}
 	if c.Correction.Family != 0 {
@@ -725,6 +727,7 @@ func TestDescriptiveCellMeasures(t *testing.T) {
 	dc := cellMetric("distinct", AggDistinctCount, label)
 	in := pairInput(label, map[string][]any{"t1": strs("a", "a", "a", "a", "a"), "t2": strs("a", "a", "b", "a", "a")}, map[string][]any{"t1": strs("a", "b", "c", "d", "e"), "t2": strs("a", "b", "c", "d", "e")})
 	in.Suite.Metrics = append(in.Suite.Metrics, rr, ms, dc)
+	in.LabelTests = true
 	c := mustCompare(t, in)
 	r := find(c, rr.Digest, LevelTask, "t1")
 	if r.Statistic != statDifference || !*r.Exact || *r.Resamples != 252 || *r.P != 12.0/252 {
@@ -805,6 +808,7 @@ func TestTaxonomyReads(t *testing.T) {
 	tax := Taxonomy{ID: "tax_1", Digest: "sha256:tax", Canonical: []string{"billing", "shipping"}, Map: map[string]string{"invoice": "billing", "refund": "billing", "parcel": "shipping"}}
 	in := pairInput(m, map[string][]any{"t1": strs("invoice", "refund", "parcel", "weather", "invoice")}, map[string][]any{"t1": strs("parcel", "parcel", "invoice", "parcel", "parcel")})
 	in.Taxonomies = map[string]Taxonomy{m.Digest: tax}
+	in.LabelTests = true
 	c := mustCompare(t, in)
 	if c.Taxonomies[m.Digest] != "tax_1" {
 		t.Errorf("taxonomies %v", c.Taxonomies)
@@ -847,6 +851,36 @@ func TestTaxonomyReads(t *testing.T) {
 	}
 }
 
+// Until label tests are built a label result carries its per-label
+// figures and no verdict, p or q, and stays out of the family.
+func TestLabelsAreDescriptive(t *testing.T) {
+	m := labelMetric("topic", "a", "b", "c")
+	in := pairInput(m, map[string][]any{"t1": strs("a", "a", "a", "a", "a", "a", "b"), "t2": strs("a", "a", "a", "a", "a", "a", "a")}, map[string][]any{"t1": strs("b", "b", "c", "c", "b", "c", "b"), "t2": strs("c", "c", "c", "b", "b", "b", "c")})
+	in.Suite.Metrics = append(in.Suite.Metrics, binaryMetric("pass", HigherIsBetter))
+	c := mustCompare(t, in)
+	for _, r := range c.Results {
+		if r.Metric != m.Digest {
+			continue
+		}
+		if r.Verdict != "" || r.P != nil || r.Q != nil || r.Method != "" || r.Reason != reasonLabelsNotBuilt {
+			t.Errorf("%s %s: %+v", r.Level, r.Task, r)
+		}
+		if r.DeltaInterval == nil || len(r.DeltaInterval.PerLabel) != 3 {
+			t.Errorf("%s %s: the per-label intervals are missing", r.Level, r.Task)
+		}
+	}
+	if c.Correction.Family != 0 || c.LabelTests {
+		t.Errorf("family %d label tests %v", c.Correction.Family, c.LabelTests)
+	}
+	if _, ok := c.VerdictCounts[m.Digest]; ok {
+		t.Error("a descriptive label result in verdict_counts")
+	}
+	in.LabelTests = true
+	if c2 := mustCompare(t, in); c2.InputsDigest == c.InputsDigest || find(c2, m.Digest, LevelTask, "t1").Verdict != Changed {
+		t.Error("building label tests changed neither the inputs nor the verdict")
+	}
+}
+
 // Every result carries a reason from the templates, and every absent
 // interval its sentence.
 func TestReasons(t *testing.T) {
@@ -854,7 +888,7 @@ func TestReasons(t *testing.T) {
 		reasonPrimary(0.0004):                             "p < 0.001 for the primary metric, tested alone without correction",
 		reasonFamily(0.048, 0.19, 40, 0.05):               "p = 0.048; q = 0.19 after correcting 40 results at 5%",
 		reasonExploratoryPrimary(0.012, 0.31, 41, 0.05):   "p = 0.012; q = 0.31 after correcting 41 results at 5%; exploratory, so the primary metric is corrected with the rest",
-		reasonSelfReported(0.03):                          "p = 0.03 on values the harness reported itself: not a finding, and outside the corrected family",
+		reasonSelfReported(0.03):                          "p = 0.03 on values the external harness reported itself: not a finding, and outside the corrected family",
 		reasonPair(0.03, 0.06, 3, 0.05):                   "p = 0.03 unadjusted; h = 0.06 after Holm's adjustment over 3 pairs at 5%",
 		reasonFloor(sizes(5, 5), 40, false, 0.05):         "with 5 trials per side, no difference can be shown among 40 results",
 		reasonFloor(sizes(5, 7), 40, false, 0.05):         "with 5 and 7 trials, no difference can be shown among 40 results",
@@ -942,6 +976,13 @@ func TestPowerFloor(t *testing.T) {
 	if r.Reason != "with 5 trials per side, no difference can be shown among 40 results" {
 		t.Errorf("reason %q", r.Reason)
 	}
+	// The floor binds a lone finding, FALSE_DISCOVERY_RATE/m; with every
+	// result at the floor, Benjamini and Hochberg's procedure rejects at
+	// FALSE_DISCOVERY_RATE·i/m, so the verdicts follow the rule and are
+	// improved beside the power-floor reason, as spec 008 has it.
+	if r.Verdict != Improved || *r.Q > 0.05 {
+		t.Errorf("verdict %s q %v", r.Verdict, *r.Q)
+	}
 	// The floor of an exact permutation test: 5 against 5 is 2/252.
 	pl := &plan{}
 	pl.setFloor(testResult{exact: true, resamples: 252}, true)
@@ -1004,7 +1045,9 @@ func TestResamplesGrowWithTheFamily(t *testing.T) {
 
 func TestLabelResults(t *testing.T) {
 	m := labelMetric("topic", "a", "b", "c")
-	c := mustCompare(t, pairInput(m, map[string][]any{"t1": strs("a", "a", "a", "a", "a", "a", "b"), "t2": strs("a", "a", "a", "a", "a", "a", "a")}, map[string][]any{"t1": strs("b", "b", "c", "c", "b", "c", "b"), "t2": strs("c", "c", "c", "b", "b", "b", "c")}))
+	in := pairInput(m, map[string][]any{"t1": strs("a", "a", "a", "a", "a", "a", "b"), "t2": strs("a", "a", "a", "a", "a", "a", "a")}, map[string][]any{"t1": strs("b", "b", "c", "c", "b", "c", "b"), "t2": strs("c", "c", "c", "b", "b", "b", "c")})
+	in.LabelTests = true
+	c := mustCompare(t, in)
 	r := find(c, m.Digest, LevelTask, "t1")
 	if r.DeltaKind != "per_label" || len(r.Delta.PerLabel) != 3 || len(r.DeltaInterval.PerLabel) != 3 || r.Verdict != Changed {
 		t.Errorf("label result %+v", r)

@@ -381,13 +381,3 @@ func (s *confoundSet) list(withTasks bool) []Confound {
 	}
 	return out
 }
-
-// has reports whether an entry of the name is present.
-func (s *confoundSet) has(name string) bool {
-	for _, c := range s.entries {
-		if c.Name == name {
-			return true
-		}
-	}
-	return false
-}
