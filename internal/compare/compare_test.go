@@ -21,4 +21,7 @@ func TestNotComputed(t *testing.T) {
 	if !errors.Is(err, ErrNotComputed) || summary != nil {
 		t.Fatalf("summarize %s %v", summary, err)
 	}
+	if d, err := a.Declared(t.Context(), objects.Experiment{}, nil, Source{}); !errors.Is(err, ErrNotComputed) || d.Comparisons != nil {
+		t.Fatalf("declared %+v %v", d, err)
+	}
 }

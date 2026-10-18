@@ -282,8 +282,9 @@ func declaredTasks(list []declaredBody, res objects.Resolved) ([]objects.Declare
 			field, ref string
 			into       *string
 		}{{f + ".task", d.Task, &dc.Task}, {f + ".reference_task", d.ReferenceTask, &dc.ReferenceTask}} {
-			digest, ok := t.ref, false
-			if _, ok = res.Tasks[t.ref]; !ok {
+			digest := t.ref
+			_, ok := res.Tasks[t.ref]
+			if !ok {
 				digest, ok = res.TaskByName(t.ref)
 			}
 			if !ok {

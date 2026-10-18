@@ -24,8 +24,9 @@ type grid struct {
 // grid stores an experiment of two tasks and the plan's two candidates
 // under a scheduling and a parallelism, each cell with one rollout of n
 // trials, indices 0 to n-1, submitted when its cell is in submit.
-func (w *world) grid(ctx context.Context, scheduling string, parallelism, n int, submit func(cell int) bool) grid {
+func (w *world) grid(scheduling string, parallelism, n int, submit func(cell int) bool) grid {
 	w.t.Helper()
+	ctx := w.t.Context()
 	p := w.plan()
 	two := w.put(objects.KindTask, "two", objects.Task{Name: "two", Instruction: "do it again"})
 	suite := w.put(objects.KindSuite, "s2", objects.Suite{Name: "s2", Tasks: []string{p.task.Digest, two.Digest}, Metrics: []string{"builtin:completed"}, PrimaryMetric: "builtin:completed"})
@@ -88,7 +89,7 @@ func (w *world) lease(ctx context.Context, g grid, candidate string, max int) (s
 func TestLeaseInterleavesAcrossTasks(t *testing.T) {
 	ctx := t.Context()
 	w := newWorld(t)
-	g := w.grid(ctx, objects.SchedulingInterleaved, 4, 3, nil)
+	g := w.grid(objects.SchedulingInterleaved, 4, 3, nil)
 	first, got := w.lease(ctx, g, "", 0)
 	if want := []string{"t0a:0", "t0b:0", "t1a:0", "t1b:0"}; !slices.Equal(got, want) {
 		t.Fatalf("leased %v, want %v", got, want)
@@ -112,7 +113,7 @@ func TestLeaseInterleavesAcrossTasks(t *testing.T) {
 func TestLeaseWithoutCandidate(t *testing.T) {
 	ctx := t.Context()
 	w := newWorld(t)
-	g := w.grid(ctx, objects.SchedulingTaskByTask, 4, 3, nil)
+	g := w.grid(objects.SchedulingTaskByTask, 4, 3, nil)
 	var order []string
 	for range 4 {
 		_, got := w.lease(ctx, g, "", 1)
@@ -123,7 +124,7 @@ func TestLeaseWithoutCandidate(t *testing.T) {
 	}
 
 	w2 := newWorld(t)
-	g2 := w2.grid(ctx, objects.SchedulingInterleaved, 8, 2, nil)
+	g2 := w2.grid(objects.SchedulingInterleaved, 8, 2, nil)
 	p := w2.cellCandidate(ctx, g2, 1)
 	if _, got := w2.lease(ctx, g2, p, 0); !slices.Equal(got, []string{"t0b:0", "t1b:0", "t0b:1", "t1b:1"}) {
 		t.Fatalf("a lease naming candidate b leased %v", got)
@@ -150,7 +151,7 @@ func (w *world) cellCandidate(ctx context.Context, g grid, i int) string {
 func TestLeaseHoldsTheParallelism(t *testing.T) {
 	ctx := t.Context()
 	w := newWorld(t)
-	g := w.grid(ctx, objects.SchedulingTaskByTask, 2, 3, func(cell int) bool { return cell >= 2 })
+	g := w.grid(objects.SchedulingTaskByTask, 2, 3, func(cell int) bool { return cell >= 2 })
 	held, got := w.lease(ctx, g, "", 0)
 	if !slices.Equal(got, []string{"t1a:0", "t1b:0"}) {
 		t.Fatalf("leased %v", got)

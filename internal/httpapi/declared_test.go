@@ -49,7 +49,7 @@ func TestDeclaredComparisonsRefused(t *testing.T) {
 		{"a pair in both orientations", []any{pair(f.high, f.low), pair(f.low, f.high)}, 400, apierr.CodeInvalidField},
 		{"a candidate not in the experiment", []any{pair(other, f.high)}, 422, apierr.CodeNotInExperiment},
 		{"a reference not in the experiment", []any{pair(f.high, other)}, 422, apierr.CodeNotInExperiment},
-		{"an unknown variable", []any{map[string]any{"candidate": f.high, "reference_candidate": f.low, "variable": "colour"}}, 400, apierr.CodeInvalidField},
+		{"an unknown variable", []any{map[string]any{"candidate": f.high, "reference_candidate": f.low, "variable": "color"}}, 400, apierr.CodeInvalidField},
 		{"task on a pair of candidates", []any{map[string]any{"candidate": f.high, "reference_candidate": f.low, "variable": "task"}}, 400, apierr.CodeInvalidField},
 		{"one task", []any{map[string]any{"candidate": f.high, "task": "todo-app"}}, 400, apierr.CodeMissingField},
 		{"a model on a pair of tasks", []any{map[string]any{"candidate": f.high, "task": "todo-app", "reference_task": "calculator", "variable": "model"}}, 400, apierr.CodeInvalidField},

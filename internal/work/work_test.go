@@ -83,6 +83,13 @@ func (figures) Declared(context.Context, objects.Experiment, []objects.Compariso
 // comparison, and answers its id and its cells' ids.
 func seed(t *testing.T, st store.Store) (string, []string) {
 	t.Helper()
+	return seedWith(t, st, nil)
+}
+
+// seedWith is seed with the new experiment changed by change before it is
+// stored.
+func seedWith(t *testing.T, st store.Store, change func(*store.NewExperiment)) (string, []string) {
+	t.Helper()
 	ctx := t.Context()
 	put := func(kind, name string, v any) objects.Version {
 		raw, err := json.Marshal(v)
@@ -117,10 +124,73 @@ func seed(t *testing.T, st store.Store) (string, []string) {
 		ne.Cells = append(ne.Cells, nc)
 		cells = append(cells, cell.ID)
 	}
+	if change != nil {
+		change(&ne)
+	}
 	if err := st.Experiments().Create(ctx, ne); err != nil {
 		t.Fatal(err)
 	}
 	return e.ID, cells
+}
+
+// declaring answers figures, and a declared analysis or an error.
+type declaring struct {
+	figures
+	fail bool
+}
+
+func (d declaring) Declared(_ context.Context, e objects.Experiment, family []objects.Comparison, _ compare.Source) (objects.DeclaredAnalysis, error) {
+	if d.fail {
+		return objects.DeclaredAnalysis{}, errors.New("the declared analysis broke")
+	}
+	return objects.DeclaredAnalysis{Experiment: e.ID, Family: objects.DeclaredFamily{Method: "benjamini_hochberg", Size: len(e.Comparisons), Level: 0.05},
+		Comparisons: []objects.DeclaredResult{{Index: 0, Comparison: family[0].ID, Reason: "computed"}}}, nil
+}
+
+// Computing a declared comparison recomputes its experiment's declared
+// analysis and stores it; one that fails is an error of the round.
+func TestComputeDeclares(t *testing.T) {
+	st := pgtest.Open(t, false, postgres.Options{})
+	eid, _ := seedWith(t, st, func(ne *store.NewExperiment) {
+		ne.Experiment.Comparisons = []objects.DeclaredComparison{{Candidate: ne.Comparisons[0].Candidate, ReferenceCandidate: ne.Comparisons[0].ReferenceCandidate}}
+		zero := 0
+		ne.Comparisons[0].DeclaredIndex = &zero
+	})
+	e := &Engine{Store: st, Authz: &gate{}, Analyzer: declaring{fail: true}}
+	if err := e.Compute(t.Context()); err == nil || !strings.Contains(err.Error(), "the declared analysis broke") {
+		t.Fatalf("a failed declared analysis: %v", err)
+	}
+	if _, found, err := st.Experiments().DeclaredAnalysis(t.Context(), eid); err != nil || found {
+		t.Fatalf("a failed declared analysis stored one: %v %v", found, err)
+	}
+	if err := st.Experiments().Computed(t.Context(), mustComparison(t, st, eid).ID, objects.ComparisonComplete, objects.Computed{Confounds: []string{}, Results: []objects.ResultRow{}}, nil); err != nil {
+		t.Fatal(err)
+	}
+	// Mark it again, as a finished trial does, and compute.
+	c := mustComparison(t, st, eid)
+	c.ID = id.New(id.Comparison)
+	c.State, c.Computed = objects.ComparisonComputing, objects.Computed{}
+	if err := st.Experiments().CreateComparison(t.Context(), c); err != nil {
+		t.Fatal(err)
+	}
+	e.Analyzer = declaring{}
+	if err := e.Compute(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	a, found, err := st.Experiments().DeclaredAnalysis(t.Context(), eid)
+	if err != nil || !found || a.Family.Size != 1 || a.Comparisons[0].Comparison != c.ID {
+		t.Fatalf("the declared analysis %+v %v %v", a, found, err)
+	}
+}
+
+// mustComparison is an experiment's first comparison.
+func mustComparison(t *testing.T, st store.Store, eid string) objects.Comparison {
+	t.Helper()
+	list, err := st.Experiments().Comparisons(t.Context(), store.ComparisonFilter{Experiment: eid}, store.Page{Limit: 10})
+	if err != nil || len(list) == 0 {
+		t.Fatalf("comparisons %v %v", list, err)
+	}
+	return list[len(list)-1]
 }
 
 func TestAdvance(t *testing.T) {
