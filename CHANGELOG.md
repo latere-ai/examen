@@ -6,6 +6,61 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Added
+
+- Declare the comparisons an experiment will make when you create it:
+  `comparisons` on `POST /experiments` takes pairs of its candidates,
+  each with an optional `variable`, and pairs of tasks for one
+  candidate, at most 128. Each is computed as the automatic comparison
+  is, from the first finished trial to its final form, and is never
+  exploratory. Their primary results are corrected together, by
+  Benjamini and Hochberg over every comparison you declared, in the
+  experiment's declared analysis at `GET /experiments/{id}/declared`,
+  which gives each its `p`, `q`, verdict and reason; the comparison
+  itself carries its primary result's `p` alone. A declared pair that is
+  the automatic comparison's own pair is that comparison. A comparison
+  answers `declared`, its position in the list, and
+  `GET /experiments/{id}/comparisons?declared=true` lists them. The
+  list is fixed at create, so declare what you mean to test before any
+  trial runs.
+- `scheduling: interleaved` on `POST /experiments` deals the
+  experiment's trials round robin across every cell of every task, so
+  trial `i` of every cell runs in one time window and two tasks
+  compared with each other do not compare two times. `task_by_task`,
+  the order every experiment ran in so far, stays the default.
+- `POST /experiments/{id}/work/lease` without a `candidate` takes the
+  trials of every external candidate, in the order the experiment's
+  scheduling deals them. Every leased trial now names its `candidate`,
+  with the configuration your harness declared for it, so workers that
+  lease without a candidate know what to run. Such a lease asks
+  `trial.lease` with no `candidate` and no `harness`: an authorizer
+  that allows one harness's leases alone refuses it.
+
+### Fixed
+
+- A lease never holds more trials at once than the experiment's
+  `parallelism`. A lease could take more when the trials of a later
+  task were held and an earlier task's rollout opened.
+
+### Changed
+
+- Run `examend migrate` before you roll `serve`: this release adds an
+  experiment's `scheduling`, its declared comparisons and its declared
+  analysis, and a comparison's `declared`, with defaults, so the
+  release before it serves the migrated schema with a warning.
+- Every share is a grant of reading. A suite or a baseline shared with
+  you is read and never run on: the owner policy refuses an
+  `experiment.create` or `experiment.update` whose `suite_owner` or
+  `baseline_owner` names another owner, shared or not, and the specs
+  no longer let `suite.use` or `baseline.use` rest on a share. An
+  authorizer of your own should refuse the same questions.
+- The specs define the stratified label test, the summed chi-square of
+  a label metric permuted within each task, as a label result's
+  suite-level test and as an experiment's declared test of independence
+  over all its candidates, both served with label tests; and a model
+  judge that reads a directory output's UTF-8 files in path order,
+  served with judges.
+
 ## v0.2.0 - 2026-10-18
 
 ### Fixed
