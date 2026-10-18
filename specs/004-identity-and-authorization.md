@@ -299,7 +299,10 @@ no id is never cached, so every apply, create, pin, share, list,
 submit and export is asked each time. A change at the authorizer reaches
 a caller within the `ttl` the authorizer chose.
 
-A route asks its own action first. A question with no id is asked
+A route asks its own action first, after the list question that fixes
+its owner context where it resolves names before its own question, as
+`POST /experiments` does when it names no owner (spec 003, The owner
+context). A question with no id is asked
 before any name in the request is resolved, so its answer never depends
 on whether the name exists. Then, for each other owner's object the
 request names, the route asks `suite.use` or `baseline.use`; and for
