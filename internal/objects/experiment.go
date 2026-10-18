@@ -406,6 +406,10 @@ type Comparison struct {
 	DeclaredProvenance []string `json:"declared_provenance"`
 	Computed
 	CreatedAt time.Time `json:"created_at"`
+
+	// UpdatedAt is when its row last changed, which a recomputation reads
+	// to clear its dirty mark only when nothing changed since.
+	UpdatedAt time.Time `json:"-"`
 }
 
 // Variables maps each logical variable of specs/008-analysis.md to its

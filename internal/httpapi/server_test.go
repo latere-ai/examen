@@ -23,8 +23,11 @@ import (
 	"latere.ai/x/examen/internal/version"
 )
 
-// fakeStore is a store whose readiness and keys a test chooses.
+// fakeStore is a store whose readiness and keys a test chooses. The tables
+// a test does not choose are nil, and a route that reaches one fails the
+// test.
 type fakeStore struct {
+	store.Store
 	ready error
 	keys  store.Idempotency
 }
