@@ -252,8 +252,10 @@ jobs:
     permissions:
       contents: write
     uses: latere-ai/ci/.github/workflows/notes-release.yml@v1
+    # A hosted runner: the shared notes job calls gh, which the self-hosted
+    # runner does not carry, and the job is a few seconds of API calls.
     with:
-      runs_on: linux-vm
+      runs_on: ubuntu-latest
     secrets: inherit
 
   # 5. What the release carries beside its notes: the bill of materials,
