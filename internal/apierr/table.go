@@ -93,6 +93,7 @@ const (
 	CodeFileStoreNotDownloadOnly   = "file_store_not_download_only"
 	CodeInstructionRequired        = "instruction_required"
 	CodeUnresolvedReference        = "unresolved_reference"
+	CodeExecutorUnavailable        = "executor_unavailable"
 	CodeTooManyStreams             = "too_many_streams"
 	CodeRateLimited                = "rate_limited"
 	CodeInternal                   = "internal"
@@ -184,6 +185,7 @@ var table = map[string]kind{
 	CodeFileStoreNotDownloadOnly:   {http.StatusUnprocessableEntity, "Files cannot be shared from this installation yet. Publish summaries only.", false},
 	CodeInstructionRequired:        {http.StatusUnprocessableEntity, "An agent candidate needs every task to have an instruction.", false},
 	CodeUnresolvedReference:        {http.StatusUnprocessableEntity, "Something this experiment uses could not be found.", false},
+	CodeExecutorUnavailable:        {http.StatusUnprocessableEntity, "This installation cannot run this kind of candidate yet.", false},
 	CodeTooManyStreams:             {http.StatusTooManyRequests, "Too many progress streams are open. Close one and try again.", true},
 	CodeRateLimited:                {http.StatusTooManyRequests, "Too many requests. Try again shortly.", true},
 	CodeInternal:                   {http.StatusInternalServerError, "Something went wrong. Try again later.", true},
@@ -273,6 +275,7 @@ var order = []string{
 	CodeFileStoreNotDownloadOnly,
 	CodeInstructionRequired,
 	CodeUnresolvedReference,
+	CodeExecutorUnavailable,
 	CodeTooManyStreams,
 	CodeRateLimited,
 	CodeInternal,

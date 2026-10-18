@@ -236,6 +236,7 @@ components:
             - file_store_not_download_only
             - instruction_required
             - unresolved_reference
+            - executor_unavailable
             - too_many_streams
             - rate_limited
             - internal
