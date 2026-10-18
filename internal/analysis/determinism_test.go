@@ -12,7 +12,6 @@ import (
 	"math"
 	"runtime"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 )
@@ -245,11 +244,15 @@ func normal(g *generator) float64 {
 	}
 }
 
-// levelResamples is the relabelings each simulated test draws. The level
-// is a property of the statistic; B only resolves the p-value, and 1,000
-// draws decide p <= 0.05 as well as 10,000 do at a tenth of the time, which
-// keeps the race detector's run of the suite within its limit.
-const levelResamples = 1000
+// levelResamples and levelStop are the relabelings each simulated test
+// draws and the exceedances it stops at. The level is a property of the
+// statistic; B and the stop rule only resolve the p-value, and any stop
+// keeps it valid, so 500 draws stopped at 50 exceedances decide p <= 0.05
+// at a small part of the defaults' time.
+const (
+	levelResamples = 500
+	levelStop      = 50
+)
 
 // With equal means and equal medians, 50 normal trials of spread 1 against
 // 5 of spread 10, the Welch permutation test rejects at 5% in at most 10%
@@ -272,37 +275,27 @@ func TestStudentizedLevel(t *testing.T) {
 			return quantile(x, 0.5) - quantile(y, 0.5)
 		},
 	}
+	// The experiments run one after another: the suite runs under the race
+	// detector with atomic coverage counters, which goroutines sharing them
+	// would slow a hundredfold.
 	rejected := map[string]int{}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	work := make(chan int)
-	for range runtime.GOMAXPROCS(0) {
-		wg.Go(func() {
-			for e := range work {
-				g := newGenerator(ProcedureSeed(RootSeed("level"), "sim", fmt.Sprint(e), "data"))
-				x, y := make([]float64, 50), make([]float64, 5)
-				for i := range x {
-					x[i] = normal(g)
-				}
-				for i := range y {
-					y[i] = 10 * normal(g)
-				}
-				for name, s := range stats {
-					cfg := mcConfig{g: newGenerator(ProcedureSeed(RootSeed("level"), name, fmt.Sprint(e), procTest)), b: levelResamples, stop: p.PermutationStopExceedances, tol: p.TieTolerance}
-					if r := permutationTest(x, y, s, p.PermutationExactMax, cfg); r.p <= 0.05 {
-						mu.Lock()
-						rejected[name]++
-						mu.Unlock()
-					}
-				}
-			}
-		})
-	}
+	names := []string{"welch", "median", "bare mean", "bare median"}
 	for e := range experiments {
-		work <- e
+		g := newGenerator(ProcedureSeed(RootSeed("level"), "sim", fmt.Sprint(e), "data"))
+		x, y := make([]float64, 50), make([]float64, 5)
+		for i := range x {
+			x[i] = normal(g)
+		}
+		for i := range y {
+			y[i] = 10 * normal(g)
+		}
+		for _, name := range names {
+			cfg := mcConfig{g: newGenerator(ProcedureSeed(RootSeed("level"), name, fmt.Sprint(e), procTest)), b: levelResamples, stop: levelStop, tol: p.TieTolerance}
+			if r := permutationTest(x, y, stats[name], p.PermutationExactMax, cfg); r.p <= 0.05 {
+				rejected[name]++
+			}
+		}
 	}
-	close(work)
-	wg.Wait()
 	rate := func(name string) float64 { return float64(rejected[name]) / experiments }
 	t.Logf("rejection rates: welch %.3f, median %.3f, bare mean %.3f, bare median %.3f", rate("welch"), rate("median"), rate("bare mean"), rate("bare median"))
 	if rate("welch") > 0.10 || rate("median") > 0.12 {

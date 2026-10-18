@@ -1012,19 +1012,17 @@ func TestResamplesGrowWithTheFamily(t *testing.T) {
 			t.Errorf("m = %d: %d, want %d", m, got, want)
 		}
 	}
+	// The smallest p-value a Monte Carlo test of B = PERMUTATION_RESAMPLES
+	// can give, which TestPermutationSequential shows it gives a clear
+	// difference, passes in a family of 500 with every other p at 1.
 	b := resamples(500, 0.05)
-	var x, y []float64
-	for i := range 15 {
-		x, y = append(x, float64(i)), append(y, float64(i)+100)
-	}
-	r := permutationTest(x, y, welchT, Defaults().PermutationExactMax, mc("lone", b))
 	ps := make([]float64, 500)
-	ps[0] = r.p
+	ps[0] = 1 / float64(1+b)
 	for i := 1; i < 500; i++ {
 		ps[i] = 1
 	}
 	if q := benjaminiHochberg(ps)[0]; q > 0.05 {
-		t.Errorf("a lone discovery: p %v q %v", r.p, q)
+		t.Errorf("a lone discovery: p %v q %v", ps[0], q)
 	}
 	// In a comparison the family's tests draw the resolved B.
 	m := numericMetric("cost", TypeCost, AggMean, LowerIsBetter)

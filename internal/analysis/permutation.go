@@ -230,18 +230,22 @@ func studentizedQuantile(q, bx, by float64) statistic {
 // whole numbers, the share of the d(d - 1)/2 pairs of trials that hold one
 // label; d is at least 2.
 func repeatRate(v []float64) float64 {
-	counts := map[float64]int{}
-	keys := make([]float64, 0, len(v))
+	// Labels are positions in a label order; up to 64 of them are counted
+	// on the stack, so a permutation test draws without allocating.
+	var small [64]int
+	counts := small[:]
+	top := 0
 	for _, x := range v {
-		if counts[x] == 0 {
-			keys = append(keys, x)
-		}
-		counts[x]++
+		top = max(top, int(x))
 	}
-	slices.Sort(keys)
+	if top >= len(small) {
+		counts = make([]int, top+1)
+	}
+	for _, x := range v {
+		counts[int(x)]++
+	}
 	num := 0
-	for _, k := range keys {
-		c := counts[k]
+	for _, c := range counts[:top+1] {
 		num += c * (c - 1)
 	}
 	d := len(v)

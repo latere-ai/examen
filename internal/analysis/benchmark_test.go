@@ -287,7 +287,7 @@ func TestTableResamples(t *testing.T) {
 	m := numericMetric("cost", TypeCost, AggMean, LowerIsBetter)
 	var es []Entry
 	for i := range 9 {
-		v := make([]float64, 6)
+		v := make([]float64, 4)
 		for j := range v {
 			v[j] = float64(i + j)
 		}

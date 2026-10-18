@@ -88,8 +88,10 @@ func freemanHalton(x, y []int, limit int, tol float64) (testResult, bool) {
 // table of two sides' labels, written as whole numbers 0 … k-1, with
 // E = row total · column total / N.
 func pearsonX2(k int) statistic {
+	cx, cy := make([]int, k), make([]int, k)
 	return func(x, y []float64) float64 {
-		cx, cy := make([]int, k), make([]int, k)
+		clear(cx)
+		clear(cy)
 		for _, v := range x {
 			cx[int(v)]++
 		}
