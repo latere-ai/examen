@@ -123,8 +123,12 @@ else who can see it, by a share, a link or a publication, reads its
 setup and outcomes and runs nothing: no allow of an action that runs an
 experiment rests on `shared`, and the owner policy allows each to the
 owner alone. Examen keeps no role of its own for this, no member of an
-experiment beside its owner's, and a share of an experiment or a
-publication stays a grant of reading (spec 013).
+experiment beside its owner's, and every share stays a grant of reading
+(spec 013). That holds for what an experiment runs on too: a share of a
+suite or a baseline lets its grantee read it, and never lets the
+grantee name it in an experiment, a baseline or a bar of its own, so no
+allow of `suite.use` or `baseline.use` rests on `shared`, and an
+experiment runs only on a suite of its own owner's.
 
 ### The vocabulary
 
@@ -461,10 +465,11 @@ and decides itself. The rows, in the order they are tried:
 | `publication.list`, `publication.pause` | deny, `no_review`: the policy reviews no listing and has no administrators, so nothing is listed or paused under it |
 | `share.list` naming the subject as `grantee`, or naming none | allow |
 | any other list action | allow, with a filter that narrows the list to the subject's own |
+| `experiment.create` or `experiment.update` whose `suite_owner` or `baseline_owner` is present and is not the subject | deny, `not_owner`: an experiment runs only on its owner's suite and baseline (below) |
 | a stored object whose owner is the subject, any action | allow |
 | `submission.review` whose `benchmark_owner` is the subject | allow |
-| `suite.use` with `publication` set | deny, `not_owner`: a benchmark runs on its owner's side alone, whoever can see it by its link, a listing or a share (spec 013) |
-| `suite.read`, `suite.use`, `baseline.read`, `baseline.use` with `shared` true and the subject as context owner | allow |
+| `suite.use`, `baseline.use` of another owner's object | deny, `not_owner`: a share grants reading, and a suite or a baseline is used only by its owner's side, whoever can see it by a share, a link or a listing, a benchmark's suite included (spec 013) |
+| `suite.read`, `baseline.read` with `shared` true and the subject as context owner | allow |
 | `task.read`, `metric.read`, `grader.read`, `suite.read`, `taxonomy.read` with `shared` or `pinned` true | allow |
 | `experiment.read`, `publication.read` with `shared` true | allow |
 | an apply, create, pin or export that names no owner, or names the subject | allow |
@@ -473,12 +478,12 @@ and decides itself. The rows, in the order they are tried:
 
 A subject applies, creates and pins under its own subject only; reads,
 changes, cancels and exports what it owns, and runs only its own
-experiments; annotates its own trials; reads what another subject
-shared with it, and uses a suite or baseline shared with it in
-experiments of its own; publishes `private` and `unlisted` items and
-reviews the submissions to its own benchmarks; and runs no other
-subject's benchmark and submits to none, whether it reached it by its
-link or a share. Naming another owner
+experiments, on its own suites; annotates its own trials; reads what
+another subject shared with it, and uses none of it: no experiment,
+baseline or bar of its own names another subject's suite or baseline;
+publishes `private` and `unlisted` items and reviews the submissions to
+its own benchmarks; and runs no other subject's benchmark and submits
+to none, whether it reached it by its link or a share. Naming another owner
 is denied for every subject, so organizations, annotators who work for
 others, and a service acting for its users need an authorizer. The
 policy has no administrators and names no limit of its own. An allow is
@@ -498,7 +503,8 @@ create, remove and list one are `suite.share`, `baseline.share`,
 `experiment.share` and `publication.share`, and under the owner policy
 the owner alone may ask them. An authorizer sees a share as the field
 `shared` on a read or a use of another owner's object, and may honor or
-ignore it; the owner policy honors it. A share is a question with an
+ignore it on a read; the owner policy honors it on a read alone, and no
+allow of a use or of an action that runs an experiment rests on it. A share is a question with an
 id, so a removed share stops new reads once any cached allow has
 lapsed.
 
@@ -906,6 +912,13 @@ object's content beyond the fields sent.
   it, and is denied every action that runs it: `experiment.update`,
   `cell.retry`, `experiment.cancel`, `experiment.import`, `trial.lease`
   and `trial.submit`, each answered as the experiment's `404`.
+- Under the owner policy, `shared` opens reads alone: for every action
+  of the vocabulary that is not a read, a question about another
+  owner's object that carries `shared` true is denied `not_owner`;
+  `suite.use` and `baseline.use` of another owner's suite or baseline
+  are denied whether `shared` is set or not; and an `experiment.create`
+  or `experiment.update` whose `suite_owner` or `baseline_owner` is not
+  the subject is denied `not_owner`.
 - An experiment created in a context the authorizer's `owner` limit
   names records that owner as its `owner` and the caller as its
   `created_by`, answers both on every read, and its unattended work asks

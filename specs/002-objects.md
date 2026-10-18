@@ -115,10 +115,10 @@ object, and has no owner or row of its own.
 Every object has `id`, `owner`, `created_at` and, when mutable,
 `updated_at`. `owner` is the subject that owns it, a person or an
 organization, exactly as the authorizer names it (spec 004). Objects of
-one owner never reference another owner's objects except through a
-share (spec 013): an experiment may run a suite and name a baseline
-shared with its owner, and a baseline or a bar may name a suite shared
-with its owner. A published benchmark runs on its owner's side alone,
+one owner never reference another owner's objects: a share grants
+reading alone (spec 013), so an experiment runs a suite and names a
+baseline of its own owner's, and a baseline or a bar names a suite of
+its own owner's. A published benchmark runs on its owner's side alone,
 and a submission names a benchmark of its own owner's (spec 013).
 
 A versioned object is immutable once applied: applying changed content
@@ -597,8 +597,9 @@ lineage.
 | `created_by` | subject | the subject that pinned it |
 | `pinned_at` | time | |
 
-A baseline's owner is the owner that pinned it, which may differ from
-its suite's owner when the suite is shared with it (spec 004). Moving a
+A baseline's owner is the owner that pinned it, which is its suite's
+owner: a suite shared with another owner is read there and never used
+(spec 013). Moving a
 baseline to another experiment or candidate appends a record whose
 `previous` is the record it replaces, and a name's current baseline is
 its latest record. Every record stays readable, so every past
@@ -706,8 +707,8 @@ A rule on a comparison that passes or fails.
 | `allow_partial` | bool | false by default: a bar fails `incomplete` when any task of the suite is left out of a suite-level result it reads, or any result it reads carries the confound `incomplete`; true lets a result covering at least `MIN_SUITE_COVERAGE` stand (spec 009) |
 | `taxonomies` | object | for each open-vocabulary metric a rule reads, directly or as a cell-level metric's `of`: the id of the taxonomy record the bar reads comparisons at; filled at apply with the suite's current record when the body leaves it out, and covered by the digest (spec 009) |
 
-A bar's owner is the owner that applied it, which may differ from its
-suite's owner when the suite is shared with it (spec 004).
+A bar's owner is the owner that applied it, which is its suite's owner,
+as a baseline's is.
 
 ## Bar evaluation
 
@@ -736,11 +737,14 @@ Its owner is the bar's owner.
 
 An owner's grant to another owner: the "Only people invited" way of
 sharing, which spec 013 defines with links and listings. Shares are a
-later build step than the console path (spec 003). A share of an
-experiment or a publication grants reading alone: its grantee reads the
-setup and outcomes, and runs, changes and submits nothing. Running an
-experiment stays with its creator, its owner and the owner's members
-(spec 004), and there is no member of an experiment beside them.
+later build step than the console path (spec 003). Every share grants
+reading alone: its grantee reads what it names, a suite's versions and
+what they pin, a baseline's records, an experiment's setup and
+outcomes, a publication's versions, and runs, uses, changes and submits
+nothing. No experiment, baseline or bar of the grantee's names a shared
+suite or baseline. Running an experiment stays with its creator, its
+owner and the owner's members (spec 004), and there is no member of an
+experiment beside them.
 
 | Field | Type | Meaning |
 |---|---|---|

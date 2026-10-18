@@ -64,8 +64,9 @@ vocabulary for its people.
 
 ### Only people invited: share grants
 
-A share (spec 002) grants one owner reading, and for a suite or a
-benchmark using, of one object. An owner shares a suite it owns, a
+A share (spec 002) grants one owner reading of one object, and
+nothing more: no share lets its grantee run, use, change or submit to
+what it names. An owner shares a suite it owns, a
 baseline it pinned, an experiment or a publication through the routes
 of spec 003. A share names a suite or baseline by name, so it covers
 every record of that name, those made after it included, until it is
@@ -73,25 +74,25 @@ removed.
 
 | Share | The grantee may | The grantee may not |
 |---|---|---|
-| a suite | read every version of the suite, and every task, metric, grader and taxonomy those versions use; name any version in its own experiments, whose work is then its own, on its own budget; pin baselines and apply bars of its own on the suite | apply a version under the name, share it on, or read the sharer's experiments, candidates, baselines or bars |
-| a baseline | read the baseline's records; name one as its experiment's `reference`, so its comparisons are computed against the sharer's pinned cells | read the sharer's experiment, trials, measurements or evidence: a comparison carries the baseline side's summaries alone (spec 003) |
+| a suite | read every version of the suite, and every task, metric, grader and taxonomy those versions use | name a version in an experiment of its own, pin a baseline or apply a bar on the suite, apply a version under the name, share it on, or read the sharer's experiments, candidates, baselines or bars |
+| a baseline | read the baseline's records | name one as its experiment's `reference` or in a comparison on request, or read the sharer's experiment, trials, measurements or evidence |
 | an experiment | read the experiment, its grid, cells, trials, measurements and comparisons | change, cancel, retry, re-grade, delete or share it, lease or submit its trials, import into it or close its intake; evidence bytes are read only as Arca allows |
 | a publication | read every published version through the signed-in routes, whatever its visibility | run a benchmark's suite or submit to it, change, withdraw, list or share it, or read a version that never published |
 
 An experiment is run only by its creator, its owner and, for an
 organization, the owner's members (spec 004): every action that starts,
-feeds or changes its execution is theirs. A share of an experiment or a
-publication, a link and a listing let everyone else read its setup and
-outcomes, and nothing more.
+feeds or changes its execution is theirs, and it runs on a suite of its
+owner's. A share of an experiment or a publication, a link and a
+listing let everyone else read its setup and outcomes, and nothing
+more; a share of a suite or a baseline lets its grantee read what it
+defines and pins, and run nothing on it.
 
-A baseline is used only by an experiment of the same suite, so a
-baseline share is useful beside a share of its suite. Evidence stays in
+Evidence stays in
 the sharer's Arca space, and granting it is Arca's own act. Removing a
-share stops new references and new reads once any cached allow has
-lapsed (spec 004). An experiment that already pins a version of a
-shared suite or a shared baseline keeps it: reads of the objects it pins
-carry `pinned: true`, and its cells, comparisons and reports keep
-reading what they pinned, so a result stays reproducible.
+share stops new reads once any cached allow has lapsed (spec 004).
+Since an experiment runs only on its owner's suite and names only its
+owner's baseline, removing a share changes nothing an experiment, a
+comparison or a report reads, so every result stays reproducible.
 
 ### Publications and their versions
 
@@ -647,5 +648,5 @@ comparison of spec 008 does within one experiment.
 | A version shows the authorizer's attribution over the request's, and keeps it after the owner is renamed | `publish.TestAttribution` |
 | A version answers `published_by`, the subject of the request that asked for it, on the signed-in and the public reads; it never changes, and the snapshot and digest do not carry it | `publish.TestSignOff` |
 | A benchmark runs on its owner's side alone: an experiment naming another owner's benchmark by its link, its public id or a share is `422 reference_not_found` under the owner policy, and a submission from another owner is `409 submissions_closed` whatever `submissions` holds | `access.TestABenchmarkRunsOnItsOwnersSide`, `publish.TestSubmissions` |
-| After a suite share, the grantee reads the suite's versions and the objects they pin and runs an experiment on it under its own owner and budget, and cannot apply under the name or read the sharer's experiments; after a baseline share, the grantee's comparison is computed against it and no route answers the sharer's trials or measurements; after the share is removed, a new reference is refused and an experiment that pinned the shared version still reads it | `access.TestSuiteAndBaselineShares` |
-| After a suite share, the grantee pins a baseline and applies a bar of its own on the suite; after an experiment share, the grantee reads the experiment, its trials and its comparisons and cannot change, cancel, retry, re-grade, delete, lease, submit to or import into it; after a publication share, the grantee reads its published versions and cannot change or withdraw it, run a benchmark's suite or submit to it | `access.TestExperimentAndPublicationShares` |
+| After a suite share, the grantee reads the suite's versions and the objects they pin, and an experiment, a baseline pin or a bar of its own that names the suite is `422 reference_not_found`; after a baseline share, the grantee reads its records, and a reference or a comparison on request naming it is `422 reference_not_found`; no route answers the sharer's experiments, trials or measurements through either; after the share is removed, the reads stop | `access.TestSuiteAndBaselineShares` |
+| After an experiment share, the grantee reads the experiment, its trials and its comparisons and cannot change, cancel, retry, re-grade, delete, lease, submit to or import into it; after a publication share, the grantee reads its published versions and cannot change or withdraw it, run a benchmark's suite or submit to it | `access.TestExperimentAndPublicationShares` |
