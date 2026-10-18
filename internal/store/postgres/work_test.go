@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/execute"
 	"latere.ai/x/examen/internal/id"
+	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
 	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/store/postgres"
@@ -32,8 +34,14 @@ type world struct {
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
+	return newClockedWorld(t, nil)
+}
+
+// newClockedWorld is a world whose store reads the clock given.
+func newClockedWorld(t *testing.T, now func() time.Time) *world {
+	t.Helper()
 	direct, _ := pgtest.Database(t)
-	st, _, err := postgres.Open(t.Context(), direct, postgres.Options{})
+	st, _, err := postgres.Open(t.Context(), direct, postgres.Options{Now: now})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,4 +546,69 @@ func TestReadsOnAClosedStore(t *testing.T) {
 			t.Errorf("call %d answered on a closed store", i)
 		}
 	}
+}
+
+// Lapsed leases return their trials to pending whole, or not at all; a
+// cell's trials lease smoke first, then retries, then the main rollout's,
+// by index; and a retry of a complete experiment's parked cell reopens it
+// whole.
+func TestLapsesLeasesAndReopensFailWhole(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Now().UTC().Truncate(time.Second)
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	advance := func(d time.Duration) { mu.Lock(); now = now.Add(d); mu.Unlock() }
+	w := newClockedWorld(t, clock)
+	p := w.plan()
+	ctx := t.Context()
+	x := w.st.Experiments()
+	w.eachFault("expire", func() func() error {
+		eid, cells := w.running(p, 2)
+		if _, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells}); err != nil {
+			t.Fatal(err)
+		}
+		advance(limits.ExternalLease + time.Second)
+		return func() error {
+			_, err := x.ExpireLeases(ctx)
+			return err
+		}
+	})
+	// Four trials: once the smoke passes, the main rollout's three lease
+	// by index.
+	eid, cells := w.running(p, 4)
+	l, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := x.Submit(ctx, store.Submission{Trial: l.Trials[0].ID, Lease: l.Lease, Subject: owner, Digest: "d", Outcome: outcome(objects.OutcomeCompleted)}); err != nil {
+		t.Fatal(err)
+	}
+	queued, err := x.Queued(ctx, eid, 10)
+	if err != nil || len(queued) != 1 {
+		t.Fatalf("the main rollout is queued %v %v", queued, err)
+	}
+	if err := x.SubmitRollout(ctx, queued[0].Cell, queued[0].Key); err != nil {
+		t.Fatal(err)
+	}
+	main, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells, Max: 2})
+	if err != nil || len(main.Trials) != 2 || main.Trials[0].Index != 1 || main.Trials[1].Index != 2 {
+		t.Fatalf("main by index %+v %v", main, err)
+	}
+	// A complete experiment with a parked cell reopens at its retry.
+	w.eachFault("reopen", func() func() error {
+		eid, cells := w.running(p, 1)
+		l, err := x.Lease(ctx, store.LeaseRequest{Experiment: eid, Candidate: p.a.Digest, Subject: owner, Cells: cells})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := x.Submit(ctx, store.Submission{Trial: l.Trials[0].ID, Lease: l.Lease, Subject: owner, Digest: "d", Outcome: outcome(objects.OutcomeOverBudget)}); err != nil {
+			t.Fatal(err)
+		}
+		if err := x.Park(ctx, cells[1], objects.StateBlocked, "smoke_infra_failed"); err != nil {
+			t.Fatal(err)
+		}
+		if e, err := x.Get(ctx, eid); err != nil || e.State != objects.StateComplete {
+			t.Fatalf("complete with parked cells %v %v", e.State, err)
+		}
+		return func() error { _, err := x.RetryCell(ctx, cells[1]); return err }
+	})
 }

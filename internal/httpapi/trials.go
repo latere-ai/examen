@@ -679,12 +679,11 @@ type leaseAnswer struct {
 // units: 30m, 2h, 1h30m.
 func duration(d time.Duration) string {
 	s := d.String()
-	s = strings.TrimSuffix(s, "0s")
+	if strings.HasSuffix(s, "m0s") {
+		s = strings.TrimSuffix(s, "0s")
+	}
 	if strings.HasSuffix(s, "h0m") {
 		s = strings.TrimSuffix(s, "0m")
-	}
-	if s == "" {
-		return "0s"
 	}
 	return s
 }
