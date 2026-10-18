@@ -27,8 +27,8 @@ measurement with everything that conditioned it, and compares each
 candidate with a reference, a pinned baseline or another candidate of
 the same experiment: per metric, improved, regressed, or within noise,
 with the confounds named. What it measured can be shared: a report, a
-suite others can run with the results submitted to it, or a dataset,
-each published as immutable versions.
+suite others can read with the results its owner ran on it, or a
+dataset, each published as immutable versions.
 
 Examen is one of a family of open cores, and it is thin on purpose. It
 owns the definitions, the measurements and the analysis, and nothing
@@ -435,6 +435,26 @@ Each decision names the alternative it rejects.
     into a closed list before a study runs, which loses what nobody
     expected; and rewriting stored labels when a taxonomy changes,
     which makes a past comparison irreproducible.
+24. **People create; the owner's side runs; everyone else who can see
+    an experiment reads it.** An experiment, and every object an owner
+    applies, is created by a person under an owner, the person or an
+    organization they belong to, so its `owner` and its `created_by`
+    can differ and both are kept. Only its creator, its owner and the
+    owner's members run it: every action that starts, feeds or changes
+    its execution. A share of an experiment or a publication, a link
+    and a listing let everyone else read its setup and outcomes; a
+    published benchmark runs on its owner's side alone and takes
+    submissions from it alone, with `submissions` kept so that can be
+    reopened. A published version names the person who signed off on
+    publishing it, `published_by`, a subject the installation names.
+    Examen reads no claim, so telling a person from a service and an
+    organization's member from a stranger is the authorizer's (spec
+    004). *Rejected:* a member role of an experiment beside its
+    owner's, which would be a second membership the installation
+    already keeps; shares that run, which would let a reader spend the
+    owner's budget or feed its results; and a name for the publisher
+    stored in Examen, which holds no profile and would keep a name the
+    person changed.
 
 ## Service shape
 

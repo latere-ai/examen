@@ -619,6 +619,9 @@ under `.../tasks/<task hex>/check-files/<grader hex>/`, from which they
 are delivered as the experiment owner's own (spec 007). The copies are
 the runner's: whoever runs a benchmark can read its references and
 checks, which is why a benchmark is open and not held out (spec 013).
+While a benchmark runs on its owner's side alone (spec 013), no
+experiment is run through another owner's benchmark and this branch of
+the job is not taken; it is kept so that decision can be reversed.
 
 | Executor | Inputs | References | Outputs |
 |---|---|---|---|

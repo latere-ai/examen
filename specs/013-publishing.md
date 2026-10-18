@@ -22,9 +22,9 @@ author: changkun
 
 ## Overview
 
-People share what Examen measured so that others can read it, run it
-again or build on it: an experiment's comparisons, a suite others can
-run with the results submitted to it, the trials behind a study. This
+People share what Examen measured so that others can read it or build
+on it: an experiment's comparisons, a suite with the results its owner
+ran on it, the trials behind a study. This
 spec is the one definition of sharing in Examen. It fixes the three
 ways to share, in the words people already meet for anything shared:
 **only people invited**, which is the share
@@ -75,8 +75,14 @@ removed.
 |---|---|---|
 | a suite | read every version of the suite, and every task, metric, grader and taxonomy those versions use; name any version in its own experiments, whose work is then its own, on its own budget; pin baselines and apply bars of its own on the suite | apply a version under the name, share it on, or read the sharer's experiments, candidates, baselines or bars |
 | a baseline | read the baseline's records; name one as its experiment's `reference`, so its comparisons are computed against the sharer's pinned cells | read the sharer's experiment, trials, measurements or evidence: a comparison carries the baseline side's summaries alone (spec 003) |
-| an experiment | read the experiment, its grid, cells, trials, measurements and comparisons | change, cancel, retry, re-grade, delete or share it; evidence bytes are read only as Arca allows |
-| a publication | read every published version through the signed-in routes, whatever its visibility; for a benchmark, run its suite and submit to it as its `submissions` allow | change, withdraw, list or share it, or read a version that never published |
+| an experiment | read the experiment, its grid, cells, trials, measurements and comparisons | change, cancel, retry, re-grade, delete or share it, lease or submit its trials, import into it or close its intake; evidence bytes are read only as Arca allows |
+| a publication | read every published version through the signed-in routes, whatever its visibility | run a benchmark's suite or submit to it, change, withdraw, list or share it, or read a version that never published |
+
+An experiment is run only by its creator, its owner and, for an
+organization, the owner's members (spec 004): every action that starts,
+feeds or changes its execution is theirs. A share of an experiment or a
+publication, a link and a listing let everyone else read its setup and
+outcomes, and nothing more.
 
 A baseline is used only by an experiment of the same suite, so a
 baseline share is useful beside a share of its suite. Evidence stays in
@@ -95,7 +101,7 @@ owner already holds:
 | Kind | A version snapshots | Its `source` |
 |---|---|---|
 | `report` | an experiment's comparisons, read-only: a report's frozen document (spec 010) and its released narrative, with the trial content of its evidence level | a report of the owner's |
-| `benchmark` | a suite version others can see and run, with the results submitted to it | a suite digest of the owner's |
+| `benchmark` | a suite version others can see, with the results its owner's side submitted to it | a suite digest of the owner's |
 | `dataset` | a versioned dataset export (spec 007), with license and citation | a `complete` dataset export of the owner's |
 
 **Publishing** creates the publication with its first version (`POST
@@ -259,9 +265,13 @@ link, Arca's file route for that path under the link
 Examen mints no file link of its own. Its link tokens (Links, below)
 address a publication's snapshots, not files.
 
-A benchmark version holds no link to its owner's inputs. The `prepare`
-job of each experiment run through it mints the links it reads, for
-that run alone: as the benchmark's owner on behalf of the version's
+A benchmark version holds no link to its owner's inputs. While a
+benchmark runs on its owner's side alone (Benchmarks, below), an
+experiment of the owner's reads them in the owner's own space and no
+experiment is run through another owner's benchmark; the links below
+are designed for that run, kept so the decision can be reversed. The
+`prepare` job of each experiment run through it mints the links it
+reads, for that run alone: as the benchmark's owner on behalf of the version's
 `published_by`, one link on each Arca input and reference of the
 suite's tasks and on each check's `files`, each expiring after
 `INPUT_LINK_TTL`, kept in Postgres only while the job runs, revoked
@@ -364,18 +374,26 @@ replica (spec 003).
 A benchmark publishes a suite version for others to run and collects
 the results run on it.
 
-**Running.** Whoever can see a published benchmark may run its suite:
-an experiment names the suite's digest with `benchmark`, the benchmark's
-link token or public id (spec 003), and `suite.use` reaches the
-authorizer with `publication` and `published` (spec 004), which the
-owner policy allows. A benchmark shared with an owner is run the same
-way, with `shared` true. The experiment is the runner's own, on its
-own budget; its `prepare` job reads the benchmark owner's Arca inputs,
-references and check files through links it mints for that run (Arca
-links for published evidence, above), and reads the suite's taxonomies
-as they stand. The runner's experiment then holds the references and
-the checks' files, so a benchmark is open, not held out (The
-snapshot, above).
+**Running.** Members of the benchmark's owner alone run its suite: the
+owner, or for an organization its members, in the owner's context,
+where the suite is the owner's own and an experiment names it as it
+names any suite of its owner's. Everyone else who can see a published
+benchmark, by its link, a listing or a share, reads its definitions
+and its results and runs nothing. An experiment that names the suite's
+digest with `benchmark`, the benchmark's link token or public id (spec
+003), sends `suite.use` with `publication` and `published`, or with
+`shared` for a benchmark shared with its owner (spec 004); the owner
+policy denies it, and an installation's authorizer denies it too, so
+the create is `422 reference_not_found`. The `benchmark` member and
+these fields stay in the contract, so letting others run a benchmark
+again is a change of the authorizer's answer and of this paragraph,
+not of any object or route. Such a run, when allowed, is the runner's
+own, on its own budget; its `prepare` job reads the benchmark owner's
+Arca inputs, references and check files through links it mints for
+that run (Arca links for published evidence, above), and reads the
+suite's taxonomies as they stand. Whoever runs a benchmark then holds
+its references and its checks' files in the experiment, so a benchmark
+is open, not held out (The snapshot, above).
 
 **Submissions**, after v0.1, with the results table and its rank
 intervals below; the design is kept here. A submission (spec 002)
@@ -385,13 +403,21 @@ report's experiment must have run that exact suite digest, and the
 report must be `published`; for an `unlisted` or `public` benchmark
 the report must be `unlisted` or `public` too, so every entry a reader
 sees leads to the report behind it. The benchmark's owner sets
-`submissions`:
+`submissions`, and every value admits the owner's side alone, since
+only the owner's side runs the benchmark (Running, above): a person
+owner, or an organization's members, submitting in its context.
 
 | `submissions` | Who may submit | A new submission is |
 |---|---|---|
 | `owner_only` (the default) | the benchmark's owner | `accepted` |
-| `reviewed` | anyone who can see the benchmark | `pending` until the owner accepts or rejects it; the owner's own is `accepted` |
-| `open` | anyone who can see the benchmark | `accepted` |
+| `reviewed` | the benchmark's owner | `accepted`; a submission from another owner, which this value admitted for review, is refused |
+| `open` | the benchmark's owner | `accepted`; a submission from another owner, which this value admitted, is refused |
+
+A submission whose owner is not the benchmark's owner is `409
+submissions_closed` whatever the setting (spec 003), so the three
+values answer alike. The setting and its values stay, and a listed
+benchmark still holds `reviewed`, so reopening submissions to others
+changes this table and that refusal, and no stored object or route.
 
 The owner may reject an accepted submission later, and the submitter
 may withdraw its own; a withdrawn report version withdraws its
@@ -561,6 +587,19 @@ rendered. A version keeps the name it was published with; a renamed
 owner's next version shows the new one. A benchmark entry shows its
 report version's attribution.
 
+A published version also names the person who signed off on publishing
+it: its `published_by`, the subject of the request that asked for the
+version, `POST /publications` for the first and `POST
+/publications/{id}/versions` for each later one, which is the subject
+the `publish` job acts on behalf of. For an organization's version the
+owner is the organization and `published_by` the member who signed
+off. Examen stores the subject alone, never a name for it, sets it from
+the request and never changes it, and answers it with the version on
+every read, the public reads included (spec 003). An installation names
+the person from the subject on the pages it renders, with the profile
+it keeps; Examen holds none. The snapshot does not carry it, so a
+version's digest is its content's alone.
+
 ### Limits
 
 The constants of spec 002 this spec holds:
@@ -601,10 +640,12 @@ comparison of spec 008 does within one experiment.
 | A public read answers without a bearer, by link token while `unlisted` or `public` and by public id while `public`; it asks `publication.read` with no subject; a denied read and an unknown key answer alike; no answer reaches a live object | `publish.TestPublicReads` |
 | The link token is in no list, log line, span, event or error, and replacing it stops the old one | `publish.TestLinkTokenStaysSecret`, with a canary |
 | A withdrawn version answers `410 publication_withdrawn` and moves the latest to the newest published one; a paused publication answers `410 publication_paused` and leaves the listings | `publish.TestWithdrawAndPause` |
-| A submission needs a published report of the benchmark's exact suite digest, follows `submissions`, and copies its entry and its values at submission and no trial content, whatever the report's evidence level; a report whose experiment was deleted is refused; a withdrawn report withdraws its submissions | `publish.TestSubmissions` |
+| A submission needs a published report of the benchmark's exact suite digest, comes from the benchmark's owner, and copies its entry and its values at submission and no trial content, whatever the report's evidence level; a report whose experiment was deleted is refused; a withdrawn report withdraws its submissions | `publish.TestSubmissions` |
 | The results table orders ranked entries over the common tasks in the primary metric's direction; gives each the rank interval `[1 + B, K - W]` from the pair tests over the common tasks adjusted by Holm's procedure across all K(K − 1) / 2 pairs, an entry between two neighbors that are apart spanning both; lists after the ranked ones, with why and without a rank interval or verdict, the entries with a missing or self-reported primary value and those below `MIN_TRIALS_PER_TASK_IN_SUITE` or `MIN_SUITE_COVERAGE` alone or with the common tasks; marks declared provenance; refuses an acceptance past `MAX_BENCHMARK_ENTRIES` with `409 benchmark_full`; and is recomputed when an entry is accepted, rejected or withdrawn | `publish.TestResultsTableRankIntervals`, over committed entries |
 | Each ranked entry but the reference carries its pair result against the reference entry, its verdict following `h` and its `p` in the reason, with its confounds, `window` included when the two entries' windows lie more than `WINDOW_TOLERANCE` apart and `taxonomy` when their records differ; the reference is the owner's choice, defaults to the owner's first accepted entry, returns to that default when the named entry leaves, and is absent when the owner has none | `publish.TestResultsTableReference` |
 | The compare route and its public twin answer the stored pair result of two accepted entries, the same figures and verdict the reference column shows for that pair, negated when read the other way | `publish.TestResultsPairwise` |
 | A version shows the authorizer's attribution over the request's, and keeps it after the owner is renamed | `publish.TestAttribution` |
+| A version answers `published_by`, the subject of the request that asked for it, on the signed-in and the public reads; it never changes, and the snapshot and digest do not carry it | `publish.TestSignOff` |
+| A benchmark runs on its owner's side alone: an experiment naming another owner's benchmark by its link, its public id or a share is `422 reference_not_found` under the owner policy, and a submission from another owner is `409 submissions_closed` whatever `submissions` holds | `access.TestABenchmarkRunsOnItsOwnersSide`, `publish.TestSubmissions` |
 | After a suite share, the grantee reads the suite's versions and the objects they pin and runs an experiment on it under its own owner and budget, and cannot apply under the name or read the sharer's experiments; after a baseline share, the grantee's comparison is computed against it and no route answers the sharer's trials or measurements; after the share is removed, a new reference is refused and an experiment that pinned the shared version still reads it | `access.TestSuiteAndBaselineShares` |
-| After a suite share, the grantee pins a baseline and applies a bar of its own on the suite; after an experiment share, the grantee reads the experiment, its trials and its comparisons and cannot change, cancel, re-grade or delete it; after a publication share, the grantee reads its published versions and cannot change or withdraw it | `access.TestExperimentAndPublicationShares` |
+| After a suite share, the grantee pins a baseline and applies a bar of its own on the suite; after an experiment share, the grantee reads the experiment, its trials and its comparisons and cannot change, cancel, retry, re-grade, delete, lease, submit to or import into it; after a publication share, the grantee reads its published versions and cannot change or withdraw it, run a benchmark's suite or submit to it | `access.TestExperimentAndPublicationShares` |

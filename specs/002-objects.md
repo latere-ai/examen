@@ -70,7 +70,7 @@ other specs refer to them by name.
 | visibility | who may read a publication: `private`, its owner and the owners it invites; `unlisted`, anyone with its link; `public`, also listed for everyone (spec 013) | |
 | link token | the capability in a publication's link: whoever holds it reads the publication's published versions without signing in, while it is `unlisted` or `public` (spec 013) | an Arca link's token, which addresses files |
 | evidence level | how much trial content a publication version carries: `aggregates`, `outputs` or `full` (spec 013) | |
-| benchmark | a publication of a suite version that others may run, with the results submitted to it; open, not held out: whoever runs it reads its references and checks (spec 013) | a public benchmark's content, imported as ordinary tasks (spec 001) |
+| benchmark | a publication of a suite version that others may read and its owner's side runs, with the results its owner's side submits to it; open, not held out: whoever runs it reads its references and checks (spec 013) | a public benchmark's content, imported as ordinary tasks (spec 001) |
 | submission | one candidate of a report publication version entered in a benchmark's results table (spec 013) | an external trial's submit |
 | event | one entry of an experiment's event log; a sink event is also delivered to the installation's event sink (spec 003) | a telemetry event |
 | key source | what leases the Lux Keys that model judges, `cella` rollouts and narrative drafts call through: `endpoint`, or `lux` after v0.1; an installation without one runs the v0.1 profile (spec 004) | the Keys Topos issues its own sessions |
@@ -116,10 +116,10 @@ Every object has `id`, `owner`, `created_at` and, when mutable,
 `updated_at`. `owner` is the subject that owns it, a person or an
 organization, exactly as the authorizer names it (spec 004). Objects of
 one owner never reference another owner's objects except through a
-share or a published benchmark (spec 013): an experiment may run a
-suite and name a baseline shared with its owner, or run the suite of a
-benchmark published to it; a baseline or a bar may name a suite shared
-with its owner; and a submission names another owner's benchmark.
+share (spec 013): an experiment may run a suite and name a baseline
+shared with its owner, and a baseline or a bar may name a suite shared
+with its owner. A published benchmark runs on its owner's side alone,
+and a submission names a benchmark of its own owner's (spec 013).
 
 A versioned object is immutable once applied: applying changed content
 makes a new version with a new digest under the same `name`. Each
@@ -425,13 +425,13 @@ One execution of a suite against candidates.
 | `candidates` | []candidate digest | at most `MAX_CANDIDATES_PER_EXPERIMENT` |
 | `trials` | int | N per cell, declared before any cell runs; `DEFAULT_TRIALS` when unset, at most `MAX_TRIALS_PER_CELL` |
 | `budget` | object | `{name}`: the Lux Budget every model call of this experiment is metered against, as resolved at create: the Budget the request named, the one an authorizer's `budget` limit assigned, or the one created for the cap the request gave (specs 003 and 004); in the v0.1 profile, without an authorizer's `budget` limit, `{cap_usd_micro}` alone, the spending cap the request gave, which no Lux Budget holds since nothing the profile serves calls a model through Examen (spec 003). Read with `cap_usd_micro`, `spent_usd_micro` and `remaining_usd_micro` beside `name`, computed through the key source when read, at most `BUDGET_STATUS_TTL` old, and never stored |
-| `benchmark` | object | `{publication, version}`: the published benchmark version through which the experiment runs another owner's suite (spec 013); absent otherwise |
+| `benchmark` | object | `{publication, version}`: the published benchmark version through which the experiment runs another owner's suite (spec 013); absent otherwise. No experiment holds one while a benchmark runs on its owner's side alone, since that create is refused; the field is kept so the decision can be reversed |
 | `parallelism` | int | `DEFAULT_PARALLELISM` when unset, at most `MAX_PARALLELISM` |
 | `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset. The reference set before any cell leaves `pending` is the declared one; a reference set later makes exploratory comparisons (spec 008) |
 | `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE`; after v0.1, a later build step (spec 005) |
 | `mode` | enum | `execute` (the default): Examen runs every cell; `import`: Examen runs no trial, and each cell is made from the resolved provenance tuple of the first trial imported into it (below) |
 | `state` | enum | below |
-| `created_by` | subject | the subject that created it (spec 004) |
+| `created_by` | subject | the person who created it (spec 004), which may differ from `owner`: an experiment created in an organization's context is owned by the organization and created by the member. Set at create from the caller, never changed, and answered on every read |
 | `judgments` | []object | one judgment record per grading that belongs to no trial: a candidate-level judge's, with `candidate` set, and a canonicalizer's, with `metric` set; each otherwise as a trial's `judgments` entry (spec 006) |
 | `progress` | object | computed and never written: `{cells: {<state>: n}, trials: {<state>: n}, outcomes: {<outcome>: n}}` |
 | `metadata` | map | at most `METADATA_MAX_PAIRS` |
@@ -736,7 +736,11 @@ Its owner is the bar's owner.
 
 An owner's grant to another owner: the "Only people invited" way of
 sharing, which spec 013 defines with links and listings. Shares are a
-later build step than the console path (spec 003).
+later build step than the console path (spec 003). A share of an
+experiment or a publication grants reading alone: its grantee reads the
+setup and outcomes, and runs, changes and submits nothing. Running an
+experiment stays with its creator, its owner and the owner's members
+(spec 004), and there is no member of an experiment beside them.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -797,7 +801,7 @@ versions, each a snapshot (spec 013).
 | `visibility` | enum | `private` (the default), `unlisted` or `public`; `public` is reached only through a listing (spec 013) |
 | `listing` | object | while `public`: `{listed_at, listed_by}` |
 | `paused` | object | while an administrator holds it paused: `{at, by, reason}` |
-| `submissions` | enum | for `benchmark`: `owner_only` (the default), `reviewed` or `open`; a listed benchmark is `reviewed`, with at most one accepted entry per owner besides its own (spec 013) |
+| `submissions` | enum | for `benchmark`: `owner_only` (the default), `reviewed` or `open`; every value admits submissions from the benchmark's owner alone, so the three answer alike, and the field is kept so submissions can be reopened to others without a change to the object; a listed benchmark is `reviewed`, with at most one accepted entry per owner besides its own (spec 013) |
 | `link` | object | `{token, url}`: the link token, 256 bits from `crypto/rand` in base64url, and the link built on `EXAMEN_PUBLIC_URL`; answered only to a caller the authorizer allows `publication.update`, and never in a list, an event, a log line or an error |
 | `versions` | []object | its publication versions, below, oldest first |
 | `latest` | int | computed: the `number` of its newest version in state `published`; absent when none is |
@@ -824,7 +828,7 @@ own:
 | `results` | object | for a `benchmark`, computed: its results table as last computed, `{method, reference, common, entries, unranked, pairs}`, with `method` holding the test, the adjustment, the levels, the number of pairs, the resamples, the table's `inputs_digest` and `seed`, and `computed_at`; `common` the tasks every ranked entry is compared over, with the share of the suite's weight they hold; and `pairs` every pair result of two accepted entries (spec 008); recomputed when the version's accepted entries or its `reference` change, and never part of the snapshot (spec 013) |
 | `scan` | object | for every version: `{image, findings, scanned_at}`, each finding `{path, rule, line}` and never the text it matched; `path` names the snapshot itself for a finding in its JSON |
 | `error` | object | when `failed`: an error object of spec 003 |
-| `published_by` | subject | the subject that asked for the version |
+| `published_by` | subject | the person who signed off on publishing the version: the subject of the request that asked for it, on whose behalf its `publish` job acts. Set from that request, never changed, answered on every read of the version, the public reads included; no name is stored for it (spec 013) |
 | `published_at`, `withdrawn_at` | time | |
 | `withdrawn_by` | subject | |
 
@@ -838,7 +842,9 @@ publishes a new version (spec 013).
 ## Submission
 
 One candidate of a report publication version entered in a benchmark's
-results table (spec 013). Its owner is the submitter.
+results table (spec 013). Its owner is the submitter's context, which
+is the benchmark's owner: a submission from another owner is refused
+(spec 013).
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -944,4 +950,8 @@ statistics (008), bar evaluation (009), reports (010) and sharing (013).
 - Metadata with more than `METADATA_MAX_PAIRS` pairs, or a key beginning
   `examen.`, is refused on every object that has it.
 - An experiment's N cannot change once any of its cells has started.
+- An experiment's `created_by` is the caller of its create and its
+  `owner` the context the create resolved, the two different for an
+  organization's experiment; both are stored and answered on every
+  read, and neither changes.
 - The decline judge never changes a trial's outcome.

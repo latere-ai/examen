@@ -89,10 +89,42 @@ the caller's subject, so every owner is a person.
 Examen records who acted beside whose an object is: an experiment, a
 dataset export, a baseline record, a taxonomy record, a share, a bar
 evaluation, a publication and a submission carry `created_by`, the
-subject that created it, a publication version `published_by`, and an
-annotation's measurements carry `annotator`.
+subject that created it, a publication version `published_by`, the
+person who signed off on publishing it (spec 013), and an annotation's
+measurements carry `annotator`.
 Unattended work for an experiment acts for its `owner` on behalf of its
 `created_by` (below).
+
+### Who creates and who runs
+
+Objects are created by people. A person, signed in, creates an
+experiment, or applies, pins or imports, under an owner: themselves, or
+an organization they belong to. The owner and the creator can differ:
+an experiment created in an organization's context has the organization
+as its `owner` and the member as its `created_by`, both stored at the
+create, never changed, and answered on every read (spec 002). Examen
+reads no claim, so it cannot tell a person's token from a service's, an
+agent's or a sandbox's, nor whether a person belongs to the
+organization a request names. The authorizer decides both: it is where
+an installation refuses every apply, create, pin and import, and every
+action that runs an experiment, to a token that is not a person's, and
+allows an owner other than the caller only to a member of that owner.
+Under the owner policy the owner is always the caller's subject, and
+the issuers `EXAMEN_OIDC_ISSUERS` lists decide who holds a subject.
+
+Running an experiment is every action that starts, feeds or changes its
+execution: `experiment.create`; `experiment.update`, a change and the
+close of its intake; `cell.retry`; `experiment.cancel`;
+`experiment.import`; `trial.lease`, a lease and its renewal;
+`trial.submit`; `experiment.regrade`; and `experiment.run`, which Examen
+asks before its own unattended work. Only the experiment's creator, its
+owner and, for an organization, the owner's members run it. Everyone
+else who can see it, by a share, a link or a publication, reads its
+setup and outcomes and runs nothing: no allow of an action that runs an
+experiment rests on `shared`, and the owner policy allows each to the
+owner alone. Examen keeps no role of its own for this, no member of an
+experiment beside its owner's, and a share of an experiment or a
+publication stays a grant of reading (spec 013).
 
 ### The vocabulary
 
@@ -179,9 +211,11 @@ from a change and a grant can name each, but they act on the experiment
 and are decided as `experiment.update` is: an authorizer that lets a
 subject change an experiment lets it retry the experiment's cells and
 lease and submit its external trials, and the owner policy allows them
-to the owner. A token whose grants name `trial.lease` and
-`trial.submit` alone is how an owner runs an external harness that can do nothing
-else.
+to the owner. Each runs the experiment (Who creates and who runs,
+above), so a share never allows one. A token whose grants name
+`trial.lease` and `trial.submit` alone is how the owner, or a member of
+an owning organization, runs an external harness that can do nothing
+else; the token is still that person's.
 
 The shared envelope keeps two names for the resource itself:
 `resource.kind`, the kind of the table's first column, and
@@ -426,8 +460,8 @@ and decides itself. The rows, in the order they are tried:
 | any other list action | allow, with a filter that narrows the list to the subject's own |
 | a stored object whose owner is the subject, any action | allow |
 | `submission.review` whose `benchmark_owner` is the subject | allow |
+| `suite.use` with `publication` set | deny, `not_owner`: a benchmark runs on its owner's side alone, whoever can see it by its link, a listing or a share (spec 013) |
 | `suite.read`, `suite.use`, `baseline.read`, `baseline.use` with `shared` true and the subject as context owner | allow |
-| `suite.use` with `published` set | allow: whoever can see a published benchmark may run it |
 | `task.read`, `metric.read`, `grader.read`, `suite.read`, `taxonomy.read` with `shared` or `pinned` true | allow |
 | `experiment.read`, `publication.read` with `shared` true | allow |
 | an apply, create, pin or export that names no owner, or names the subject | allow |
@@ -435,10 +469,13 @@ and decides itself. The rows, in the order they are tried:
 | anything else | deny, `not_owner` |
 
 A subject applies, creates and pins under its own subject only; reads,
-changes, cancels and exports what it owns; annotates its own trials;
-reads and uses what another subject shared with it; publishes
-`private` and `unlisted` items and reviews the submissions to its own
-benchmarks; and runs and submits to a benchmark it reached by its link. Naming another owner
+changes, cancels and exports what it owns, and runs only its own
+experiments; annotates its own trials; reads what another subject
+shared with it, and uses a suite or baseline shared with it in
+experiments of its own; publishes `private` and `unlisted` items and
+reviews the submissions to its own benchmarks; and runs no other
+subject's benchmark and submits to none, whether it reached it by its
+link or a share. Naming another owner
 is denied for every subject, so organizations, annotators who work for
 others, and a service acting for its users need an authorizer. The
 policy has no administrators and names no limit of its own. An allow is
@@ -657,7 +694,9 @@ replacements covered by their own requests (spec 013); or, for the
 benchmark, the `suite.use` that let its create run it: the job asks for
 an `arca` token of the benchmark's owner on behalf of the version's
 `published_by`, with the purpose `publish`, to mint that run's input
-links (spec 005).
+links (spec 005). While a benchmark runs on its owner's side alone
+(spec 013), no create runs another owner's benchmark and this ask is
+never made; the design is kept so that decision can be reversed.
 
 ```json
 POST {EXAMEN_MINTER_URL}
@@ -857,8 +896,17 @@ object's content beyond the fields sent.
 - Under the owner policy, `publication.list` and `publication.pause` are
   denied for every subject, the owner included; `publication.read` with
   no subject is allowed for a key that resolved and denied otherwise;
-  `suite.use` with `published` set is allowed; a deny of
+  `suite.use` through a benchmark, with `publication` set, is denied,
+  whether `published` or `shared` is set; a deny of
   `publication.read` with no subject answers exactly as an unknown key.
+- Under the owner policy, a subject an experiment is shared with reads
+  it, and is denied every action that runs it: `experiment.update`,
+  `cell.retry`, `experiment.cancel`, `experiment.import`, `trial.lease`
+  and `trial.submit`, each answered as the experiment's `404`.
+- An experiment created in a context the authorizer's `owner` limit
+  names records that owner as its `owner` and the caller as its
+  `created_by`, answers both on every read, and its unattended work asks
+  `experiment.run` with that `created_by` as the subject.
 - An allow's `attribution` replaces the name a version's request gave,
   and an empty or overlong one is `503 authorizer_unavailable`; an
   allow's `budget` on a create that gave `budget_cap_usd_micro` becomes
