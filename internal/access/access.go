@@ -27,6 +27,7 @@ import (
 	"net"
 	"net/http"
 	"slices"
+	"time"
 
 	"latere.ai/x/pkg/authz"
 
@@ -43,6 +44,17 @@ type Caller struct {
 	Issuer  string
 	Sub     string
 	Claims  map[string]any
+	// Expires is when the bearer lapses, which a progress stream closes
+	// at; zero when the caller is no bearer's, as for unattended work.
+	Expires time.Time
+}
+
+// Unattended is the caller of a question Examen asks with no caller
+// present: the subject that created the experiment, its issuer and sub
+// apart, and no claims, since Examen holds no token of that subject.
+func Unattended(subject string) Caller {
+	issuer, sub, _ := authz.SplitSubject(subject)
+	return Caller{Subject: subject, Issuer: issuer, Sub: sub, Claims: map[string]any{}}
 }
 
 // Authenticator turns a request's bearer into a caller.

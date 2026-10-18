@@ -134,6 +134,9 @@ func (x experiments) Comparisons(ctx context.Context, f store.ComparisonFilter, 
 			w.add(b.column+" = %s", *b.v)
 		}
 	}
+	if f.SingleVariable != nil {
+		w.add("coalesce((c.computed->>'single_variable')::boolean, false) = %s", *f.SingleVariable)
+	}
 	tail := w.page("c.id", p)
 	rows, err := x.s.pool.Query(ctx, `SELECT `+comparisonColumnsOfC+` FROM comparisons c JOIN experiments e ON e.id = c.experiment`+w.sql()+tail, w.args...)
 	if err != nil {

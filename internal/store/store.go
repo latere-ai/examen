@@ -283,6 +283,7 @@ type ComparisonFilter struct {
 	Automatic          *bool
 	Exploratory        *bool
 	Final              *bool
+	SingleVariable     *bool
 }
 
 // TrialCounts counts one cell's trials by state, by outcome and retried.

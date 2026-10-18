@@ -149,6 +149,8 @@ type Resolved struct {
 	Tasks   map[string]Task   // by digest
 	Metrics map[string]Metric // by digest, the built-ins included
 	Graders map[string]Grader // by digest
+	// TaskIDs are the version ids of the tasks, by digest.
+	TaskIDs map[string]string
 }
 
 // Check holds a suite version to the rules that read what it pins

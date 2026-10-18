@@ -124,5 +124,5 @@ func (v *Verifier) Verify(raw string) (Caller, error) {
 		return Caller{}, &TokenError{Reason: string(jwt.ReasonMalformed), err: err}
 	}
 	issuer := strings.TrimRight(verified.Iss, "/")
-	return Caller{Subject: authz.Subject(issuer, verified.Sub), Issuer: issuer, Sub: verified.Sub, Claims: claims}, nil
+	return Caller{Subject: authz.Subject(issuer, verified.Sub), Issuer: issuer, Sub: verified.Sub, Claims: claims, Expires: verified.Exp}, nil
 }

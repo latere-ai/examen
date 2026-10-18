@@ -243,7 +243,7 @@ func (c *change) settle(ctx context.Context) error {
 // dirty marks the experiment's comparisons that are not final, whose
 // inputs a trial reaching done changed.
 func (c *change) dirty(ctx context.Context) error {
-	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET dirty = true, updated_at = $2 WHERE experiment = $1 AND NOT final`, c.e.ID, c.now); err != nil {
+	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET dirty = true, updated_at = $2 WHERE experiment = $1 AND automatic AND NOT final`, c.e.ID, c.now); err != nil {
 		return fmt.Errorf("postgres: marking comparisons: %w", err)
 	}
 	return nil
