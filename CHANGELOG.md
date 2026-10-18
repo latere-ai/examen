@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.4.0 - 2026-10-18
+
 ### Added
 
 - Pass your installation's handle for a create to its authorizer:
