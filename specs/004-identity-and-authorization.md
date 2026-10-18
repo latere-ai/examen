@@ -399,7 +399,9 @@ An authorizer that knows its people answers `publication.create`, and a
 `publication.update` that publishes a version, with `attribution`: the
 person's profile name or the organization's name, which the version
 shows in place of any the request gave (spec 013). It is at most
-`PUBLICATION_LINE_MAX_BYTES`.
+`PUBLICATION_LINE_MAX_BYTES`. With no name from either, the version
+shows none: the owner's subject is never shown in its place, since no
+public read carries a subject.
 
 The JSON form has every member optional and exactly these keys: `owner`,
 `max_parallelism`, `max_trials`, `max_active_experiments`, `executors`,

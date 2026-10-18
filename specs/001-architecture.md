@@ -449,7 +449,9 @@ Each decision names the alternative it rejects.
     published benchmark runs on its owner's side alone and takes
     submissions from it alone, with `submissions` kept so that can be
     reopened. A published version names the person who signed off on
-    publishing it, `published_by`, a subject the installation names.
+    publishing it, `published_by`, a subject the installation names on
+    its pages after reading it signed in: no public read carries a
+    subject.
     Examen reads no claim, so telling a person from a service and an
     organization's member from a stranger is the authorizer's (spec
     004). *Rejected:* a member role of an experiment beside its

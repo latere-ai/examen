@@ -846,7 +846,7 @@ own:
 | `evidence_level` | enum | `aggregates` (the default), `outputs` or `full`; a benchmark's is `aggregates` |
 | `exclude` | []string | evidence paths the owner left out of this version, relative to the version's folder (spec 013) |
 | `dataset` | object | for `dataset`: `{license, citation}`, an SPDX license identifier or expression, required, and the Citation File Format fields the owner gives (spec 013) |
-| `attribution` | object | `{name}`: the name the version shows for its owner, at most `PUBLICATION_LINE_MAX_BYTES` (spec 013) |
+| `attribution` | object | `{name}`: the name the version shows for its owner, at most `PUBLICATION_LINE_MAX_BYTES`, or `null` when neither the authorizer nor the request names one; never a subject (spec 013) |
 | `state` | enum | `preparing`, `scanning`, `published`, `blocked`, `failed`, `withdrawn` |
 | `snapshot` | object | the snapshot document, format `examen.publication/v1`, set at `published` and never changed (spec 013) |
 | `digest` | string | `sha256:` of the snapshot's canonical JSON |
@@ -856,7 +856,7 @@ own:
 | `results` | object | for a `benchmark`, computed: its results table as last computed, `{method, reference, common, entries, unranked, pairs}`, with `method` holding the test, the adjustment, the levels, the number of pairs, the resamples, the table's `inputs_digest` and `seed`, and `computed_at`; `common` the tasks every ranked entry is compared over, with the share of the suite's weight they hold; and `pairs` every pair result of two accepted entries (spec 008); recomputed when the version's accepted entries or its `reference` change, and never part of the snapshot (spec 013) |
 | `scan` | object | for every version: `{image, findings, scanned_at}`, each finding `{path, rule, line}` and never the text it matched; `path` names the snapshot itself for a finding in its JSON |
 | `error` | object | when `failed`: an error object of spec 003 |
-| `published_by` | subject | the person who signed off on publishing the version: the subject of the request that asked for it, on whose behalf its `publish` job acts. Set from that request, never changed, answered on every read of the version, the public reads included; no name is stored for it (spec 013) |
+| `published_by` | subject | the person who signed off on publishing the version: the subject of the request that asked for it, on whose behalf its `publish` job acts. Set from that request, never changed, answered on the signed-in reads of the version and on no public read; no name is stored for it (spec 013) |
 | `published_at`, `withdrawn_at` | time | |
 | `withdrawn_by` | subject | |
 

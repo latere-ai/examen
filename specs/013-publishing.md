@@ -40,7 +40,8 @@ carries. Evidence is served for download only, through Arca read-only
 links that Examen creates for exactly the published subset and revokes
 when the version is withdrawn. A reader who does not sign in reads a published version
 through the public routes, by its link or its public id, and the
-authorizer is asked about every such read with no subject.
+authorizer is asked about every such read with no subject. No public
+answer names a subject.
 
 The objects are spec 002's (publication, publication version,
 submission, share), the routes and errors spec 003's, the actions spec
@@ -147,7 +148,8 @@ the version's `number` and `evidence_level`, and its `attribution`.
 Then, by kind:
 
 - **A report**: the report's `document` (spec 010) and its released
-  narrative, `null` when none is released; a draft never. At `outputs`
+  narrative without `released_by`, `null` when none is released; a
+  draft never. At `outputs`
   and `full`, `trials`: one entry per finished trial of the report's
   experiment, `{trial, task, candidate, index, outcome, values,
   evidence}`, `values` the trial's current values (spec 007) and, at
@@ -176,6 +178,11 @@ Then, by kind:
   record format, `suites` and `experiments` what the export's records
   came from, and `files` each file of the version's folder with its
   path, digest, size and line count.
+
+No snapshot holds a subject: a report's narrative leaves out who
+released it, a trial's values leave out a measurement's `annotator`,
+and the attribution is a name or `null` (Attribution, below), so a
+snapshot can be answered to a reader who did not sign in.
 
 ### Evidence levels
 
@@ -369,6 +376,18 @@ nothing and a denied read answer the same `404 publication_not_found`,
 byte for byte, and no answer or log line carries the key. Reads are
 rate limited per client address at `PUBLIC_REQUESTS_PER_MINUTE` per
 replica (spec 003).
+
+**No subject on a public read.** A public answer names no subject,
+anywhere in its body: not a version's `published_by` or
+`withdrawn_by`, not the `owner` or `created_by` of the publication or
+of a submission, and none inside the snapshot (The snapshot, above). A
+subject is an account's identifier at its issuer: a reader who did not
+sign in has no use for it, and it would tie together every publication
+of one person, whatever name each one shows. The signed-in reads of spec 003 answer these fields to a
+caller the authorizer allows `publication.read`. A page that shows who
+signed off reads `published_by` there, with a token of its own, and
+shows the name it resolves for it, never the subject (Attribution,
+below).
 
 ### Benchmarks
 
@@ -583,8 +602,10 @@ snapshot. Examen holds no profile, so the name comes from the
 authorizer's `attribution` limit on `publication.create`, or on a
 `publication.update` that publishes a version (spec 004); an
 authorizer's name replaces any the request gave. Without it, the
-request's `attribution` is used, and without that, the owner as
-rendered. A version keeps the name it was published with; a renamed
+request's `attribution` is used, and without that, the version names
+no owner: its `attribution` is `null`. The owner as rendered is never
+the fallback, since for a person it is a subject, which no public read
+carries. A version keeps the name it was published with; a renamed
 owner's next version shows the new one. A benchmark entry shows its
 report version's attribution.
 
@@ -596,10 +617,14 @@ the `publish` job acts on behalf of. For an organization's version the
 owner is the organization and `published_by` the member who signed
 off. Examen stores the subject alone, never a name for it, sets it from
 the request and never changes it, and answers it with the version on
-every read, the public reads included (spec 003). An installation names
-the person from the subject on the pages it renders, with the profile
-it keeps; Examen holds none. The snapshot does not carry it, so a
-version's digest is its content's alone.
+the signed-in reads, to a caller allowed `publication.read`, and on no
+public read (Reading without signing in, above). An installation that
+names the person on a page it renders, public or not, reads the version
+signed in, with its own token or one its minter issues as the owner,
+and names the person from the subject with the profile it keeps;
+Examen holds none. The page shows that name, never the subject. The
+snapshot does not carry it, so a version's digest is its content's
+alone.
 
 ### Limits
 
@@ -615,7 +640,8 @@ The constants of spec 002 this spec holds:
 The objects and their fields (002), the routes, their answers and
 errors (003), the actions, the owner policy and the attribution limit
 (004). Rendering pages, share images and a share dialog: a console or
-an installation renders them from the public reads. Reviewing a
+an installation renders them from the public reads, and names who
+signed off from a signed-in read. Reviewing a
 listing, which the installation does. A DOI for a dataset. A bare
 ranking: the results table reports rank intervals adjusted across the
 table, and the statistics behind them are spec 008's. Held-out grading
@@ -639,14 +665,15 @@ comparison of spec 008 does within one experiment.
 | A benchmark version holds no input link; an experiment run through it copies the owner's Arca inputs, references and check files through links its `prepare` job mints for that run, which expire after `INPUT_LINK_TTL`, are revoked at the job's end and are in no answer | `publish.TestBenchmarkInputLinks` |
 | No request sets `public`; `publication.list` is asked for a listing and its end; under the owner policy nothing is listed or paused; a benchmark is listed only `reviewed` with one accepted entry per owner besides its own | `publish.TestPublicOnlyThroughAListing`, `publish.TestListedBenchmarkIsReviewed` |
 | A public read answers without a bearer, by link token while `unlisted` or `public` and by public id while `public`; it asks `publication.read` with no subject; a denied read and an unknown key answer alike; no answer reaches a live object | `publish.TestPublicReads` |
+| No public answer carries a subject: with one canary subject as the publication's owner and creator, the version's `published_by`, the report narrative's `released_by`, an annotator of a measurement in the snapshot and a submitter of a benchmark entry, the body of every public route's answer, the snapshot, the version list, the results table, the pair result, the listings and every error, holds the canary nowhere, as a whole string or as its `sub` part | `publish.TestPublicReadsCarryNoSubject`, with a canary |
 | The link token is in no list, log line, span, event or error, and replacing it stops the old one | `publish.TestLinkTokenStaysSecret`, with a canary |
 | A withdrawn version answers `410 publication_withdrawn` and moves the latest to the newest published one; a paused publication answers `410 publication_paused` and leaves the listings | `publish.TestWithdrawAndPause` |
 | A submission needs a published report of the benchmark's exact suite digest, comes from the benchmark's owner, and copies its entry and its values at submission and no trial content, whatever the report's evidence level; a report whose experiment was deleted is refused; a withdrawn report withdraws its submissions | `publish.TestSubmissions` |
 | The results table orders ranked entries over the common tasks in the primary metric's direction; gives each the rank interval `[1 + B, K - W]` from the pair tests over the common tasks adjusted by Holm's procedure across all K(K − 1) / 2 pairs, an entry between two neighbors that are apart spanning both; lists after the ranked ones, with why and without a rank interval or verdict, the entries with a missing or self-reported primary value and those below `MIN_TRIALS_PER_TASK_IN_SUITE` or `MIN_SUITE_COVERAGE` alone or with the common tasks; marks declared provenance; refuses an acceptance past `MAX_BENCHMARK_ENTRIES` with `409 benchmark_full`; and is recomputed when an entry is accepted, rejected or withdrawn | `publish.TestResultsTableRankIntervals`, over committed entries |
 | Each ranked entry but the reference carries its pair result against the reference entry, its verdict following `h` and its `p` in the reason, with its confounds, `window` included when the two entries' windows lie more than `WINDOW_TOLERANCE` apart and `taxonomy` when their records differ; the reference is the owner's choice, defaults to the owner's first accepted entry, returns to that default when the named entry leaves, and is absent when the owner has none | `publish.TestResultsTableReference` |
 | The compare route and its public twin answer the stored pair result of two accepted entries, the same figures and verdict the reference column shows for that pair, negated when read the other way | `publish.TestResultsPairwise` |
-| A version shows the authorizer's attribution over the request's, and keeps it after the owner is renamed | `publish.TestAttribution` |
-| A version answers `published_by`, the subject of the request that asked for it, on the signed-in and the public reads; it never changes, and the snapshot and digest do not carry it | `publish.TestSignOff` |
+| A version shows the authorizer's attribution over the request's, and keeps it after the owner is renamed; with neither, its `attribution` is `null`, never the owner's subject | `publish.TestAttribution` |
+| A version answers `published_by`, the subject of the request that asked for it, on the signed-in reads and on no public read; it never changes, and the snapshot and digest do not carry it | `publish.TestSignOff` |
 | A benchmark runs on its owner's side alone: an experiment naming another owner's benchmark by its link, its public id or a share is `422 reference_not_found` under the owner policy, and a submission from another owner is `409 submissions_closed` whatever `submissions` holds | `access.TestABenchmarkRunsOnItsOwnersSide`, `publish.TestSubmissions` |
 | After a suite share, the grantee reads the suite's versions and the objects they pin, and an experiment, a baseline pin or a bar of its own that names the suite is `422 reference_not_found`; after a baseline share, the grantee reads its records, and a reference or a comparison on request naming it is `422 reference_not_found`; no route answers the sharer's experiments, trials or measurements through either; after the share is removed, the reads stop | `access.TestSuiteAndBaselineShares` |
 | After an experiment share, the grantee reads the experiment, its trials and its comparisons and cannot change, cancel, retry, re-grade, delete, lease, submit to or import into it; after a publication share, the grantee reads its published versions and cannot change or withdraw it, run a benchmark's suite or submit to it | `access.TestExperimentAndPublicationShares` |
