@@ -239,3 +239,31 @@ func InputsDocument(in Input) ([]byte, string, error) {
 	digest, err := id.DigestJSON(canon)
 	return canon, digest, err
 }
+
+// MeasurementsRead are the ids of the measurements a comparison of the
+// input reads, sorted and each once: the trial-level values of both sides'
+// inputs documents and each side's candidate-level values. They are what
+// comparison_inputs records (spec 007), from which the inputs document is
+// rebuilt.
+func MeasurementsRead(in Input) ([]string, error) {
+	c, err := newComputer(in)
+	if err != nil {
+		return nil, err
+	}
+	doc := c.inputsDocument()
+	var out []string
+	for _, side := range []docSide{doc.Candidate, doc.Reference} {
+		for _, task := range side.Tasks {
+			for _, t := range task.Trials {
+				for _, m := range t.Measurements {
+					out = append(out, m.ID)
+				}
+			}
+		}
+		for _, m := range side.Values {
+			out = append(out, m.ID)
+		}
+	}
+	slices.Sort(out)
+	return slices.Compact(out), nil
+}

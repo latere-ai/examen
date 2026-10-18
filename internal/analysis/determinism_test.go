@@ -305,3 +305,28 @@ func TestStudentizedLevel(t *testing.T) {
 		t.Errorf("the bare differences reject %.3f and %.3f", rate("bare mean"), rate("bare median"))
 	}
 }
+
+// The measurements a comparison reads are the ids its inputs document
+// holds, sorted and each once: a value of another grader and a trial left
+// out of analysis are not read.
+func TestMeasurementsRead(t *testing.T) {
+	m := binaryMetric("tests_pass", HigherIsBetter)
+	in := pairInput(m, map[string][]any{"a": bools(2, 3)}, map[string][]any{"a": bools(1, 2)})
+	// A value of a grader that does not produce the metric, and a value of
+	// an infrastructure failure, are not read.
+	c := &in.Candidate.Cells[0]
+	c.Trials[0].Measurements = append(c.Trials[0].Measurements, Measurement{ID: "msr-other", Metric: m.Digest, Grader: "sha256:other", Generation: 1, Value: true})
+	c.Trials = append(c.Trials, Trial{ID: "c-a-failed", Outcome: OutcomeInfraFailed, StartedAt: epoch, EndedAt: epoch,
+		Measurements: []Measurement{{ID: "msr-failed", Metric: m.Digest, Grader: grader, Generation: 1, Value: true}}})
+	got, err := MeasurementsRead(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"msr-c-a-000-tests_pass", "msr-c-a-001-tests_pass", "msr-c-a-002-tests_pass", "msr-r-a-000-tests_pass", "msr-r-a-001-tests_pass"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("read %v, want %v", got, want)
+	}
+	if _, err := MeasurementsRead(Input{Parameters: Parameters{}}); err == nil {
+		t.Error("an input of invalid parameters was read")
+	}
+}
