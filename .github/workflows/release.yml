@@ -12,10 +12,12 @@
 # fork's tag publishes under the fork's. Every third-party action is pinned
 # by commit with its version in a comment.
 #
-# The repository is private, so every job runs on the organization's
-# self-hosted runner. It carries Docker, git, jq and curl and nothing else:
-# the jobs that call the GitHub CLI fetch a pinned release of it first, and
-# setup-go restores no cache over the module cache the runner keeps.
+# Every job runs where the organization's runner policy says (latere-ai/ci,
+# README, Runners): for this private repository the self-hosted runner, or a
+# hosted one while it is offline. The self-hosted runner carries Docker, git,
+# jq and curl and nothing else: the jobs that call the GitHub CLI fetch a
+# pinned release of it first, and setup-go restores no cache over the module
+# cache the runner keeps.
 name: release
 
 on:
@@ -40,7 +42,7 @@ jobs:
   # the tag's own push starts is not the one read.
   gate-green:
     name: the tag's commit passed verify
-    runs-on: linux-vm
+    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -93,7 +95,7 @@ jobs:
   build:
     name: the image by digest
     needs: gate-green
-    runs-on: linux-vm
+    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
     timeout-minutes: 60
     permissions:
       contents: read
@@ -223,7 +225,7 @@ jobs:
   publish:
     name: tag the digest
     needs: build
-    runs-on: linux-vm
+    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -252,10 +254,6 @@ jobs:
     permissions:
       contents: write
     uses: latere-ai/ci/.github/workflows/notes-release.yml@v1
-    # A hosted runner: the shared notes job calls gh, which the self-hosted
-    # runner does not carry, and the job is a few seconds of API calls.
-    with:
-      runs_on: ubuntu-latest
     secrets: inherit
 
   # 5. What the release carries beside its notes: the bill of materials,
@@ -264,7 +262,7 @@ jobs:
   assets:
     name: attach the bill of materials
     needs: [build, release]
-    runs-on: linux-vm
+    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: write
