@@ -99,6 +99,7 @@ func TestErrorsNameTheVariableOnly(t *testing.T) {
 		{"arca", "EXAMEN_ARCA_URL", marker},
 		{"arca's public address", "EXAMEN_ARCA_PUBLIC_URL", marker},
 		{"origo", "EXAMEN_ORIGO_URL", marker},
+		{"the file store declaration", "EXAMEN_FILESTORE_DOWNLOAD_ONLY", marker},
 		{"an audience", "EXAMEN_TOPOS_AUDIENCE", "two " + marker},
 		{"another audience", "EXAMEN_ARCA_AUDIENCE", "a," + marker},
 		{"the workers", "EXAMEN_WORKERS", marker},
@@ -158,29 +159,30 @@ func TestEveryVariableIsRead(t *testing.T) {
 	keysToken := file(t, "keys", " keys-bearer ")
 	secrets := file(t, "events", "one,two")
 	e := env{
-		"EXAMEN_ADDR":                  "127.0.0.1:9000",
-		"EXAMEN_BASE_PATH":             "/api/",
-		"EXAMEN_PUBLIC_URL":            "https://examen.example.com/prefix/",
-		"EXAMEN_TRUSTED_PROXIES":       "10.1.2.3/8, fd00::/8",
-		"EXAMEN_LOG_LEVEL":             "debug",
-		"EXAMEN_DATABASE_URL":          "postgres://examen@db.example.com/examen",
-		"EXAMEN_DATABASE_POOL_URL":     "postgresql://examen@pool.example.com/examen",
-		"EXAMEN_OIDC_ISSUERS":          "https://a.example.com/, https://b.example.com",
-		"EXAMEN_OIDC_AUDIENCE":         "examen, api.example.com",
-		"EXAMEN_AUTHORIZER_URL":        "https://authorizer.example.com/decide",
-		"EXAMEN_AUTHORIZER_TOKEN_FILE": authorizerToken,
-		"EXAMEN_MINTER_URL":            "http://127.0.0.1:7000/",
-		"EXAMEN_MINTER_TOKEN_FILE":     minterToken,
-		"EXAMEN_KEYS_URL":              "http://localhost:7001",
-		"EXAMEN_KEYS_TOKEN_FILE":       keysToken,
-		"EXAMEN_TOPOS_URL":             "https://topos.example.com",
-		"EXAMEN_CELLA_URL":             "https://cella.example.com",
-		"EXAMEN_CELLA_ENVIRONMENT":     "env-queued",
-		"EXAMEN_LUX_URL":               "https://lux.example.com",
-		"EXAMEN_ARCA_URL":              "http://[::1]:7002",
-		"EXAMEN_ARCA_PUBLIC_URL":       "https://files.example.com",
-		"EXAMEN_ORIGO_URL":             "https://origo.example.com",
-		"EXAMEN_TOPOS_AUDIENCE":        "t", "EXAMEN_CELLA_AUDIENCE": "c", "EXAMEN_LUX_AUDIENCE": "l",
+		"EXAMEN_ADDR":                    "127.0.0.1:9000",
+		"EXAMEN_BASE_PATH":               "/api/",
+		"EXAMEN_PUBLIC_URL":              "https://examen.example.com/prefix/",
+		"EXAMEN_TRUSTED_PROXIES":         "10.1.2.3/8, fd00::/8",
+		"EXAMEN_LOG_LEVEL":               "debug",
+		"EXAMEN_DATABASE_URL":            "postgres://examen@db.example.com/examen",
+		"EXAMEN_DATABASE_POOL_URL":       "postgresql://examen@pool.example.com/examen",
+		"EXAMEN_OIDC_ISSUERS":            "https://a.example.com/, https://b.example.com",
+		"EXAMEN_OIDC_AUDIENCE":           "examen, api.example.com",
+		"EXAMEN_AUTHORIZER_URL":          "https://authorizer.example.com/decide",
+		"EXAMEN_AUTHORIZER_TOKEN_FILE":   authorizerToken,
+		"EXAMEN_MINTER_URL":              "http://127.0.0.1:7000/",
+		"EXAMEN_MINTER_TOKEN_FILE":       minterToken,
+		"EXAMEN_KEYS_URL":                "http://localhost:7001",
+		"EXAMEN_KEYS_TOKEN_FILE":         keysToken,
+		"EXAMEN_TOPOS_URL":               "https://topos.example.com",
+		"EXAMEN_CELLA_URL":               "https://cella.example.com",
+		"EXAMEN_CELLA_ENVIRONMENT":       "env-queued",
+		"EXAMEN_LUX_URL":                 "https://lux.example.com",
+		"EXAMEN_ARCA_URL":                "http://[::1]:7002",
+		"EXAMEN_ARCA_PUBLIC_URL":         "https://files.example.com",
+		"EXAMEN_FILESTORE_DOWNLOAD_ONLY": "true",
+		"EXAMEN_ORIGO_URL":               "https://origo.example.com",
+		"EXAMEN_TOPOS_AUDIENCE":          "t", "EXAMEN_CELLA_AUDIENCE": "c", "EXAMEN_LUX_AUDIENCE": "l",
 		"EXAMEN_ARCA_AUDIENCE": "a", "EXAMEN_ORIGO_AUDIENCE": "o",
 		"EXAMEN_WORKERS":            "3",
 		"EXAMEN_EVENTS_URL":         "https://sink.example.com/events",
@@ -209,7 +211,7 @@ func TestEveryVariableIsRead(t *testing.T) {
 		t.Errorf("sources: %q %q %q", s.MinterURL, s.TokenSource(), s.KeySource())
 	case !slices.Equal(s.Cores(), []string{"topos", "cella", "lux", "arca", "origo"}):
 		t.Errorf("cores %v", s.Cores())
-	case s.CellaEnvironment != "env-queued" || s.ArcaPublicURL != "https://files.example.com":
+	case s.CellaEnvironment != "env-queued" || s.ArcaPublicURL != "https://files.example.com" || !s.FileStoreDownloadOnly:
 		t.Errorf("cella and arca: %q %q", s.CellaEnvironment, s.ArcaPublicURL)
 	case s.ToposAudience != "t" || s.CellaAudience != "c" || s.LuxAudience != "l" || s.ArcaAudience != "a" || s.OrigoAudience != "o":
 		t.Errorf("core audiences %+v", s)
@@ -227,7 +229,7 @@ func TestEveryVariableIsRead(t *testing.T) {
 	if s, err = FromEnv(owner.get); err != nil {
 		t.Fatal(err)
 	}
-	if s.TokenSource() != TokenSourceFiles || s.ArcaPublicURL != "https://arca.example.com" || s.BasePath != "" || s.LogLevel != slog.LevelWarn {
+	if s.TokenSource() != TokenSourceFiles || s.ArcaPublicURL != "https://arca.example.com" || s.BasePath != "" || s.LogLevel != slog.LevelWarn || s.FileStoreDownloadOnly {
 		t.Errorf("sole owner: %q %q %q %v", s.TokenSource(), s.ArcaPublicURL, s.BasePath, s.LogLevel)
 	}
 	owner["EXAMEN_LOG_LEVEL"] = "error"

@@ -115,7 +115,11 @@ type Settings struct {
 	ArcaURL          string // EXAMEN_ARCA_URL
 	// ArcaPublicURL is where readers reach Arca; ArcaURL when unset.
 	ArcaPublicURL string // EXAMEN_ARCA_PUBLIC_URL
-	OrigoURL      string // EXAMEN_ORIGO_URL
+	// FileStoreDownloadOnly is the installation's declaration that every
+	// link read of its file store answers as a download that no browser
+	// renders; without it, no publication version carries files.
+	FileStoreDownloadOnly bool   // EXAMEN_FILESTORE_DOWNLOAD_ONLY
+	OrigoURL              string // EXAMEN_ORIGO_URL
 
 	// The audiences an owner token for each core is asked for.
 	ToposAudience string // EXAMEN_TOPOS_AUDIENCE
@@ -248,6 +252,7 @@ func FromEnv(getenv func(string) string) (Settings, error) {
 	if s.ArcaPublicURL == "" {
 		s.ArcaPublicURL = s.ArcaURL
 	}
+	s.FileStoreDownloadOnly = r.flag("EXAMEN_FILESTORE_DOWNLOAD_ONLY")
 	s.OrigoURL = r.endpoint("EXAMEN_ORIGO_URL")
 	r.name("EXAMEN_TOPOS_AUDIENCE", &s.ToposAudience)
 	r.name("EXAMEN_CELLA_AUDIENCE", &s.CellaAudience)
@@ -485,6 +490,18 @@ func (r *reader) count(name string, into *int) {
 		return
 	}
 	*into = n
+}
+
+// flag reads true or false; unset is false.
+func (r *reader) flag(name string) bool {
+	switch r.text(name) {
+	case "", "false":
+		return false
+	case "true":
+		return true
+	}
+	r.fail(name, "is not true or false")
+	return false
 }
 
 // name reads a value that may hold no space or comma, such as an audience.

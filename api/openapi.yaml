@@ -212,6 +212,9 @@ components:
             - submissions_closed
             - report_not_shared
             - submission_decided
+            - benchmark_full
+            - benchmark_not_reviewed
+            - owner_has_entry
             - idempotency_key_reused
             - request_in_progress
             - precondition_failed
@@ -229,6 +232,8 @@ components:
             - budget_refused
             - core_not_configured
             - image_not_admitted
+            - credential_audience_reserved
+            - file_store_not_download_only
             - instruction_required
             - unresolved_reference
             - too_many_streams
