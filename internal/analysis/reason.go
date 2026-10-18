@@ -6,6 +6,7 @@ package analysis
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -180,6 +181,79 @@ func reasonFloor(what string, m int, alone bool, level float64) string {
 		return "with " + what + ", no difference can be shown at " + percent(level)
 	}
 	return "with " + what + ", no difference can be shown among " + count(m) + " results"
+}
+
+// reasonIndependence is the reason of an experiment's test of
+// independence, tested alone.
+func reasonIndependence(p float64) string {
+	return pValue("p", p) + " for the experiment's declared test of independence, tested alone without correction"
+}
+
+// reasonNoCandidateDifference is the reason of a test of independence
+// whose statistic is 0.
+const reasonNoCandidateDifference = "no difference between the candidates"
+
+// reasonIndependenceCoverage is the reason of a test of independence below
+// MIN_SUITE_COVERAGE, naming each task left out.
+func reasonIndependenceCoverage(coverage, need float64, left []IndependenceLeftOut) string {
+	s := fmt.Sprintf("covers %s of the suite's weight; %s needed", percent(coverage), percent(need))
+	if len(left) == 0 {
+		return s
+	}
+	parts := make([]string, len(left))
+	for i, l := range left {
+		switch l.Why {
+		case LeftOutUnpaired:
+			parts[i] = l.Task + " (not run by every candidate)"
+		default:
+			parts[i] = fmt.Sprintf("%s (%s)", l.Task, trials(slices.Min(l.Counts)))
+		}
+	}
+	return s + "; left out: " + strings.Join(parts, ", ")
+}
+
+// candidateSizes writes the tasks of a test of independence's power-floor
+// reason: "4 tasks of 5 trials per candidate", or "4 tasks of 3 to 5
+// trials per candidate".
+func candidateSizes(tasks, lo, hi int) string {
+	t := count(tasks) + " tasks"
+	if tasks == 1 {
+		t = "1 task"
+	}
+	if lo == hi {
+		return t + " of " + trials(lo) + " per candidate"
+	}
+	return fmt.Sprintf("%s of %s to %s trials per candidate", t, count(lo), count(hi))
+}
+
+// independenceSuffix is what a test of independence's reason adds for its
+// confounds: the trials without a value, the trials left out of analysis,
+// and an uncalibrated judge.
+func independenceSuffix(cs []IndependenceConfound) string {
+	var out strings.Builder
+	for _, c := range cs {
+		n := 0
+		for _, v := range c.Counts {
+			n += v
+		}
+		switch c.Name {
+		case confoundMissing:
+			if n == 1 {
+				out.WriteString("; 1 trial has no value")
+			} else {
+				out.WriteString("; " + count(n) + " trials have no value")
+			}
+		case confoundIncomplete:
+			verb := "were"
+			if n == 1 {
+				verb = "was"
+			}
+			out.WriteString("; " + trials(n) + " " + verb + " left out: failed to run, canceled or over budget")
+		case confoundUncalibrated:
+			out.WriteString(suffixUncalibrated)
+		}
+	}
+	return out.String()
 }
 
 // reasonFloorPairs is the power-floor reason of a benchmark's pair result.

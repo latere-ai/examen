@@ -349,7 +349,7 @@ func (c *computer) computeSuite(pl *plan) {
 
 // suiteLabelDelta fills a suite-level label result: per label, the
 // difference of the weighted proportions with Agresti and Caffo's
-// interval, and the stratified permutation of the label distance.
+// interval, and the stratified label test of the two sides.
 func (c *computer) suiteLabelDelta(pl *plan, x, y []sideTask, order []string) {
 	m := pl.metric
 	k := len(order)
@@ -400,8 +400,15 @@ func (c *computer) suiteLabelDelta(pl *plan, x, y []sideTask, order []string) {
 	if pl.descriptive {
 		return
 	}
-	r := stratifiedTest(stratify(x, y), labelDistance(k), c.p.PermutationExactMax, c.mc(pl))
-	pl.setTest(methodStratified, statLabelDistance, r, true)
+	tasks := make([][][]float64, len(x))
+	for i := range x {
+		tasks[i] = [][]float64{x[i].vals, y[i].vals}
+	}
+	// No difference is every included task's two sides holding the same
+	// proportions, which a zero weighted difference does not show.
+	pl.zero = stratifiedX2(tasks, k) == 0
+	r, _ := stratifiedLabelTest(tasks, k, c.p.PermutationExactMax, c.mc(pl))
+	pl.setTest(methodStratified, statPearsonX2Sum, r, true)
 	pl.stratFloor(r, x, y)
 }
 
@@ -637,27 +644,22 @@ func (c *computer) decide(pl *plan) {
 
 // verdict is spec 008's rule for a tested result: changed or within_noise
 // for a metric without a direction; improved, regressed or within_noise by
-// the sign of the delta otherwise; a zero delta is always within_noise.
+// the sign of the delta otherwise; a zero delta is within_noise, but for a
+// label result, which is changed whenever q allows it.
 func verdict(d Direction, q, fdr float64, delta *Delta) Verdict {
-	if delta == nil || q > fdr {
-		return WithinNoise
-	}
-	sign := 0.0
-	if delta.PerLabel != nil {
-		for _, v := range delta.PerLabel {
-			if v != 0 {
-				sign = 1
-			}
-		}
-	} else {
-		sign = delta.Value
-	}
 	switch {
-	case sign == 0:
+	case delta == nil || q > fdr:
 		return WithinNoise
-	case d == NoDirection || delta.PerLabel != nil:
+	case delta.PerLabel != nil:
+		// A label result's test reads each task's table, so it can find
+		// sides that differ on every task while their weighted per-label
+		// differences are all zero.
 		return Changed
-	case (sign > 0) == (d == HigherIsBetter):
+	case delta.Value == 0:
+		return WithinNoise
+	case d == NoDirection:
+		return Changed
+	case (delta.Value > 0) == (d == HigherIsBetter):
 		return Improved
 	}
 	return Regressed

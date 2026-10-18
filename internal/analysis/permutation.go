@@ -12,13 +12,13 @@ import (
 
 // The statistics a test orders by, as a result's `statistic` names them.
 const (
-	statFisherP       = "fisher_p"
-	statWelchT        = "welch_t"
-	statStudentizedQ  = "studentized_quantile"
-	statDifference    = "difference"
-	statTableProb     = "table_probability"
-	statPearsonX2     = "pearson_x2"
-	statLabelDistance = "label_distance"
+	statFisherP      = "fisher_p"
+	statWelchT       = "welch_t"
+	statStudentizedQ = "studentized_quantile"
+	statDifference   = "difference"
+	statTableProb    = "table_probability"
+	statPearsonX2    = "pearson_x2"
+	statPearsonX2Sum = "pearson_x2_sum"
 )
 
 // The tests, as a result's `method` names them.

@@ -70,7 +70,7 @@ func golden() Input {
 // The golden comparison's canonical bytes, held to their SHA-256: the same
 // on amd64 and arm64, which `GOARCH=amd64 go test` checks on an arm64
 // machine.
-const goldenDigest = "2186c0886bede1a7b0fe41d453ed6cde40aa9a63058e1f9d415e8c60ab0abb0f"
+const goldenDigest = "6fdab02e0f9d4dc665a065685449b3b7f0813f432a49cf9ceed23841b6719845"
 
 // goldenOnce computes the golden comparison at the defaults once for the
 // tests that read it: it is the costliest comparison of the suite, and the
@@ -115,7 +115,7 @@ func readsEveryKind(t *testing.T, c Comparison) {
 		methodPerm + "/" + statWelchTfalse,
 		methodPerm + "/" + statStudentizedQ + "false",
 		methodPerm + "/" + statDifference + "false",
-		methodStratified + "/" + statLabelDistance + "false",
+		methodStratified + "/" + statPearsonX2Sum + "false",
 	} {
 		if !kinds[k] {
 			t.Errorf("the golden comparison runs no %s: %v", k, kinds)

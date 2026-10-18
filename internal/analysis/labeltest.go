@@ -4,7 +4,9 @@
 package analysis
 
 import (
+	"fmt"
 	"math"
+	"slices"
 
 	"latere.ai/x/examen/internal/analysis/mathx"
 )
@@ -145,24 +147,232 @@ func weightedProportions(w []float64, sides [][]float64, k int) []float64 {
 	return out
 }
 
-// labelDistance is the statistic `label_distance` of a suite-level label
-// result: D = Σ_l (S_x(l) - S_y(l))²/P(l), P(l) = (S_x(l) + S_y(l))/2, over
-// labels with P(l) above 0.
-func labelDistance(k int) stratStatistic {
-	return func(w []float64, xs, ys [][]float64) float64 {
-		sx := weightedProportions(w, xs, k)
-		sy := weightedProportions(w, ys, k)
-		d := 0.0
-		for l := range k {
-			p := (sx[l] + sy[l]) / 2
-			if p == 0 {
+// x2Scratch holds the counts one task's X² is computed from, so a
+// permutation test draws without allocating.
+type x2Scratch struct {
+	counts [][]int
+	cols   []int
+}
+
+func newX2Scratch(sides, k int) *x2Scratch {
+	s := &x2Scratch{counts: make([][]int, sides), cols: make([]int, k)}
+	for i := range s.counts {
+		s.counts[i] = make([]int, k)
+	}
+	return s
+}
+
+// labelX2 is Pearson's X² of one task's K by k table of label counts, the
+// sides' labels written as whole numbers 0 … k-1:
+//
+//	X² = Σ_s Σ_l (O_sl - E_sl)²/E_sl,  E_sl = n_s·c_l/N
+//
+// over the labels with a count on any side, summed side by side and,
+// within a side, label by label, each squared difference rounded before
+// its division.
+func labelX2(sides [][]float64, sc *x2Scratch) float64 {
+	clear(sc.cols)
+	n := 0
+	for s, vs := range sides {
+		row := sc.counts[s]
+		clear(row)
+		for _, v := range vs {
+			row[int(v)]++
+			sc.cols[int(v)]++
+		}
+		n += len(vs)
+	}
+	x := 0.0
+	for s, vs := range sides {
+		for l, c := range sc.cols {
+			if c == 0 {
 				continue
 			}
-			diff := sx[l] - sy[l]
-			d += float64(diff*diff) / p
+			e := float64(len(vs)*c) / float64(n)
+			d := float64(sc.counts[s][l]) - e
+			x += float64(d*d) / e
 		}
-		return d
 	}
+	return x
+}
+
+// relabelings is the number of ways to deal a task's pooled trials to
+// sides of the sizes given, N!/Π_s n_s!, or limit + 1 when it is larger.
+func relabelings(sizes []int, limit int) int {
+	n := 0
+	for _, s := range sizes {
+		n += s
+	}
+	total := 1
+	for _, s := range sizes {
+		c := choose(n, s, limit)
+		if c > limit || total > limit/c {
+			return limit + 1
+		}
+		total *= c
+		n -= s
+	}
+	return total
+}
+
+// splits calls visit with every way to deal n positions to sides of the
+// sizes given: the first side's positions chosen among all of them in
+// lexicographic order, then the second side's among the rest, and so on.
+// side[i] is the side position i is dealt to.
+func splits(n int, sizes []int, visit func(side []int)) {
+	side := make([]int, n)
+	var deal func(s int, free []int)
+	deal = func(s int, free []int) {
+		if s == len(sizes)-1 {
+			for _, i := range free {
+				side[i] = s
+			}
+			visit(side)
+			return
+		}
+		rest := make([]int, 0, len(free)-sizes[s])
+		combinations(len(free), sizes[s], func(idx []int) {
+			rest = rest[:0]
+			at := 0
+			for j, i := range free {
+				if at < len(idx) && idx[at] == j {
+					side[i] = s
+					at++
+					continue
+				}
+				rest = append(rest, i)
+			}
+			deal(s+1, slices.Clone(rest))
+		})
+	}
+	all := make([]int, n)
+	for i := range all {
+		all[i] = i
+	}
+	deal(0, all)
+}
+
+// sideSymmetries is the number of orderings of the sides that give every
+// side the sizes it has in every task: such an ordering of a relabeling
+// gives the same X², so an exact test's smallest p-value is this many
+// over its relabelings.
+func sideSymmetries(tasks [][][]float64) int {
+	groups := map[string]int{}
+	for s := range tasks[0] {
+		var key []byte
+		for _, t := range tasks {
+			key = fmt.Appendf(key, "%d,", len(t[s]))
+		}
+		groups[string(key)]++
+	}
+	out := 1
+	for _, g := range groups {
+		for i := 2; i <= g; i++ {
+			out *= i
+		}
+	}
+	return out
+}
+
+// stratifiedLabelTest is the stratified label test (spec 008) of K sides
+// over the included tasks: tasks[t][s] are side s's labels of task t as
+// whole numbers 0 … k-1, each side's in ascending order of trial id and
+// the tasks in ascending order of name. The statistic, pearson_x2_sum, is
+// Σ_t X²_t summed in task order. A relabeling deals each task's pooled
+// labels to its sides anew, keeping every side's size. The test is exact
+// when the product of the tasks' relabelings is at most exactMax, every
+// combination enumerated with the first task's relabelings varying
+// slowest; otherwise Monte Carlo with sequential stopping, each draw
+// shuffling a fresh copy of every task's pooled labels, the sides' labels
+// in the sides' order, in task order, and dealing the first n_t1 to the
+// first side, the next n_t2 to the second, and so on. floor is the
+// smallest p-value the exact test can give, and 0 when it is not exact.
+func stratifiedLabelTest(tasks [][][]float64, k, exactMax int, cfg mcConfig) (r testResult, floor float64) {
+	sides := len(tasks[0])
+	sc := newX2Scratch(sides, k)
+	pooled := make([][]float64, len(tasks))
+	sizes := make([][]int, len(tasks))
+	observed := 0.0
+	total := 1
+	for t, task := range tasks {
+		observed += labelX2(task, sc)
+		pooled[t] = slices.Concat(task...)
+		for _, v := range task {
+			sizes[t] = append(sizes[t], len(v))
+		}
+		if m := relabelings(sizes[t], exactMax); total <= exactMax {
+			if m > exactMax || total > exactMax/m {
+				total = exactMax + 1
+			} else {
+				total *= m
+			}
+		}
+	}
+	view := func(t int, buf []float64, into [][]float64) {
+		at := 0
+		for s, n := range sizes[t] {
+			into[s] = buf[at : at+n]
+			at += n
+		}
+	}
+	if total <= exactMax {
+		// Each task's relabelings' X², in enumeration order; the
+		// statistic of a combination sums them in task order.
+		per := make([][]float64, len(tasks))
+		for t := range tasks {
+			parts := make([][]float64, sides)
+			buf := make([]float64, len(pooled[t]))
+			splits(len(pooled[t]), sizes[t], func(side []int) {
+				at := 0
+				for s := range sides {
+					for i, v := range pooled[t] {
+						if side[i] == s {
+							buf[at] = v
+							at++
+						}
+					}
+				}
+				view(t, buf, parts)
+				per[t] = append(per[t], labelX2(parts, sc))
+			})
+		}
+		at := make([]int, len(tasks))
+		count := 0
+		for {
+			x := 0.0
+			for t := range tasks {
+				x += per[t][at[t]]
+			}
+			if atLeast(x, observed, cfg.tol) {
+				count++
+			}
+			i := len(tasks) - 1
+			for i >= 0 && at[i] == len(per[i])-1 {
+				at[i] = 0
+				i--
+			}
+			if i < 0 {
+				break
+			}
+			at[i]++
+		}
+		return testResult{p: float64(count) / float64(total), exact: true, resamples: total}, float64(sideSymmetries(tasks)) / float64(total)
+	}
+	bufs := make([][]float64, len(tasks))
+	for t := range bufs {
+		bufs[t] = make([]float64, len(pooled[t]))
+	}
+	parts := make([][]float64, sides)
+	return sequential(cfg, observed, func() float64 {
+		x := 0.0
+		for t := range tasks {
+			copy(bufs[t], pooled[t])
+			cfg.g.shuffle(bufs[t])
+			view(t, bufs[t], parts)
+			x += labelX2(parts, sc)
+		}
+		return x
+	}), 0
 }
 
 // labelTest is the task-level test of a label metric: Fisher, Freeman and

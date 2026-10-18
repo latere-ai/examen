@@ -472,10 +472,10 @@ X^2_t = sum over sides s and labels l of (O_tsl - E_tsl)^2 / E_tsl,
 ```
 
 summed in a fixed order: tasks in ascending bytewise order of name,
-within a task the sides in their order (a comparison's candidate side
-first; an experiment's candidates in its order) and the labels in the
-result's label order, each squared difference rounded before its
-division. A task whose trials all hold one label adds 0 under every
+within a task side by side in the sides' order (a comparison's
+candidate side first; an experiment's candidates in its order), and
+within a side label by label in the result's label order, each squared
+difference rounded before its division. A task whose trials all hold one label adds 0 under every
 relabeling. The discrepancy is `X^2`.
 
 A relabeling permutes each included task's trials among its sides
@@ -748,7 +748,13 @@ Each result gets one by this rule, in this order:
    `lower_is_better`) and `regressed` if it is the opposite;
    `within_noise` otherwise.
 
-A delta of zero has no direction and is always `within_noise`.
+A delta of zero has no direction and is always `within_noise`, except
+on a label result: its test reads each task's table, and two sides can
+differ on every task while their weighted per-label differences are all
+zero (The stratified label test, above), so a label result is
+`changed` whenever its `q` is at most `FALSE_DISCOVERY_RATE`, and its
+reason says no difference only when every table it reads gives the two
+sides the same proportions.
 
 The verdict comes from the test alone. The delta's interval is
 descriptive: it is not corrected for multiple comparisons and is built

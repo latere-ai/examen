@@ -42,7 +42,8 @@ func TestVerdictRule(t *testing.T) {
 		{HigherIsBetter, 0.01, zero, WithinNoise},
 		{NoDirection, 0.01, zero, WithinNoise},
 		{NoDirection, 0.01, &Delta{PerLabel: map[string]float64{"a": 0.1, "b": -0.1}}, Changed},
-		{NoDirection, 0.01, &Delta{PerLabel: map[string]float64{"a": 0}}, WithinNoise},
+		{NoDirection, 0.01, &Delta{PerLabel: map[string]float64{"a": 0}}, Changed},
+		{NoDirection, 0.06, &Delta{PerLabel: map[string]float64{"a": 0.2}}, WithinNoise},
 		{HigherIsBetter, 0.01, nil, WithinNoise},
 	} {
 		if got := verdict(c.d, c.q, 0.05, c.delta); got != c.want {
@@ -1067,7 +1068,7 @@ func TestLabelResults(t *testing.T) {
 		t.Errorf("label result %+v", r)
 	}
 	s := find(c, m.Digest, LevelSuite, "")
-	if s.Statistic != statLabelDistance || s.Verdict != Changed {
+	if s.Statistic != statPearsonX2Sum || s.Verdict != Changed {
 		t.Errorf("suite %s %s", s.Statistic, s.Verdict)
 	}
 	b, err := json.Marshal(r)
