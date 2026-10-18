@@ -282,13 +282,13 @@ func TestSubmitAndImportRefusals(t *testing.T) {
 	x.refuse(404, apierr.CodeTrialNotFound, http.MethodPost, path, "t-bob", run(lease["lease"], "completed", nil))
 	x.refuse(404, apierr.CodeTrialNotFound, http.MethodPost, "/v1/trials/"+id.New(id.Trial)+"/submit", "t-alice", run(lease["lease"], "completed", nil))
 
-	// The lease's own refusals.
+	// The lease's own refusals. A body naming no candidate is a lease of
+	// every external candidate (TestLeaseWithoutCandidate).
 	for _, c := range []struct {
 		body   map[string]any
 		status int
 		code   string
 	}{
-		{map[string]any{}, 400, apierr.CodeMissingField},
 		{map[string]any{"candidate": f.high, "renew": "lse_x"}, 400, apierr.CodeInvalidField},
 		{map[string]any{"candidate": f.high, "max": 0}, 400, apierr.CodeInvalidField},
 		{map[string]any{"candidate": "harness-high"}, 422, apierr.CodeUnpinnedReference},
