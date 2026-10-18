@@ -30,7 +30,9 @@ listed once in this spec. It keeps everything in Postgres under
 migrations the binary carries, ships as one image and as tagged releases
 that each have a changelog section, and serves probes and telemetry the
 way every open core does. It runs on its own against any OpenID Connect
-issuer and the open cores it composes, and needs no other service.
+issuer and the open cores it composes, and needs no other service. With
+no owner token source, no key source and no file store it serves the
+v0.1 profile, which is what the first release serves (below).
 
 ## Design
 
@@ -47,7 +49,7 @@ issuer and the open cores it composes, and needs no other service.
 | `authorizer/` | public: the action vocabulary, the limits of an allow, the minter's request and answer, and the key endpoint's request and answer (spec 004) |
 | `internal/access/` | verification, the authorizer client, the owner policy |
 | `internal/owner/` | the owner token source: the minter client and the token files |
-| `internal/keys/` | the key source: the `lux` and `endpoint` implementations (spec 004) |
+| `internal/keys/` | the key source: the `endpoint` implementation and, after v0.1, the `lux` one (spec 004) |
 | `internal/httpapi/` | routes, errors, the progress stream |
 | `internal/store/` | the store over Postgres, and `migrations/` |
 | `internal/queue/` | the work queue and its leases (spec 005) |
@@ -117,9 +119,10 @@ on stderr that names what failed.
 pool, the schema check, the issuers, the authorizer probe (spec 004),
 the owner token source, the key source, the listener; and only then
 does `/readyz` answer `200`. Its first log lines say which token source
-is in use (the minter, the token files of `EXAMEN_SOLE_OWNER`, or
-none), which key source (`lux` or `endpoint`), who decides (the
-authorizer or the owner policy), and which cores are configured.
+is in use (the minter, the token files of `EXAMEN_SOLE_OWNER` after
+v0.1, or none), which key source (`endpoint`, `lux` after v0.1, or
+none), whether it serves the v0.1 profile, who decides (the authorizer
+or the owner policy), and which cores are configured.
 
 ### Configuration
 
@@ -149,15 +152,15 @@ configuration, and `examend` reads none of them.
 | `EXAMEN_AUTHORIZER_TOKEN_FILE` | none; required with `EXAMEN_AUTHORIZER_URL` | spec 004 |
 | `EXAMEN_MINTER_URL` | none | spec 004 |
 | `EXAMEN_MINTER_TOKEN_FILE` | none; required with `EXAMEN_MINTER_URL` | spec 004 |
-| `EXAMEN_SOLE_OWNER` | none | spec 004 |
-| `EXAMEN_OWNER_TOKEN_DIR` | none; required with `EXAMEN_SOLE_OWNER` | spec 004 |
-| `EXAMEN_KEYS_URL` | none: the `lux` key source, which creates Keys at Lux as the owner | spec 004 |
+| `EXAMEN_SOLE_OWNER` | none; read from the release that builds token files, after v0.1 | spec 004 |
+| `EXAMEN_OWNER_TOKEN_DIR` | none; required with `EXAMEN_SOLE_OWNER`, after v0.1 | spec 004 |
+| `EXAMEN_KEYS_URL` | none: no key source, which with no owner token source and no file store is the v0.1 profile; after v0.1, the `lux` key source, which creates Keys at Lux as the owner, when `EXAMEN_LUX_URL` and an owner token source are set | spec 004 |
 | `EXAMEN_KEYS_TOKEN_FILE` | none; required with `EXAMEN_KEYS_URL` | spec 004 |
 | `EXAMEN_TOPOS_URL` | none: candidates of kind `topos` and agent judges are refused | spec 005 |
 | `EXAMEN_CELLA_URL` | none: candidates of kind `program`, `external` candidates on a suite whose tasks have checks, and every publication version, whose secret scan runs in Cella, are refused | spec 005 |
 | `EXAMEN_CELLA_ENVIRONMENT` | none; required with `EXAMEN_CELLA_URL`: the `queued` Cella Environment a SandboxSet and a check sandbox run in | spec 005 |
-| `EXAMEN_LUX_URL` | none: no experiment can be created | spec 005 |
-| `EXAMEN_ARCA_URL` | none: tasks with an `arca` workspace or with inputs, references or outputs, judges that read evidence, `external` candidates, exports, and publications that carry files are refused | spec 007 |
+| `EXAMEN_LUX_URL` | none: model judges, agent judges, the `lux` key source and a named Budget no authorizer assigned are refused, and every trial's cost is `unknown`; an experiment that needs none of them, as in the v0.1 profile, is created | spec 005 |
+| `EXAMEN_ARCA_URL` | none: an `arca` workspace a trial starts from, tasks with inputs or references, outputs carried inline, transcripts and final messages, judges that read evidence, exports, and publications that carry files are refused; an `external` trial's outputs are taken only as `arca` references with their digests, recorded and not read (the v0.1 profile) | spec 007 |
 | `EXAMEN_ARCA_PUBLIC_URL` | `EXAMEN_ARCA_URL`: the address readers reach Arca at, on which a public read builds evidence links | spec 013 |
 | `EXAMEN_FILESTORE_DOWNLOAD_ONLY` | `false`: publication versions at `outputs` and `full` are refused, `422 file_store_not_download_only`. `true` declares that every link read of the file store answers `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`, so a published file a model wrote is downloaded and never rendered on the file store's origin; Examen cannot check the declaration, and an operator sets it only once the file store does so | spec 013 |
 | `EXAMEN_ORIGO_URL` | none: tasks with an `origo` workspace are refused | spec 005 |
@@ -167,7 +170,7 @@ configuration, and `examend` reads none of them.
 | `EXAMEN_ARCA_AUDIENCE` | `arca` | spec 004 |
 | `EXAMEN_ORIGO_AUDIENCE` | `origo` | spec 004 |
 | `EXAMEN_WORKERS` | `20`: work items one replica runs at once | spec 005 |
-| `EXAMEN_EVENTS_URL` | none: sink events are journaled acknowledged and nothing is sent | spec 003 |
+| `EXAMEN_EVENTS_URL` | none: sink events are journaled acknowledged and nothing is sent. Set, `serve` refuses to start in a release that does not deliver sink events, v0.1 among them (Refusals at start) | spec 003 |
 | `EXAMEN_EVENTS_SECRET_FILE` | none; required with `EXAMEN_EVENTS_URL`: a file holding one signing secret, or two separated by a comma while one is rotated, reread when it changes | spec 003 |
 | the variables `pkg/otel` reads | the SDK's own | this spec |
 
@@ -197,6 +200,7 @@ the variable or the condition, in each of these cases:
 | a value does not parse | the line names the variable |
 | `EXAMEN_MINTER_URL` and `EXAMEN_SOLE_OWNER` are both set | two token sources would make it unclear whose token a request carries (spec 004) |
 | `EXAMEN_EVENTS_URL` without `EXAMEN_EVENTS_SECRET_FILE`, the secret without the URL, or an `http://` events URL whose host is not loopback | events would go unsigned, nowhere, or readable on the way (spec 003) |
+| `EXAMEN_EVENTS_URL` is set, in a release that does not deliver sink events: every release before event delivery is built, v0.1 among them | the installation would believe it receives events that are never sent; without the URL, events are journaled and nothing is sent (spec 003) |
 | `EXAMEN_KEYS_URL` without `EXAMEN_KEYS_TOKEN_FILE`, or the token file without the URL | a key endpoint takes a bearer, and a bearer with no endpoint means the installation believes Examen asks it for Keys while Examen would create them itself (spec 004) |
 | a token file is missing, unreadable or empty | the endpoint or core it is for requires a bearer |
 | the authorizer, minter, key endpoint or a core URL is not `https` and its host is not loopback | each carries a bearer, and an owner token or a Key over plain HTTP is readable on the way |
@@ -399,18 +403,19 @@ host.
 |---|---|---|
 | Postgres | everything | `serve` does not start |
 | an OpenID Connect issuer, any | the callers' tokens | `serve` does not start |
-| an owner token source: a minter, or `EXAMEN_SOLE_OWNER` with its token files | every request to a core (spec 004) | metrics, graders without judges, and reads; nothing that resolves a pin at a core |
-| Lux | budgets, model judges, cost; with the `lux` key source, the Keys Examen creates | no experiment can be created |
-| a key endpoint | Keys from an installation that keeps its own budgets (spec 004) | the `lux` key source: Examen creates its Keys at Lux as the owner |
+| an owner token source: a minter, or, after v0.1, `EXAMEN_SOLE_OWNER` with its token files | every request to a core (spec 004) | the v0.1 profile: definitions, `external` candidates and past trials, graders without checks or judges, comparisons and reads; nothing that resolves a pin at a core |
+| Lux | model judges, agent judges, cost; with the `lux` key source, the Keys and the Budget Examen creates | those are refused, and every trial's cost is `unknown` |
+| a key endpoint | Keys from an installation that keeps its own budgets (spec 004) | no key source in v0.1; after v0.1, with Lux and an owner token source, the `lux` key source: Examen creates its Keys at Lux as the owner |
 | Topos, itself running sessions in Cella | candidates of kind `topos`, agent judges | those are refused |
 | Cella | candidates of kind `program`; the check sandboxes of `cella` and `external` trials; the secret scan of every publication version | those are refused |
-| Arca | `arca` workspaces, task inputs, references and outputs, evidence for judges, `external` candidates, exports, published files and their links | those are refused |
+| Arca | `arca` workspaces, task inputs and references, outputs Examen writes or reads, evidence for judges, exports, published files and their links | those are refused, and an `external` trial's outputs are recorded as `arca` references and not read |
 | Origo | `origo` workspaces | those are refused |
 | an authorizer | organizations as owners, annotators and services acting for others, limits | the owner policy (spec 004) |
 
-One person can run Examen for themselves with `EXAMEN_SOLE_OWNER` and
-their own tokens in files, the owner policy, the `lux` key source, and
-the cores they already run. A multi-owner installation adds a minter
+One person can run the v0.1 profile for themselves with Postgres, an
+issuer and the owner policy alone, and, after v0.1, all of Examen with
+`EXAMEN_SOLE_OWNER` and their own tokens in files, the owner policy,
+the `lux` key source, and the cores they already run. A multi-owner installation adds a minter
 and, for anything beyond owners acting on their own objects, an
 authorizer, and an installation that keeps its own budgets adds a key
 endpoint; each is an endpoint the operator writes against the public
@@ -431,9 +436,49 @@ or a candidate names: an API under evaluation is called from a trial's
 sandbox (spec 005).
 
 `make run` builds `examend`, runs `migrate` and then `serve` against a
-local Postgres in the developer's container runtime, with
+local Postgres in the developer's container runtime, with the owner
+policy, and, from the release that reads token files, with
 `EXAMEN_SOLE_OWNER` and the token files of the developer's own
 environment.
+
+### The v0.1 profile
+
+An installation with no owner token source (neither
+`EXAMEN_MINTER_URL` nor `EXAMEN_SOLE_OWNER`), no key source
+(`EXAMEN_KEYS_URL` unset, and no `lux` key source, which comes after
+v0.1) and no file store (`EXAMEN_ARCA_URL` unset) serves the v0.1
+profile, and the first release serves it alone: the versioned objects,
+experiments whose candidates are all of kind `external` in modes
+`execute` and `import`, the lease, renewal and submit of their trials,
+the import of past trials, self-reported values, the grid, comparisons
+and the progress stream (specs 003 and 005). It needs Postgres and an
+issuer, and an authorizer only for what the owner policy does not
+answer. No request leaves examend for a core, since nothing it serves
+acts as the owner:
+
+- an experiment's create resolves only the pins a served path uses, so
+  it resolves none at a core, asks no minter and refuses a candidate,
+  grader or task that would need a core `422 core_not_configured`;
+- a Budget an authorizer assigns as `limits.budget` is recorded with no
+  request to Lux, and without one a spending cap is recorded with no
+  Budget made for it;
+- a cell's cost check leases no Key, since its estimate is zero;
+- `EXAMEN_LUX_URL` and `EXAMEN_ARCA_URL` are needed only by the work
+  that uses them, none of which the profile serves: every trial's cost
+  is `unknown`, and an external trial's outputs are taken only as
+  `arca` references with their digests, recorded and not read;
+- sink events are journaled and not sent, and `EXAMEN_EVENTS_URL` set
+  stops the start of a release that does not deliver them (Refusals at
+  start).
+
+Where this differs from the general text of specs 003 and 005: an
+experiment's create resolves no pin as the owner and asks no minter;
+`EXAMEN_LUX_URL` unset no longer stops every create, and
+`EXAMEN_KEYS_URL` unset no longer means the `lux` key source; an
+`external` candidate needs no Arca; and a submitted output is recorded
+unread, where the general text writes or reads it in the owner's Arca
+space. Spec 003's section of the same name lists every difference of
+the API.
 
 ### Limits
 
@@ -486,10 +531,15 @@ log (spec 007). The text of `SECURITY.md` (spec 012).
   system and no capability, on both platforms.
 - A tag without a changelog section is refused by the pre-push hook and
   by the release workflow.
-- With Postgres, the stub issuer, the stub cores, `EXAMEN_SOLE_OWNER`
-  with token files and no authorizer, an experiment runs from create to
-  its comparison, and no request leaves for an address the
-  configuration does not name.
+- With Postgres, the stub issuer and the owner policy, and no owner
+  token source, key source, file store or core, an experiment of
+  `external` candidates runs from create through its leases, submits
+  and a past trial's import to its final comparisons, and no request
+  leaves for any core.
+- After v0.1, with Postgres, the stub issuer, the stub cores,
+  `EXAMEN_SOLE_OWNER` with token files and no authorizer, an experiment
+  runs from create to its comparison, and no request leaves for an
+  address the configuration does not name.
 - No log line, span or metric label carries a token, a Key's value, a
   link token, an Arca link's token or a task's instruction, by the
   canary of spec 004, one planted as a publication's link token and

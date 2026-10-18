@@ -160,7 +160,7 @@ value, or their consensus.
 A metric the suite lists that no grader produces for a task has no
 producing grader there. For an `external` trial of that task its
 current value is read as above with `G` the grader `self:<harness>`:
-the latest value the harness submitted, `self_reported` true. For any
+the latest value the external harness submitted, `self_reported` true. For any
 other trial it is missing.
 
 A candidate-level metric's current value for a candidate of an
@@ -242,7 +242,7 @@ keeps the three layers apart and never merges them.
 | configured | the provenance tuple of spec 002: `candidate.kind`, `agent_or_image_digest`, `program`, `model`, `reasoning`, `tools`, `task_hash`, `environment_digest`, `workspace_ref`, `grader_digests` | resolved by Examen when the experiment is applied, from the candidate, the task and the suite | the cell's `tuple`; not copied onto trials |
 | sent | `requests`: the number of model requests the trial's system under test made; `by_setting`: a list of `{model, reasoning, requests}`, one entry per distinct pair, sorted by `model` and then `reasoning` | for a `topos` trial, the session's records of its requests; for a `cella` or `external` trial, Lux's records of them, never a file the program could write (spec 005) | the trial's `sent` |
 | observed | `served`: a list of `{model, requests}`, the model Lux records as having served each request, sorted by `model`; `input_tokens`, `output_tokens`, `reasoning_tokens`, `cost_usd`; `cost_state`: `known`, `unpriced` when a record has `priced` false, or `unknown` for an external trial Lux holds no attributable record of (spec 005), and `cost_usd` is absent but for `known`; `turns`, `tool_calls`; `duration`; `service_versions`: an object from a service's name to its version; `service_usage`: an object from a service's name to `{cost_usd_micro, units}`, the usage that API reported for itself | Lux's usage records of the trial's requests for `served`, the token counts and `cost_usd`; the executor for `turns` and `tool_calls`; Examen for `duration`, as `agent_ended_at` less `started_at`; for `service_versions` and `service_usage`, the program's `/examen/observed.json` or the external harness's submission (spec 005) | the trial's `observed` |
-| declared | for an `external` trial: `harness_version` and `image`, as its harness declared them | the harness's submit or import (spec 005) | the trial's `declared` |
+| declared | for an `external` trial: `harness_version` and `image`, as its external harness declared them | the external harness's submit or import (spec 005) | the trial's `declared` |
 
 `reasoning` is one canonical string per request: `level:<value>`
 when the request named a reasoning level, `budget:<tokens>` when it
@@ -312,11 +312,20 @@ reason `evidence_unverified`, and the retry rules of spec 005 apply.
 A judge's evidence is verified the same way before its grading is
 recorded, and a failure fails the grading (spec 006).
 
+**In the v0.1 profile**, with no file store and no owner token, an
+external trial's `output` refs are the `arca` references its external
+harness submitted, with the digests it declared, recorded and never
+read: no intake verification runs, no `output_manifest` is written, and
+the trial has no `transcript` or `final_message` ref (specs 003 and
+005). `evidence verify` reports such a ref `unverified` until a file
+store is configured.
+
 **Reading.** Examen's API returns refs, never bytes. The bytes are
 read from Arca by whoever Arca allows to read them; a judge reads
 them through Arca as the owner (spec 006). The `evidence verify`
 operation downloads each ref of an experiment, recomputes its digest,
-and reports every ref as `ok`, `changed` or `missing`. It never alters
+and reports every ref as `ok`, `changed`, `missing` or, with no
+file store to read it from, `unverified`. It never alters
 a measurement or a trial.
 
 ### Evidence layout
@@ -587,7 +596,7 @@ operator's.
 | A final comparison recomputed after a re-grade from its recorded inputs gives byte-identical results, and a provisional one's recorded inputs are replaced with each recompute | `analysis.TestRecomputeFromRecordedInputs` |
 | A trial's configured, sent and observed layers are filled from the cell, the executor and Lux respectively, and `cost_usd` equals the sum of Lux's records for the trial | `store.TestProvenanceLayers`, against the Lux stub |
 | A trial whose evidence object is missing, or whose size or checksum differs from its ref, is marked `infra_failed` with `evidence_unverified` | `evidence.TestIntakeVerification`, against the Arca stub |
-| A self-reported value is refused for a trial of another candidate kind or harness, for a metric the suite does not list, and for a metric a grader produces for the task; an accepted one is the current value of its metric for that external trial, and the database refuses a row whose `self_reported` disagrees with its grader | `store.TestSelfReportedValues` |
+| A self-reported value is refused for a trial of another candidate kind or external harness, for a metric the suite does not list, and for a metric a grader produces for the task; an accepted one is the current value of its metric for that external trial, and the database refuses a row whose `self_reported` disagrees with its grader | `store.TestSelfReportedValues` |
 | A task's inputs and references are written once under `tasks/<task hex>/`, and an external trial's outputs, transcript and final message under its trial folder, create-only | `evidence.TestTaskFolderAndExternalTrial`, against the Arca stub |
 | A second write to an evidence path fails and the first content stays | `evidence.TestWritesAreCreateOnly` |
 | Every path Examen or a `cella` trial writes for an experiment is under `files/evals/experiments/<id>/` in the layout above, a `topos` trial's refs point into its session's folder, and a task naming an absolute or `..` evidence path is refused | `evidence.TestLayout`, `evidence.TestEvidencePathRefused` |

@@ -89,7 +89,7 @@ The console and every report hold these sections, in this order.
 **Header.** The suite's name and digest; the experiment's id, state,
 N and windows; each candidate's name, kind and digest, and for an
 `external` candidate its `harness`, `version`, `model`, `reasoning` and
-`flags`, marked as declared by the harness; the reference: the
+`flags`, marked as declared by the external harness; the reference: the
 baseline's name, record id, experiment, candidate and `pinned_at`, or
 the reference candidate's name; the comparisons' `analysis_version`
 and `parameters`, so the reader sees the `FALSE_DISCOVERY_RATE`,
@@ -119,7 +119,7 @@ result with `self_reported` likewise, with the counts of self-reported
 values, and a result with `uncalibrated` likewise, naming the judge
 that no person has yet checked. A comparison whose
 `declared_provenance` is not empty says in its headline which side's
-provenance its harness declared. A comparison that is not
+provenance its external harness declared. A comparison that is not
 single-variable never appears in the headline. It is listed under it by
 name with its tuple confounds, "not headlined: confounded by
 `<fields>`", and its results appear in the verdict tables. An
@@ -187,7 +187,7 @@ differs from its configured layer: the configured model and reasoning
 beside the models and reasoning values sent and the models served,
 with request counts; every cell's service versions, with the tasks
 where they differ between the sides of a comparison; and for an
-external candidate, the harness versions and images its trials
+external candidate, the external harness versions and images its trials
 declared, marked as declared.
 
 **Costs.** Per candidate, and per cell:
@@ -209,7 +209,7 @@ state and reason), or `never_run`, with the newest experiment that ran
 it. Counts of each state head the map. A gap is shown as a cell, never
 as blank space.
 
-**Trends**, a later build step. When the experiment's reference is a
+**Trends**, a later build step, after v0.1. When the experiment's reference is a
 baseline that has earlier records, the trend of spec 008 for the
 primary metric and every metric with a direction: each record's
 suite-level summary with its interval, and each step's verdict and
@@ -283,6 +283,8 @@ A report is deleted with its experiment (spec 007).
 
 ### Narrative
 
+The narrative, its drafting and its linter come after v0.1, with the
+static report exports (Build order, below); the design is kept here.
 Tables, the grid and verdicts render without any person. Prose that
 interprets them is a claim of a different kind, so it is released by a
 person and passes a mechanical linter first.
@@ -335,6 +337,8 @@ the history. A report without one shows "No released interpretation"
 where the narrative would be, and its exports carry the same line.
 
 ### Exports
+
+The exports come after v0.1, with the narrative (Build order, below).
 
 **JSON.** The report's `document` with its released narrative, in
 canonical JSON, format `examen.report/v1`. Within `v1` fields are only
@@ -402,8 +406,7 @@ The constants of spec 002 this spec holds:
 
 | Step | What is built |
 |---|---|
-| first slice | what a console reads; the header, the headline, the grid, the verdict tables without the calibration column, outcomes, provenance differences and costs; the presentation rules |
-| the `external` executor | declared provenance in the header and the headline, and self-reported values marked and kept out of the headline |
+| v0.1: the v0.1 profile | what a console reads; the header, the headline, the grid, the verdict tables without the calibration column, outcomes, provenance differences and costs, with every cost of the profile `unknown`; declared provenance in the header and the headline, and self-reported values marked and kept out of the headline; the presentation rules |
 | label tests | label verdicts in the verdict tables, open-vocabulary taxonomies, cell-level and candidate-level metrics |
 | publishing | reports and their document, which a report publication snapshots (spec 013); the suite-level row's per-candidate confounds |
 | agent judges and annotations | the calibration column |

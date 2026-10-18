@@ -26,15 +26,19 @@ to; with no authorizer configured, a built-in policy lets an owner act
 on what it owns. Whose identity a trial's work carries is always the
 experiment's owner: every request Examen sends to a core for that work
 carries a short-lived token for the owner, which Examen obtains from a
-minter the operator provides or, on an installation run by one owner,
-receives from files that owner keeps. The Lux Keys that model judges,
-`cella` rollouts and narrative drafts call through come from a key
-source: Examen creates them at Lux as the owner when it runs on its own,
-or asks the installation for them when the installation keeps its own
-budgets; the same source reads an experiment's budget figures. A reader
+minter the operator provides or, after v0.1, on an installation run by
+one owner, receives from files that owner keeps. The Lux Keys that
+model judges, `cella` rollouts and narrative drafts call through come
+from a key source: Examen asks the installation for them when the
+installation keeps its own budgets, or, after v0.1, creates them at Lux
+as the owner when it runs on its own; the same source reads an
+experiment's budget figures. An installation with no owner token source
+and no key source serves the v0.1 profile, whose work reaches no core
+as the owner (spec 003). A reader
 who does not sign in reads only what was published, and the authorizer
-is still asked about each read, with no subject. A `program` candidate
-may also be given owner tokens for the APIs it calls, each placed in the
+is still asked about each read, with no subject. After v0.1, with the
+`cella` executor, a `program` candidate may also be given owner tokens
+for the APIs it calls, each placed in the
 trial's sandbox only as a placeholder Cella's egress gateway swaps on
 the way to that API's host. Examen never uses an identity of its own
 toward a core. It holds no accounts, roles or plans.
@@ -120,7 +124,7 @@ checks before the wire. Each action names one kind.
 | `Candidate` | `candidate.apply` | `PUT /candidates/{name}` | `owner`, `name`, `digest`, `candidate_kind`, `agent`, `image`, `model`, `reasoning`, `harness`, `credential_audiences` |
 | `Candidate` | `candidate.read` | `GET /candidates/{ref}`, `GET /candidates/{name}/versions` | id; `owner`, `name`, `digest`, `candidate_kind` |
 | `Candidate` | `candidate.list` | `GET /candidates` | `owner` |
-| `Experiment` | `experiment.create` | `POST /experiments` | id (minted before the question, so an authorizer can keep a record of the experiment it allows); `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `credential_audiences`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `budget_cap_usd_micro`, `reference_candidate`, `baseline`, `baseline_owner`, `benchmark`, `mode`, `adopt` |
+| `Experiment` | `experiment.create` | `POST /experiments` | id (minted before the question, so an authorizer can keep a record of the experiment it allows); `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `grader_kinds`, `credential_audiences`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `budget_cap_usd_micro`, `reference_candidate`, `baseline`, `baseline_owner`, `benchmark`, `mode`, `adopt` |
 | `Experiment` | `experiment.read` | `GET /experiments/{id}` and every route below it that reads, `GET /cells/{id}`, `GET /trials/{id}`, `GET /measurements/{id}`, `GET /comparisons/{id}` with its rows, `POST /comparisons`; and the experiment each export, baseline pin or bar evaluation names | id; `owner`, `suite`, `state`, `mode`, `shared` |
 | `Experiment` | `experiment.list` | `GET /experiments`, `GET /comparisons` | `owner` |
 | `Experiment` | `experiment.update` | `PATCH /experiments/{id}`, `POST /experiments/{id}/close` | id; `owner`, `suite`, `state`, `mode`, and what it changes: `trials` with `trials_total`, `parallelism`, or the reference as `reference_candidate`, or `baseline` with `baseline_owner` |
@@ -176,7 +180,7 @@ and are decided as `experiment.update` is: an authorizer that lets a
 subject change an experiment lets it retry the experiment's cells and
 lease and submit its external trials, and the owner policy allows them
 to the owner. A token whose grants name `trial.lease` and
-`trial.submit` alone is how an owner runs a harness that can do nothing
+`trial.submit` alone is how an owner runs an external harness that can do nothing
 else.
 
 The shared envelope keeps two names for the resource itself:
@@ -204,6 +208,7 @@ object's own `type` or `kind` is sent as `metric_type`, `grader_kind`,
 | `task_count`, `metric_count` | how many tasks and metrics a suite version pins |
 | `suite`, `suite_owner` | the experiment's suite digest and its owner |
 | `candidates`, `models`, `judge_models`, `executors` | the candidate digests; every model the candidates name; every model the suite's model judges name; the executors the candidates need, `topos`, `cella` or `external` |
+| `grader_kinds` | on `experiment.create`: the kinds of the graders the suite version names, its `decline_judge` and its `canonicalizers` included, each once: `check`, `model_judge`, `agent_judge` or `annotation`; the built-in decline judge is none of them. With `executors`, it tells an authorizer whether the experiment's work needs an owner token at all: an experiment whose candidates are all `external` and whose graders include no `check`, `model_judge` or `agent_judge` reaches no core as the owner while no file store is configured (spec 003, The v0.1 profile) |
 | `cells`, `trials`, `trials_total` | tasks × candidates; N; cells × N |
 | `budget`, `budget_cap_usd_micro` | on `experiment.create`: the Budget's name the request gave, or the cap it gave in micro-dollars in its place; on `experiment.run`, `budget` is the stored Budget's name |
 | `benchmark` | on `experiment.create`: the publication id of the benchmark the request runs another owner's suite through; on a submission action, the benchmark's publication id |
@@ -333,13 +338,13 @@ type Limits struct {
 
 An authorizer that is also its installation's budget authority answers
 `experiment.create` with `budget`: Examen records that Budget on the
-experiment, and a request that named a different one is refused `403
-forbidden` with `details.reason` `budget`. A request that gave a cap
+experiment, with no request to Lux, and a request that named a different one is refused `403
+forbidden` with `details.reason` `budget`. A request that gave a spending cap
 in place of a name sends it as `budget_cap_usd_micro`, and such an
 authorizer creates a hard Budget of that cap for the experiment and
 answers its name in `budget`; a client never needs a Budget's name in
 advance. With no `budget` on the allow, a named Budget is used and must
-exist, and for a cap the key source decides: the `lux` source creates a
+exist, and for a spending cap the key source decides: the `lux` source creates a
 hard Budget at Lux as the owner, with the purpose `resolve`, named
 `examen-<experiment id>`, of that amount in USD, with the window `none`
 and the experiment's labels, so the owner is its writer; the `endpoint`
@@ -371,7 +376,7 @@ is not one it can hold.
 | `max_active_experiments` | `experiment.create` | counted with the insert, under one lock on the owner: `403 forbidden`, reason `max_active_experiments` |
 | `executors` | `experiment.create` | a candidate whose executor is not listed is `403 forbidden`, reason `executors`, on that candidate |
 | `judge_models` | `experiment.create`, `experiment.regrade` | a model judge of the suite, or the judge a re-grade names, whose model no glob matches is `403 forbidden`, reason `judge_models`, with the grader in `details.detail`. This is how an installation holds judges to the models whose data terms an owner accepts |
-| `credential_audiences` | `experiment.create` | a `program` candidate whose `credentials` name an audience the list does not hold is `403 forbidden`, reason `credential_audiences`, on that candidate. An empty or absent list allows none, so a program is given a credential only where an authorizer names its audience. No list admits a core audience Examen acts through or Examen's own: a credential naming one is refused at apply, `422 credential_audience_reserved` (spec 003), so a program under test never holds a token toward the services that run it, meter it, keep its evidence or grade it |
+| `credential_audiences` | `experiment.create`, from the release that builds program credentials with the `cella` executor, after v0.1 | a `program` candidate whose `credentials` name an audience the list does not hold is `403 forbidden`, reason `credential_audiences`, on that candidate. An empty or absent list allows none, so a program is given a credential only where an authorizer names its audience. No list admits a core audience Examen acts through or Examen's own: a credential naming one is refused at apply, `422 credential_audience_reserved` (spec 003), so a program under test never holds a token toward the services that run it, meter it, keep its evidence or grade it |
 | `budget` | `experiment.create` | recorded as the experiment's Budget (above) |
 | `attribution` | `publication.create`, and `publication.update` when it publishes a version | recorded as the version's `attribution` (spec 013) |
 
@@ -491,8 +496,8 @@ An owner token is asked for one piece of work, its **purpose**:
 
 | Purpose | When | Cores |
 |---|---|---|
-| `resolve` | an experiment's create checks that every pin it uses exists, that each environment image passes Cella's admission, and its budget, and with the `lux` key source creates the Budget for a cap (spec 003); an experiment's budget figures are read (below) | Topos (agent versions), Lux (models, the Budget), Origo (commits), Arca (workspace paths and digests), Cella (images) |
-| `trial` | a cell's rollouts: submitting, following, resizing and canceling them, the cost check's lease, and the Cella Secret of a `cella` rollout with its leased Key; copying a task's inputs and references into the experiment's folder and the links that deliver them; an external trial's check sandbox, its Lux records, and the outputs its harness wrote into the owner's Arca space; and an owner token for each audience a `program` candidate's `credentials` name, delivered as a Cella Secret (spec 005) | Topos, Cella, Lux, Arca, Origo, and each credential audience |
+| `resolve` | an experiment's create checks that every pin it uses exists, that each environment image passes Cella's admission, and its budget, and with the `lux` key source creates the Budget for a spending cap (spec 003); an experiment's budget figures are read (below) | Topos (agent versions), Lux (models, the Budget), Origo (commits), Arca (workspace paths and digests), Cella (images) |
+| `trial` | a cell's rollouts: submitting, following, resizing and canceling them, the cost check's lease, and the Cella Secret of a `cella` rollout with its leased Key; copying a task's inputs and references into the experiment's folder and the links that deliver them; an external trial's check sandbox, its Lux records, and the outputs its external harness wrote into the owner's Arca space; and an owner token for each audience a `program` candidate's `credentials` name, delivered as a Cella Secret (spec 005) | Topos, Cella, Lux, Arca, Origo, and each credential audience |
 | `judge` | a model judge's calls through its leased Key, an agent judge's Topos session, and the evidence either reads (spec 006) | Lux, Topos, Arca |
 | `import` | reading a finished session or sandbox and its records (spec 005) | Topos, Cella, Lux, Arca |
 | `export` | writing a dataset (spec 007) | Arca |
@@ -510,7 +515,9 @@ before its expiry, and never uses it longer than
 **Model access.** Lux's model doors take Keys. Examen's own calls, a
 model judge's, a `cella` rollout's through its Lux Secret, and a
 narrative draft's, go through Keys it leases from the **key source**,
-an interface of `internal/keys` with two implementations (below). A
+an interface of `internal/keys` with two implementations (below),
+`endpoint` and, after v0.1, `lux`. With neither, no Key is leased, and
+the installation serves the v0.1 profile (spec 003). A
 `topos` trial's Keys are not Examen's: Topos issues them to its
 sessions (spec 005, R10).
 
@@ -561,7 +568,8 @@ type Lease struct {
 
 | Source | Used when | `Lease` | `Release` | `Remaining` |
 |---|---|---|---|---|
-| `lux` | `EXAMEN_KEYS_URL` is unset: Examen runs on its own | creates a Key at Lux's control plane with a Lux owner token of the request's purpose: `spec.budget` the experiment's Budget, `models`, the surface, `allowUnpriced` false, the labels and a `ttl`, so the Key's `owner` is the owner and the owner is its writer | deletes the Key | the experiment's Budget's `status.remaining`, read as the owner |
+| none | v0.1, with `EXAMEN_KEYS_URL` unset: the v0.1 profile | never asked: a cost check whose estimate is zero leases nothing (spec 005), and work that would need a Key is refused at create `422 core_not_configured` naming `lux` (spec 003) | never asked | none: an experiment's answer carries no budget figures |
+| `lux`, after v0.1 | `EXAMEN_KEYS_URL` is unset and Lux and an owner token source are configured: Examen runs on its own | creates a Key at Lux's control plane with a Lux owner token of the request's purpose: `spec.budget` the experiment's Budget, `models`, the surface, `allowUnpriced` false, the labels and a `ttl`, so the Key's `owner` is the owner and the owner is its writer | deletes the Key | the experiment's Budget's `status.remaining`, read as the owner |
 | `endpoint` | `EXAMEN_KEYS_URL` is set: the installation keeps its own budgets | asks the installation's key endpoint (below) | `DELETE {EXAMEN_KEYS_URL}/{key id}` with the same bearer | what the endpoint answers: the smallest remainder across every Budget the Key draws on, such as the experiment's, a wallet that pays for it and a budget line above them |
 
 `Budget` reads the figures an experiment's answer carries (spec 003).
@@ -712,8 +720,9 @@ span, a log line or an error.
 
 ### Owner token files
 
-An installation run by one owner may receive that owner's tokens
-instead. `EXAMEN_SOLE_OWNER` names the owner, a rendered subject, and
+Token files come after v0.1; the design is kept here so the first
+release leaves room for them. An installation run by one owner may
+receive that owner's tokens instead. `EXAMEN_SOLE_OWNER` names the owner, a rendered subject, and
 `EXAMEN_OWNER_TOKEN_DIR` a directory holding one file per core, named by
 that core's configured audience (`topos`, `cella`, `lux`, `arca`,
 `origo` by default), each holding a bearer of that owner for that core,
@@ -733,9 +742,10 @@ waits for it.
 
 `EXAMEN_SOLE_OWNER` and `EXAMEN_MINTER_URL` exclude each other, and
 setting both stops the start (spec 011). With neither, Examen serves
-every route that reaches no core, and a request that needs one answers
-`503 owner_tokens_unavailable` with reason `not_configured`, not
-retryable.
+the v0.1 profile (spec 003): an experiment's create refuses the work
+that would reach a core `422 core_not_configured`, and any other
+request that needs one answers `503 owner_tokens_unavailable` with
+reason `not_configured`, not retryable.
 
 ### Unattended work
 
@@ -852,9 +862,15 @@ object's content beyond the fields sent.
 - An allow's `attribution` replaces the name a version's request gave,
   and an empty or overlong one is `503 authorizer_unavailable`; an
   allow's `budget` on a create that gave `budget_cap_usd_micro` becomes
-  the experiment's Budget, and without one the `lux` source creates a
-  hard Budget of that cap as the owner and the `endpoint` source refuses
-  `422 budget_refused`.
+  the experiment's Budget, and without one the `lux` source, after
+  v0.1, creates a hard Budget of that cap as the owner, the `endpoint`
+  source refuses `422 budget_refused`, and in the v0.1 profile the cap
+  is recorded with no Budget and no request to Lux.
+- With no minter, no token files and no key source, an experiment of
+  `external` candidates whose `grader_kinds` hold no `check`,
+  `model_judge` or `agent_judge` is created, run and compared with no
+  question to a minter and no request to any core; `experiment.create`
+  carries `grader_kinds`.
 - `Budget` of either key source answers the experiment's cap, spend and
   remainder, reused for `BUDGET_STATUS_TTL`; a failure leaves them out
   and fails no read.

@@ -398,9 +398,10 @@ proportions with Newcombe's interval, and at suite level the difference
 of the weighted proportions with Agresti and Caffo's interval (below).
 These per-label figures are descriptive: the verdict is one test of
 whether the two distributions differ, so many labels never make many
-chances at a finding. In the first slice a label result carries no
-`p`, `q` or `verdict` and takes no part in the family. Label tests, the
-build step right after the `external` executor, add the tests below; a
+chances at a finding. Until label tests are built, a label result
+carries no `p`, `q` or `verdict` and takes no part in the family. Label
+tests, the build step after the built-in comparators, add the tests
+below; a
 significant difference in a label metric, whose direction is `none`, is
 `changed`.
 
@@ -677,10 +678,10 @@ verdict is what it is, built from fixed templates with numbers in spec
 | a result of the family | "p = 0.048; q = 0.19 after correcting 40 results at 5%" |
 | a result whose exact test cannot reach its threshold | "with 5 trials per side, no difference can be shown among 40 results"; with sides of two sizes, "with 5 and 7 trials, no difference can be shown among 40 results"; tested alone, "with 2 trials per side, no difference can be shown at 5%"; at suite level, "with 3 tasks of 2 trials per side, no difference can be shown among 40 results" |
 | a delta of zero | "no difference between the two sides" |
-| a result that reads self-reported values | "p = 0.03 on values the harness reported itself: not a finding, and outside the corrected family" |
+| a result that reads self-reported values | "p = 0.03 on values the external harness reported itself: not a finding, and outside the corrected family" |
 | a mode share | "descriptive: a mode share depends on the number of trials, so it is not tested" |
 | a count of distinct labels | "descriptive: a count of distinct labels depends on the number of trials, so it is not tested" |
-| a label result, in the first slice | "descriptive: label tests are not built yet" |
+| a label result, before label tests are built | "descriptive: label tests are not built yet" |
 | a candidate-level result | "descriptive: one value per candidate, so nothing to test" |
 | a pair result of two benchmark entries | "p = 0.03 unadjusted; h = 0.06 after Holm's adjustment over 3 pairs at 5%" |
 | a pair result with an unranked entry | "entry sbm_01jg… is not ranked: covers 60% of the suite's weight; 80% needed" |
@@ -725,7 +726,7 @@ A comparison's p-values are read in two parts:
   too, and `correction.primary` is absent.
 
 A result that reads self-reported values keeps its `p`, carries no `q`
-and no verdict, and stays outside the family: the harness's own claim
+and no verdict, and stays outside the family: the external harness's own claim
 is not a measurement Examen made, and it must not change what the
 correction allows any other result.
 
@@ -793,7 +794,7 @@ image or declared digest, and how its program is started and configured.
 So two configurations of one program, such as two HTTP runner configs
 for one API, or two versions of one external harness, differ in `agent`
 alone and are a single-variable comparison; so are two `external`
-candidates that declare one harness and model and differ only in their
+candidates that declare one external harness and model and differ only in their
 declared `reasoning`, on `reasoning`. Every tuple field but
 `grader_digests` belongs to one logical variable; a change of grader
 changes what is measured, and is never a variable. A comparison holds
@@ -846,7 +847,7 @@ covers counted per side:
 | `sent.model` | a trial with at least one request sent none to its configured `model`: the override did not take effect | the requests of such trials |
 | `sent.reasoning` | the set of `reasoning` values sent to the configured model differs between the two sides, and the variable is none of `agent`, `model` and `reasoning` | the requests carrying a value the other side never sent |
 | `observed.service_versions` | a service named in the `service_versions` of trials on both sides has a version on one side that no trial of the other side recorded: the service changed between the trials compared | the finished trials carrying a version the other side never recorded |
-| `declared.image` | the set of `declared.image` values of the external trials differs between the two sides, and the variable is not `agent`: the harness ran in another image | the finished trials carrying an image the other side never declared |
+| `declared.image` | the set of `declared.image` values of the external trials differs between the two sides, and the variable is not `agent`: the external harness ran in another image | the finished trials carrying an image the other side never declared |
 
 A suite-level result carries a layer confound with the tasks it
 occurs in and the summed counts. A layer confound leaves
@@ -867,7 +868,7 @@ an external harness computed and submitted itself (spec 007), carries
 `self_reported`, with the number of finished trials per side whose
 value is self-reported. Such a result has no verdict, stays outside the
 family (Multiple comparisons, above) and is never headlined (spec
-010): it is the harness's claim, not a measurement Examen made.
+010): it is the external harness's claim, not a measurement Examen made.
 
 **`incomplete`.** A result whose sides' cells hold trials excluded from
 analysis that no finished retry replaced carries `incomplete`, with the
@@ -906,7 +907,7 @@ confounds.
 
 **Declared provenance.** A side whose candidate is of kind `external`
 is listed in the comparison's `declared_provenance`: its tuple, outcome,
-times and outputs are what its harness declared, which Examen cannot
+times and outputs are what its external harness declared, which Examen cannot
 observe (spec 005). In a comparison it changes no verdict and no
 confound. A console and a report show it beside the comparison (spec
 010).
@@ -1040,7 +1041,9 @@ Each comparison also stores its `verdict_counts`, which a headline shows.
 
 ### Benchmark entries
 
-A benchmark's results table (spec 013) compares entries of different
+Benchmark entries and their rank intervals come after v0.1, with
+submissions to a published benchmark (spec 013); the design is kept
+here. A benchmark's results table (spec 013) compares entries of different
 experiments, often of different owners, through the `values` each
 entry copied at submission (spec 002): per task, the task's weight,
 the trials' values of the benchmark's primary metric, the cells' tuple
@@ -1197,8 +1200,8 @@ drawn again from the new root seed.
 
 ### Trends across successive baselines
 
-Trends are a later build step than the console path; the design is
-kept here. Moving a baseline makes a new record (spec 002) that names
+Trends come after v0.1, a later build step than the console path; the
+design is kept here. Moving a baseline makes a new record (spec 002) that names
 the record it replaced in `previous`. The records linked this way,
 newest first, are the baseline's **lineage**. A trend reads the newest
 `MAX_TREND_POINTS` records of a lineage and shows, per metric:
@@ -1356,15 +1359,18 @@ benchmark (spec 013).
 
 ## Build order
 
-The first slice builds everything above but label tests, open
+The first release, v0.1, builds everything above but label tests, open
 vocabularies, cell-level and candidate-level metrics and the
-`uncalibrated` confound, trends and the cross-architecture run of the
-golden comparison, which follow as later steps (specs/README.md). The
-`window` confound is in the first slice, for baselines, and reads
-adopted trials once adoption is built. Benchmark entries come with
-publishing (spec 013). Label tests, with open vocabularies, the two
-levels and `uncalibrated`, come right after the `external` executor;
-until annotations are built every judge is uncalibrated (spec 006).
+`uncalibrated` confound, benchmark entries, trends and the
+cross-architecture run of the golden comparison, which follow as later
+steps (specs/README.md). Its comparisons read `external` and imported
+trials, so declared provenance, comparisons across tasks and the
+`self_reported`, `declared.image` and `window` confounds are in it; the
+`window` confound reads adopted trials once adoption is built. Label
+tests, with open vocabularies, the two levels and `uncalibrated`, come
+after the built-in comparators; until annotations are built every judge
+is uncalibrated (spec 006). Benchmark entries come with submissions,
+after publishing (spec 013).
 
 ## Acceptance criteria
 
@@ -1382,7 +1388,7 @@ until annotations are built every judge is uncalibrated (spec 006).
 | With `MIN_TRIALS_FOR_VERDICT - 1` valued trials on either side, every task-level verdict is `insufficient` and the result is in no family | `analysis.TestInsufficientBelowMinimum` |
 | A suite-level result includes exactly the tasks with at least `MIN_TRIALS_PER_TASK_IN_SUITE` valued trials per side, is `insufficient` only below `MIN_SUITE_COVERAGE`, and lists every task left out with why | `analysis.TestCoverage` |
 | A suite-level rate's interval is Wilson's on Kish's effective sample size and a suite-level rate difference's is Agresti and Caffo's, matching the worked examples; no rate or rate difference uses the bootstrap-t | `analysis.TestSuiteRateIntervals` |
-| A metric with direction `none` is never `improved` or `regressed`; a significant change is `changed`; in the first slice a label result carries no verdict, `p` or `q` | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive` |
+| A metric with direction `none` is never `improved` or `regressed`; a significant change is `changed`; before label tests are built a label result carries no verdict, `p` or `q` | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive` |
 | Label tests: Fisher, Freeman and Halton's p-value matches reference values for 2 by k tables, ties and a one-label table included; above `PERMUTATION_EXACT_MAX` tables the chi-square permutation draws from the result's seed with sequential stopping and repeats bit for bit; a significant difference is `changed`; per-label intervals are Newcombe's per task and Agresti and Caffo's over the suite | `analysis.TestFisherFreemanHalton`, `analysis.TestChiSquarePermutation` |
 | A repeat rate matches the worked examples, is tested by the exact permutation of its difference (12/252 for five equal labels against five distinct), has no interval and says why, and its suite-level figure is the weighted mean; `mode_share` and `distinct_count` carry no interval, `p`, `q` or verdict, and stay out of the family, `verdict_counts` and the headline | `analysis.TestRepeatRate`, `analysis.TestDescriptiveCellMeasures` |
 | A candidate-level result carries both values and no interval, `p`, `q` or verdict, and stays out of the family | `analysis.TestCandidateLevelIsDescriptive` |

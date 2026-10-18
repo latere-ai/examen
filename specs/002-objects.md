@@ -41,7 +41,7 @@ other specs refer to them by name.
 | judge | a grader that uses a model: a model judge or an agent judge | |
 | decline judge | what produces the built-in metric `declined`: the built-in decline judge, `builtin:decline`, or the grader a suite names in `decline_judge` (spec 006) | the outcome `declined`, which the executor sets |
 | candidate | one fully pinned system under test: an agent, a program, or an external harness's configuration | the authorizer's `subject`, which is the caller |
-| system under test | another word for a candidate: the agent, program or harness configuration a trial exercises | |
+| system under test | another word for a candidate: the agent, program or external harness configuration a trial exercises | |
 | program | a program in an image, pinned by digest, that a candidate of kind `program` runs in a Cella sandbox: an agent command-line tool of any vendor, Examen's HTTP runner that calls an API, or any other (spec 005) | the tuple field `program`, which holds how it is started and configured |
 | external harness | the owner's own program that runs the trials of a candidate of kind `external` wherever it likes, leasing them from Examen and submitting their outcomes and outputs (spec 005) | an executor, which is Examen's |
 | lease (of external trials) | an external harness's hold on pending trials for `EXTERNAL_LEASE`, renewable, after which they return to pending (spec 005) | a Key leased from the key source, the delivery lease, and a work queue job's lease |
@@ -73,7 +73,9 @@ other specs refer to them by name.
 | benchmark | a publication of a suite version that others may run, with the results submitted to it; open, not held out: whoever runs it reads its references and checks (spec 013) | a public benchmark's content, imported as ordinary tasks (spec 001) |
 | submission | one candidate of a report publication version entered in a benchmark's results table (spec 013) | an external trial's submit |
 | event | one entry of an experiment's event log; a sink event is also delivered to the installation's event sink (spec 003) | a telemetry event |
-| key source | what leases the Lux Keys that model judges, `cella` rollouts and narrative drafts call through: `lux` or `endpoint` (spec 004) | the Keys Topos issues its own sessions |
+| key source | what leases the Lux Keys that model judges, `cella` rollouts and narrative drafts call through: `endpoint`, or `lux` after v0.1; an installation without one runs the v0.1 profile (spec 004) | the Keys Topos issues its own sessions |
+| spending cap | the US-dollar cap an experiment's create gives as `budget.cap_usd_micro` in place of a Budget's name, for a hard Budget made for the experiment (spec 004) | a Lux Key's own spend cap |
+| v0.1 profile | what an installation serves with no owner token source, no key source and no file store: definitions, `external` candidates, experiments in modes `execute` and `import`, leases and submits, past trials imported, self-reported values, the grid, comparisons and the progress stream; the first release serves exactly this (specs 003, 005 and 011) | |
 
 ## Identifiers
 
@@ -130,7 +132,7 @@ Three grader digests are reserved and name no applied version:
 `builtin`, Examen's filling of the built-in metrics from the trial
 record; `builtin:decline`, the built-in decline judge; and
 `self:<harness>`, with `<harness>` an external candidate's `harness`,
-the grader of every measurement that harness submitted itself (spec
+the grader of every measurement that external harness submitted itself (spec
 005). Each built-in metric (below) has the reserved metric digest
 `builtin:<name>`, such as `builtin:cost_usd`, which also names no
 applied version: a suite names it in `metrics` to include that metric,
@@ -215,6 +217,8 @@ else. The last column names the spec that explains its use.
 | `API_REQUESTS_PER_MINUTE` | 600 | requests one subject may make to one replica in a minute | 012 |
 | `IDEMPOTENCY_WINDOW` | 24 hours | how long an `Idempotency-Key` answers its first response | 003 |
 | `IDEMPOTENCY_KEY_MAX_BYTES` | 255 | the longest `Idempotency-Key` | 003 |
+| `IDEMPOTENCY_RESERVATION` | 5 minutes | how long an `Idempotency-Key` whose first request is still being served holds off a repeat with `request_in_progress`; it lapses so a repeat runs when a replica stopped mid-request | 003 |
+| `REQUEST_DEADLINE` | 1 minute | how long examend serves one request that carries an `Idempotency-Key` before it abandons it; shorter than `IDEMPOTENCY_RESERVATION`, so no first request ends after its reservation lapsed | 003 |
 | `STREAM_POLL_INTERVAL` | 1 second | how often an open stream reads the event log for new entries | 003 |
 | `STREAM_KEEPALIVE` | 15 seconds | the longest a stream stays silent before a keepalive comment | 003 |
 | `MAX_STREAMS_PER_SUBJECT` | 10 | streams one subject holds open on one replica | 003 |
@@ -379,7 +383,7 @@ One fully pinned system under test.
 | `kind` | enum | `topos`, `program` or `external` |
 | `topos` | object | for `topos`: `agent` (a Topos agent version digest), `model` (a pinned model id that overrides the agent's), `reasoning` (the reasoning level, overriding the agent's), `tools` (optional narrowing of the agent's tools) |
 | `program` | object | for `program`: `image` (digest-pinned), `command`, `env` (no secrets), `config` (an object the program defines and reads, such as the HTTP runner's request, spec 005), `model` and `reasoning` (optional: the model and reasoning level the program is told to use; model access comes from the trial's Lux Key), `credentials` (optional: each `{audience, host, env}` or `{audience, host, file}`, an owner token for `audience` delivered as a Cella Secret scoped to `host`, the API's host name, with its placeholder under the variable `env` or in the file `file`; never an audience Examen acts through, a core's of spec 004 or Examen's own, which is refused at apply, spec 003), and `lux` (`surface`: the Lux API the program speaks, `anthropic_messages`, `openai_responses`, `openai_chat_completions`, `gemini` or `lux`, default `lux`, for which its Key is scoped; `key_env`, the variable the Key is mounted under, default `LUX_KEY`; `url_env`, the variable set to the surface's base URL, default `LUX_URL`) (spec 005) |
-| `external` | object | for `external`: `harness` (the harness's name, 1 to 63 characters of `[a-z0-9._-]`), `version` (a string the harness declares for itself), `digest` (optional: a digest the harness declares for its build), `model` and `reasoning` (optional: the pinned model id and the reasoning level the harness runs its system with), and `flags` (optional: an object from a setting's name to its value, each a string, at most `METADATA_MAX_PAIRS` pairs: the harness's own settings that change what it runs); declared by the harness, never observed (spec 005) |
+| `external` | object | for `external`: `harness` (the external harness's name, 1 to 63 characters of `[a-z0-9._-]`), `version` (a string the external harness declares for itself), `digest` (optional: a digest the external harness declares for its build), `model` and `reasoning` (optional: the pinned model id and the reasoning level the external harness runs its system with), and `flags` (optional: an object from a setting's name to its value, each a string, at most `METADATA_MAX_PAIRS` pairs: the external harness's own settings that change what it runs); declared by the external harness, never observed (spec 005) |
 | `metadata` | map | at most `METADATA_MAX_PAIRS` |
 
 ### The provenance tuple
@@ -400,14 +404,14 @@ digest, so two candidates that differ only in how their program is
 started or configured are different cells; a `topos` candidate's is
 empty. `model` and `reasoning` are a candidate's own, and for an
 `external` candidate what it declares, so two external candidates that
-declare one harness and model and differ only in `reasoning` are
+declare one external harness and model and differ only in `reasoning` are
 compared on `reasoning` alone.
 `grader_digests` holds every grader of the cell's trials: the task's
 checks, the suite's graders and the suite's decline judge. Every field
 is pinned: an agent named without a version digest, a model alias with
 nothing recording what served it, an image by tag, a workspace by
 branch, is refused when applied. An `external` candidate's fields are
-pinned by its harness's declaration, which Examen cannot observe, so a
+pinned by its external harness's declaration, which Examen cannot observe, so a
 comparison that reads one says so in `declared_provenance` (spec 008).
 A comparison's confounds are computed from this tuple (spec 008).
 
@@ -420,11 +424,11 @@ One execution of a suite against candidates.
 | `suite` | suite digest | |
 | `candidates` | []candidate digest | at most `MAX_CANDIDATES_PER_EXPERIMENT` |
 | `trials` | int | N per cell, declared before any cell runs; `DEFAULT_TRIALS` when unset, at most `MAX_TRIALS_PER_CELL` |
-| `budget` | object | `{name}`: the Lux Budget every model call of this experiment is metered against, as resolved at create: the Budget the request named, the one an authorizer's `budget` limit assigned, or the one created for the cap the request gave (specs 003 and 004). Read with `cap_usd_micro`, `spent_usd_micro` and `remaining_usd_micro` beside `name`, computed through the key source when read, at most `BUDGET_STATUS_TTL` old, and never stored |
+| `budget` | object | `{name}`: the Lux Budget every model call of this experiment is metered against, as resolved at create: the Budget the request named, the one an authorizer's `budget` limit assigned, or the one created for the cap the request gave (specs 003 and 004); in the v0.1 profile, without an authorizer's `budget` limit, `{cap_usd_micro}` alone, the spending cap the request gave, which no Lux Budget holds since nothing the profile serves calls a model through Examen (spec 003). Read with `cap_usd_micro`, `spent_usd_micro` and `remaining_usd_micro` beside `name`, computed through the key source when read, at most `BUDGET_STATUS_TTL` old, and never stored |
 | `benchmark` | object | `{publication, version}`: the published benchmark version through which the experiment runs another owner's suite (spec 013); absent otherwise |
 | `parallelism` | int | `DEFAULT_PARALLELISM` when unset, at most `MAX_PARALLELISM` |
 | `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset. The reference set before any cell leaves `pending` is the declared one; a reference set later makes exploratory comparisons (spec 008) |
-| `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE`; a later build step (spec 005) |
+| `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE`; after v0.1, a later build step (spec 005) |
 | `mode` | enum | `execute` (the default): Examen runs every cell; `import`: Examen runs no trial, and each cell is made from the resolved provenance tuple of the first trial imported into it (below) |
 | `state` | enum | below |
 | `created_by` | subject | the subject that created it (spec 004) |
@@ -445,9 +449,9 @@ first experiment with no baseline therefore has comparisons, a
 headline and grid verdicts from its first candidate.
 
 **Mode `import`.** No cell exists at create. Each imported trial, a
-finished session or sandbox or a past run an external harness reports,
+finished session or sandbox or a past trial an external harness reports,
 names a task and a candidate of the experiment; its provenance tuple is
-resolved from the records it came from, or for an external run from
+resolved from the records it came from, or for an external trial from
 its candidate's declaration, and must equal the tuple that
 task and candidate give, and it joins the cell of that tuple, which the
 first such import creates (spec 005). A cell holds at most `trials`
@@ -491,21 +495,21 @@ One attempt by a candidate at a task.
 |---|---|---|
 | `cell` | cell id | |
 | `index` | int | 0 to N-1; the smoke trials take the first indices |
-| `executor_ref` | string | the Topos session id, the Cella sandbox name, or for an `external` trial the run reference its harness submitted, when it submitted one |
+| `executor_ref` | string | the Topos session id, the Cella sandbox name, or for an `external` trial the reference its external harness submitted for the trial, when it submitted one |
 | `lease` | object | for an `external` trial while it is leased: `{id, subject, expires_at}`, the lease's `lse_` id, the subject that holds it, and when it lapses unless renewed (spec 005) |
 | `state` | enum | `pending`, `running`, `checking`, `done` |
 | `outcome` | enum | once `done`, below |
 | `failure` | object | for `infra_failed`, `over_budget` and `canceled`: `{code, detail}`, a stable code and a developer's detail |
 | `retry_of` | trial id | when this trial retries an earlier one: an infrastructure failure, or an index a cell's retry runs again (spec 005) |
 | `sent` | object | what was sent: the model and reasoning settings of each request, from the executor (spec 007) |
-| `observed` | object | what happened: the model that served, token usage including reasoning, cost, from the executor's and Lux's records, and the service versions and the usage figures of the APIs it called that a program recorded or a harness submitted (spec 007) |
-| `declared` | object | for an `external` trial: what its harness declared about its own run that Examen cannot observe, `harness_version` and `image`, a tag or a digest as the harness names it (spec 005) |
+| `observed` | object | what happened: the model that served, token usage including reasoning, cost, from the executor's and Lux's records, and the service versions and the usage figures of the APIs it called that a program recorded or an external harness submitted (spec 007) |
+| `declared` | object | for an `external` trial: what its external harness declared about the trial that Examen cannot observe, `harness_version` and `image`, a tag or a digest as the external harness names it (spec 005) |
 | `checks` | []object | one check run record per check of the task, in order: `{grader, state, exit_code, reason, duration, stdout_size, stdout_sha256, stderr_tail}`, `state` one of spec 006's check run states |
 | `judgments` | []object | one judgment record per judge grading: `{grader, generation, state, attempts, request_digest, cuts, boundary, served_model, tokens, cost}`, `attempts` each `{lux_request, state}`, `state` one of spec 006's judgment states |
 | `evidence` | []evidence ref | spec 007 |
 | `outputs` | object | a summary of the trial's output manifest (spec 005): `{files, bytes, kept_bytes, not_kept, over_limit}`, the files and bytes its outputs held, the bytes kept, the files kept by digest and size alone, and, when its outputs passed `MAX_OUTPUT_FILES` or `MAX_OUTPUT_BYTES`, the constant they passed |
-| `imported` | bool | true when the trial was imported rather than executed: a finished session or sandbox, or a past run of an external harness (spec 005) |
-| `started_at`, `agent_ended_at`, `ended_at` | time | the system under test's first step; its end; the trial's end after its checks and evidence. For an `external` trial the first two are what its harness submitted, and for an imported external run all three (spec 003) |
+| `imported` | bool | true when the trial was imported rather than executed: a finished session or sandbox, or a past trial of an external harness (spec 005) |
+| `started_at`, `agent_ended_at`, `ended_at` | time | the system under test's first step; its end; the trial's end after its checks and evidence. For an `external` trial the first two are what its external harness submitted, and for an imported external trial all three (spec 003) |
 
 | Outcome | When |
 |---|---|
@@ -540,7 +544,7 @@ or its experiment, exists.
 | `candidate` | candidate digest | for a candidate-level metric: the candidate of `experiment` it describes; absent otherwise |
 | `metric` | metric digest | |
 | `grader` | grader digest | or `builtin` for the built-in metrics Examen fills, `builtin:decline` for the built-in decline judge, or `self:<harness>` for a value an external harness submitted itself |
-| `self_reported` | bool | true exactly when `grader` is `self:<harness>`: the value is the harness's claim, never headlined, and every result that reads it carries the confound `self_reported` (spec 008) |
+| `self_reported` | bool | true exactly when `grader` is `self:<harness>`: the value is the external harness's claim, never headlined, and every result that reads it carries the confound `self_reported` (spec 008) |
 | `generation` | int | 1 for the first grading by this grader version of this trial, or of this candidate for a candidate-level grader, counted per annotator for an annotation grader; a re-grade appends the next |
 | `value` | number, bool or string | typed by the metric; for an open-vocabulary metric, the raw label as proposed, normalized (spec 006) |
 | `rationale` | text | a judge's reason, an annotator's note; empty for checks and built-ins |
@@ -621,7 +625,7 @@ true it never changes, and computing again makes a new comparison.
 | `final` | bool | true once both sides are final: every declared trial of each side is `done` and graded; false while a figure can still change |
 | `variable` | []tuple field | what the comparison intends to vary: the tuple fields of one logical variable, `task_hash` for a comparison across tasks (spec 008) |
 | `single_variable` | bool | no tuple field besides `variable` differs on any paired task (spec 008); layer confounds, missing, self-reported and excluded values, differing time windows and an uncalibrated judge are scoped to the results they affect and leave it unchanged |
-| `declared_provenance` | []string | the sides, `candidate` and `reference`, whose candidate is of kind `external`, so whose tuple its harness declared rather than an executor observed; empty otherwise (spec 008) |
+| `declared_provenance` | []string | the sides, `candidate` and `reference`, whose candidate is of kind `external`, so whose tuple its external harness declared rather than an executor observed; empty otherwise (spec 008) |
 | `confounds` | []string | the name of every confound of its results, computed: the union of its results' `confounds` names |
 | `results` | []result | per metric and task, and per metric over the suite; below |
 | `taxonomies` | object | for each open-vocabulary metric it reads: the id of the taxonomy record its canonical labels were read at, the suite's current record, or the record a bar pins for a comparison a bar evaluation asked for (specs 006, 008 and 009) |

@@ -1,5 +1,5 @@
 ---
-title: "Architecture: a thin core that defines experiments on agents and on programs built on models, records measurements and decides what changed, while Topos, Cella or the owner's own harness runs every trial, Lux meters it and Arca keeps the evidence"
+title: "Architecture: a thin core that defines experiments on agents and on programs built on models, records measurements and decides what changed, while Topos, Cella or the owner's own external harness runs every trial, Lux meters it and Arca keeps the evidence"
 status: drafted
 track: core
 depends_on: []
@@ -21,8 +21,8 @@ measure them. You name the systems under test to compare and how many
 trials each gets: a Topos agent configuration, a program in an image
 (an agent command-line tool of any vendor, or Examen's HTTP runner
 calling an API such as Lectio's), or a configuration of your own
-harness. Examen asks the cores that already run agents and sandboxes to
-execute the trials, or hands them to your harness, records every
+external harness. Examen asks the cores that already run agents and sandboxes to
+execute the trials, or hands them to your external harness, records every
 measurement with everything that conditioned it, and compares each
 candidate with a reference, a pinned baseline or another candidate of
 the same experiment: per metric, improved, regressed, or within noise,
@@ -52,7 +52,7 @@ else:
   published versions included, which readers reach through Arca's
   read-only links. [Origo](https://github.com/latere-ai/origo) holds the
   repositories a task starts from and may take inputs from.
-- Your own harness may run the trials of an `external` candidate
+- Your own external harness may run the trials of an `external` candidate
   wherever it likes: it leases them from Examen and submits each
   trial's outcome and outputs, which Examen grades like any trial's.
 - An authorizer you write decides who may do what, with the contract
@@ -114,7 +114,7 @@ flowchart TB
   READER[A reader without sign-in] -->|link or public id| PUB
   C -->|Topos agent candidate: rollouts| T[Topos: one session per trial]
   C -->|program candidate: one set per rollout| CE[Cella: SandboxSet, one replica per trial]
-  C -->|external candidate: leased trials| H[The owner's harness]
+  C -->|external candidate: leased trials| H[The owner's external harness]
   H -->|outcome and outputs| X
   X -->|program and external trials' checks: check sandbox| CE
   T -->|machine| CE
@@ -134,7 +134,7 @@ flowchart TB
 1. **Apply.** A suite and an experiment are applied. Examen validates
    every pinned reference, asks the authorizer whether the owner may
    run it, and expands the cells.
-2. **Budget.** The experiment names one Lux Budget, or gives a cap for
+2. **Budget.** The experiment names one Lux Budget, or gives a spending cap for
    one made for it by the authorizer or, on its own, by Examen as the
    owner. Every model call its
    trials and judges make is metered against it, through Keys that
@@ -193,7 +193,7 @@ and cancels it. Spec 005 fixes the contract.
 |---|---|---|---|
 | `topos` | `topos`: a Topos agent version, with a model, reasoning and tools override | Topos rollouts: one session per trial, each in its own Cella machine, the checks run in the machine before the session ends | Topos sessions, budgets and metadata are built; the rollout and the model override are proposed |
 | `cella` | `program`: a program packaged as an image, pinned by digest, with its command, environment and configuration: an agent command-line tool of any vendor, the HTTP runner that calls an API, or any other | one Cella SandboxSet per rollout: one replica per trial of the task's environment template, with the program mounted read-only into it from its image, so the environment is identical across candidates; results collected, then each trial's checks run in a check sandbox | designed (Cella spec 020), not built |
-| `external` | `external`: a configuration of the owner's own harness, its name, version and an optional digest, declared and not observed | none of Examen's: the harness leases pending trials and submits each one's outcome, outputs and the Lux request ids of its model calls; each trial's checks run in a check sandbox, one Cella sandbox from the task's environment template | a single Cella sandbox with its file routes and exec is built; a check with an image also needs Cella's image Volumes (Cella spec 019) |
+| `external` | `external`: a configuration of the owner's own external harness, its name, version and an optional digest, declared and not observed | none of Examen's: the external harness leases pending trials and submits each one's outcome, outputs and the Lux request ids of its model calls; each trial's checks run in a check sandbox, one Cella sandbox from the task's environment template | a single Cella sandbox with its file routes and exec is built; a check with an image also needs Cella's image Volumes (Cella spec 019) |
 
 ## Place in the platform
 
@@ -224,7 +224,7 @@ Each decision names the alternative it rejects.
    mechanism beside the SandboxSet Cella designs for this, and drifts
    from both.
 2. **An agent's checks run in its machine; a program's and an external
-   harness's run apart.** A `topos` trial's checks run inside its Cella
+   external harness's run apart.** A `topos` trial's checks run inside its Cella
    machine before it ends, after every process of the turn has stopped,
    with network `none`. A `cella` or `external` trial's checks run in a
    fresh Cella sandbox from the task's environment template, the check
@@ -250,10 +250,10 @@ Each decision names the alternative it rejects.
    comparison. The Topos rollout must accept the override.
 5. **One Lux Budget per experiment, and Keys from a key source.** Every
    model call is metered against the experiment's Budget. The Keys
-   Examen's own calls need come from a key source: the `lux` source
-   creates them at Lux as the owner when Examen runs on its own, with
-   the Budget of an experiment that gave a cap in place of a name, and
-   the `endpoint` source asks an installation that keeps its own
+   Examen's own calls need come from a key source: the `lux` source,
+   after v0.1, creates them at Lux as the owner when Examen runs on its
+   own, with the Budget of an experiment that gave a spending cap in place of a
+   name, and the `endpoint` source asks an installation that keeps its own
    budgets, which then writes every Key and Budget itself and reports
    the smallest remainder the cost check reads. *Rejected:* a spend
    ledger in Examen, which duplicates Lux's and disagrees with it; and
@@ -313,10 +313,11 @@ Each decision names the alternative it rejects.
 10. **Trials Examen did not start can be graded.** A finished Topos
     session or Cella sandbox is imported as a trial with its provenance
     read from its records, so the same graders score production
-    samples, and an external harness's past run is imported with its
-    times, harness version and image declared, so a study run before
-    Examen is backfilled and marked declared. Built after the executed
-    path. *Rejected:* executed trials
+    samples, and an external harness's past trial is imported with its
+    times, `harness_version` and image declared, so a study run before
+    Examen is backfilled and marked declared. The import of past trials
+    ships in the first release; imported sessions and sandboxes are
+    built after the executed path. *Rejected:* executed trials
     only, which leaves the graders unusable on real traffic.
 11. **Public benchmarks are imported as ordinary tasks.** A manifest
     format, no built-in benchmark adapters. *Rejected:* shipping
@@ -334,23 +335,28 @@ Each decision names the alternative it rejects.
     and takes its inputs and references from the same or from inline
     text. *Rejected:* arbitrary URLs, which cannot be pinned or
     authorized, and which examend would have to fetch.
-16. **The first consumer is people comparing agents in a console.** The
-    first slice is the path a comparison needs: suites, candidates and
-    experiments with an automatic comparison against their reference,
-    the `topos` executor, checks and model judges, the analysis, and a
-    read API, the paged grid, comparison rows and the progress stream,
-    that a console renders from without computing any statistic itself.
-    The built-in comparators follow, useful to agent tasks with
-    reference outputs too, then the `external` executor with its check
-    sandbox, then label tests with open vocabularies and the cell and
-    candidate levels, external history import, bars, dataset export,
-    publishing, agent judges, annotations, imported trials, the `cella`
-    executor with the `program` kind and the HTTP runner once Cella's
-    SandboxSet exists, adoption, the gap map, trends and report exports
-    (specs/README.md).
-    *Rejected:* a training loop or the release bar first, which
-    exercises the same core but leaves people without a way to compare
-    agents.
+16. **The first consumer is people comparing agents in a console, and
+    the console follows the v0.1 API.** The first release serves the
+    v0.1 profile: suites, `external` candidates and experiments in modes
+    `execute` and `import`, the lease and submit of external trials, the
+    import of an external harness's past trials, the values an external
+    harness reports for itself, kept self-reported, and the read API a
+    console renders from without computing any statistic itself, the
+    paged grid, comparisons with their rows and the progress stream. It
+    needs no owner token source, key source or file store (spec 003).
+    A console's section follows once its prototype is reviewed, then
+    the `topos` executor once Topos's rollout exists, then checks and
+    judges with the key source and the minter, then the built-in
+    comparators, label tests with open vocabularies and the cell and
+    candidate levels, bars, dataset export, publishing, agent judges,
+    annotations, imported trials, the `cella` executor with the
+    `program` kind and the HTTP runner once Cella's SandboxSet exists,
+    adoption, the gap map, trends and report exports
+    (specs/README.md). *Rejected:* a training loop or the release bar
+    first, which exercises the same core but leaves people without a
+    way to compare agents; and the `topos` executor first, which waits
+    on a Topos rollout that does not exist yet, while comparing the
+    external harnesses people already run needs nothing but Examen.
 17. **Three kinds of system under test.** A candidate is a Topos agent,
     a program in an image, or an external harness's configuration. An
     agent command-line tool of any vendor is one kind of program, not
@@ -384,9 +390,9 @@ Each decision names the alternative it rejects.
     id or label, and is unknown, never zero, when Lux holds no record of
     it. Values it computes itself are kept as self-reported, never
     headlined, and named as a confound wherever they are read.
-    *Rejected:* trusting self-reported scores, which lets a harness
-    grade itself; and requiring every harness to be packaged as an
-    image, which shuts out harnesses that cannot be.
+    *Rejected:* trusting self-reported scores, which lets an external harness
+    grade itself; and requiring every external harness to be packaged as an
+    image, which shuts out external harnesses that cannot be.
 22. **Results are shared as published snapshots, and sharing has one
     definition.** Only people invited is a share grant of one owner to
     another; anyone with the link and listed reach a publication, a
@@ -444,7 +450,7 @@ client and any console use the same API. Spec 011 covers distribution.
 | 002 Objects | every object, its fields, states, identifiers and limits |
 | 003 API | the contract a client codes against, its errors, and the event sink |
 | 004 Identity and authorization | the authorizer contract, actions, the built-in owner policy, share grants and readers who do not sign in, acting as the owner, the key source |
-| 005 Execution | the executor contract, the `topos`, `cella` and `external` executors, task inputs and references, the HTTP runner, the check sandbox, smoke and the cost check, retries and retrying a parked cell, cancellation, imported trials and external past runs, an API's own cost |
+| 005 Execution | the executor contract, the `topos`, `cella` and `external` executors, task inputs and references, the HTTP runner, the check sandbox, smoke and the cost check, retries and retrying a parked cell, cancellation, imported trials and external past trials, an API's own cost |
 | 006 Grading | checks, the built-in comparators, model judges, candidate-level judges, agent judges, annotations, the decline judge, generations, open vocabularies and their taxonomies, calibration |
 | 007 Measurements and evidence | the measurement store, provenance layers, evidence references and where evidence lives, retention, dataset export |
 | 008 Analysis | aggregation and intervals by metric level, studentized permutation tests and the label tests, the repeat rate, score intervals for weighted rates, the primary result, exploratory comparisons and the corrected family, confounds, automatic comparisons, verdicts, reasons and the power floor, a benchmark's rank intervals, trends |
@@ -466,6 +472,9 @@ client and any console use the same API. Spec 011 covers distribution.
   that cell past the smoke.
 - With the `endpoint` key source, Examen creates no Key or Budget at
   Lux.
+- With no owner token source, key source or file store, an experiment
+  of `external` candidates runs to its final comparisons with no
+  request to any core.
 - Comparing two models on one agent version yields a single-variable
   comparison.
 - An experiment with no baseline compares every candidate with its
