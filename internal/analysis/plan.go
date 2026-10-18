@@ -177,6 +177,12 @@ func (c *computer) classify() {
 			}
 			pl.primary = m.Digest == c.in.Suite.PrimaryMetric && !c.in.Exploratory
 		}
+		if pl.level == LevelTask && c.in.AcrossTasks && c.in.Declared > 0 {
+			// A declared comparison across tasks has no suite-level
+			// result: its primary result is the primary metric's one
+			// task-level result.
+			pl.primary = m.Digest == c.in.Suite.PrimaryMetric
+		}
 		pl.descriptive = m.Aggregate == AggModeShare || m.Aggregate == AggDistinctCount ||
 			(m.Type == TypeLabel && !c.in.LabelTests)
 		pl.inFamily = !pl.insufficient && !pl.descriptive && !pl.selfReported && !pl.primary
@@ -186,7 +192,7 @@ func (c *computer) classify() {
 			c.family++
 		}
 	}
-	alone, family := resamples(1, c.p.FalseDiscoveryRate), resamples(c.family, c.p.FalseDiscoveryRate)
+	alone, family := resamples(c.primaryM(), c.p.FalseDiscoveryRate), resamples(c.family, c.p.FalseDiscoveryRate)
 	for _, pl := range c.plans {
 		pl.b = alone
 		if pl.inFamily {

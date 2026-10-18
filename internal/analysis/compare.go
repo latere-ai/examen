@@ -138,7 +138,14 @@ func newComputer(in Input) (*computer, error) {
 	if err := validate(in); err != nil {
 		return nil, err
 	}
-	if in.AcrossTasks {
+	if in.Declared < 0 {
+		return nil, fmt.Errorf("%w: a declared family of %d comparisons", ErrInput, in.Declared)
+	}
+	if in.Declared > 0 {
+		in.Exploratory = false
+	} else if in.AcrossTasks {
+		// A comparison across tasks is made on request unless the
+		// experiment declared it.
 		in.Exploratory = true
 	}
 	c := &computer{in: in, p: in.Parameters, z: in.Parameters.z(), metrics: map[string]Metric{}}
@@ -302,6 +309,13 @@ func (c *computer) read(pt *pairedTask, m Metric) *pairRead {
 	return c.reads[pt][c.trialMetric(m).Digest]
 }
 
+// primaryM is the m the primary result's PERMUTATION_RESAMPLES and power
+// floor resolve with: D for a declared comparison, whose primary result is
+// corrected in the declared family, and 1 for one tested alone.
+func (c *computer) primaryM() int {
+	return max(c.in.Declared, 1)
+}
+
 // external reports whether a side's candidate is of kind external.
 func external(s Side) bool {
 	for _, cell := range s.Cells {
@@ -378,11 +392,11 @@ func (c *computer) assemble(digest string) Comparison {
 	if out.Confounds == nil {
 		out.Confounds = []string{}
 	}
-	out.Correction = Correction{Method: "benjamini_hochberg", Family: family}
+	out.Correction = Correction{Method: "benjamini_hochberg", Family: family, Declared: c.in.Declared}
 	if !c.in.Exploratory {
 		out.Correction.Primary = c.in.Suite.PrimaryMetric
 	}
-	out.Resamples = Resolved{Primary: resamples(1, c.p.FalseDiscoveryRate), Family: resamples(family, c.p.FalseDiscoveryRate)}
+	out.Resamples = Resolved{Primary: resamples(c.primaryM(), c.p.FalseDiscoveryRate), Family: resamples(family, c.p.FalseDiscoveryRate)}
 	var wx, wy window
 	for _, pt := range c.tasks {
 		for _, t := range pt.xt.finished {

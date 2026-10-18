@@ -27,6 +27,7 @@ const (
 	MaxTasksPerSuite              = 1000
 	MaxMetricsPerSuite            = 64
 	MaxCandidatesPerExperiment    = 32
+	MaxDeclaredComparisons        = 128
 	MaxActiveExperimentsPerOwner  = 16
 	DefaultParallelism            = 8
 	MaxParallelism                = 256

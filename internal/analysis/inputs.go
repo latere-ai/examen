@@ -76,6 +76,7 @@ type document struct {
 	Parameters      Parameters         `json:"parameters"`
 	Variable        []string           `json:"variable"`
 	Exploratory     bool               `json:"exploratory"`
+	Declared        int                `json:"declared,omitempty"`
 	LabelTests      bool               `json:"label_tests"`
 	Weights         map[string]float64 `json:"weights"`
 	PrimaryMetric   string             `json:"primary_metric"`
@@ -174,7 +175,7 @@ func (c *computer) inputsDocument() document {
 		weights[st.Digest] = c.in.Suite.weight(st.Digest)
 	}
 	doc := document{
-		AnalysisVersion: Version, Parameters: c.p, Variable: c.varFields, Exploratory: c.in.Exploratory, LabelTests: c.in.LabelTests,
+		AnalysisVersion: Version, Parameters: c.p, Variable: c.varFields, Exploratory: c.in.Exploratory, Declared: c.in.Declared, LabelTests: c.in.LabelTests,
 		Weights: weights, PrimaryMetric: c.in.Suite.PrimaryMetric,
 		Candidate: docSide{Candidate: c.in.Candidate.Candidate, Tasks: []docTask{}, Values: c.candidateValues(&c.in.Candidate)},
 		Reference: docSide{Candidate: c.in.Reference.Candidate, Tasks: []docTask{}, Values: c.candidateValues(&c.in.Reference)},

@@ -74,6 +74,10 @@ func (figures) Summaries(context.Context, objects.Experiment, []objects.Cell, st
 	return nil, compare.ErrNotComputed
 }
 
+func (figures) Declared(context.Context, objects.Experiment, []objects.Comparison, compare.Source) (objects.DeclaredAnalysis, error) {
+	return objects.DeclaredAnalysis{}, compare.ErrNotComputed
+}
+
 // seed stores one experiment of two external candidates on one task, in
 // mode execute, with its smoke rollouts queued and its automatic
 // comparison, and answers its id and its cells' ids.

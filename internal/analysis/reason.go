@@ -144,6 +144,26 @@ func reasonExploratoryPrimary(p, q float64, m int, fdr float64) string {
 	return reasonFamily(p, q, m, fdr) + "; exploratory, so the primary metric is corrected with the rest"
 }
 
+func reasonDeclaredPrimary(p float64, d int) string {
+	return fmt.Sprintf("%s for the primary metric of a declared comparison; corrected with the primary results of %s declared comparisons in the experiment's declared analysis", pValue("p", p), count(d))
+}
+
+func reasonDeclaredFloor(what string, d int) string {
+	return "with " + what + ", no difference can be shown among " + count(d) + " declared comparisons"
+}
+
+func reasonDeclaredFamily(p, q float64, d int, fdr float64) string {
+	return fmt.Sprintf("%s; %s after correcting the primary results of %s declared comparisons at %s", pValue("p", p), pValue("q", q), count(d), percent(fdr))
+}
+
+// reasonNotComputed is the reason of a declared comparison the declared
+// analysis has no record of yet.
+const reasonNotComputed = "not computed yet: the candidate has no finished trial"
+
+// ReasonDeclaredFailed is the reason of a declared comparison whose newest
+// record failed, or holds no primary result: its p counts as 1.
+const ReasonDeclaredFailed = "not computed: the comparison could not be computed"
+
 func reasonSelfReported(p float64) string {
 	return pValue("p", p) + " on values the external harness reported itself: not a finding, and outside the corrected family"
 }

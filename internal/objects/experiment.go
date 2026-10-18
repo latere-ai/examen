@@ -53,27 +53,29 @@ type Progress struct {
 	Outcomes map[string]int `json:"outcomes"`
 }
 
-// Experiment is one execution of a suite against candidates.
+// Experiment is one execution of a suite against candidates. Scheduling
+// is the order in which its cells take its parallelism and its external
+// trials are leased, and Comparisons are the comparisons it declared, whose
+// primary results are corrected together; both are fixed at create.
 type Experiment struct {
-	ID          string    `json:"id"`
-	Owner       string    `json:"owner"`
-	Suite       string    `json:"suite"`
-	Candidates  []string  `json:"candidates"`
-	Trials      int       `json:"trials"`
-	Budget      Budget    `json:"budget"`
-	Parallelism int       `json:"parallelism"`
-	Reference   Reference `json:"reference"`
-	Mode        string    `json:"mode"`
-	// Scheduling is the order in which the experiment's cells take its
-	// parallelism and its external trials are leased, fixed at create.
-	Scheduling string            `json:"scheduling"`
-	State      string            `json:"state"`
-	CreatedBy  string            `json:"created_by"`
-	Judgments  []json.RawMessage `json:"judgments"`
-	Progress   *Progress         `json:"progress,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
-	CreatedAt  time.Time         `json:"created_at"`
-	UpdatedAt  time.Time         `json:"updated_at"`
+	ID          string               `json:"id"`
+	Owner       string               `json:"owner"`
+	Suite       string               `json:"suite"`
+	Candidates  []string             `json:"candidates"`
+	Trials      int                  `json:"trials"`
+	Budget      Budget               `json:"budget"`
+	Parallelism int                  `json:"parallelism"`
+	Reference   Reference            `json:"reference"`
+	Mode        string               `json:"mode"`
+	Scheduling  string               `json:"scheduling"`
+	Comparisons []DeclaredComparison `json:"comparisons"`
+	State       string               `json:"state"`
+	CreatedBy   string               `json:"created_by"`
+	Judgments   []json.RawMessage    `json:"judgments"`
+	Progress    *Progress            `json:"progress,omitempty"`
+	Metadata    map[string]string    `json:"metadata,omitempty"`
+	CreatedAt   time.Time            `json:"created_at"`
+	UpdatedAt   time.Time            `json:"updated_at"`
 
 	// SuiteID and CandidateIDs are the version ids the digests resolved
 	// to in the owner's context, and SuiteName the suite's name.
@@ -397,7 +399,8 @@ type Computed struct {
 }
 
 // Comparison is the per-metric results of a candidate's cells against a
-// reference.
+// reference. DeclaredIndex is, for a comparison its experiment declared,
+// its position in the experiment's comparisons, and nil otherwise.
 type Comparison struct {
 	ID                 string   `json:"id"`
 	Owner              string   `json:"owner"`
@@ -408,6 +411,7 @@ type Comparison struct {
 	Task               string   `json:"task,omitempty"`
 	ReferenceTask      string   `json:"reference_task,omitempty"`
 	Automatic          bool     `json:"automatic"`
+	DeclaredIndex      *int     `json:"declared,omitempty"`
 	Exploratory        bool     `json:"exploratory"`
 	State              string   `json:"state"`
 	Final              bool     `json:"final"`
@@ -419,6 +423,51 @@ type Comparison struct {
 	// UpdatedAt is when its row last changed, which a recomputation reads
 	// to clear its dirty mark only when nothing changed since.
 	UpdatedAt time.Time `json:"-"`
+}
+
+// DeclaredComparison is one comparison an experiment declares at create: a
+// pair of its candidates, by digest, with an optional logical variable, or
+// one candidate's pair of tasks, by digest.
+type DeclaredComparison struct {
+	Candidate          string `json:"candidate"`
+	ReferenceCandidate string `json:"reference_candidate,omitempty"`
+	Variable           string `json:"variable,omitempty"`
+	Task               string `json:"task,omitempty"`
+	ReferenceTask      string `json:"reference_task,omitempty"`
+}
+
+// DeclaredAnalysis is what an experiment declared, with its outcome: its
+// declared comparisons' primary results corrected together, and its test
+// of independence. Computed by the analysis and replaced as the declared
+// comparisons are recomputed.
+type DeclaredAnalysis struct {
+	Experiment   string           `json:"experiment"`
+	Final        bool             `json:"final"`
+	Family       DeclaredFamily   `json:"family"`
+	Comparisons  []DeclaredResult `json:"comparisons"`
+	Independence json.RawMessage  `json:"independence,omitempty"`
+	ComputedAt   *time.Time       `json:"computed_at,omitempty"`
+}
+
+// DeclaredFamily is the correction a declared analysis applies: its
+// method, its size and its level.
+type DeclaredFamily struct {
+	Method string  `json:"method"`
+	Size   int     `json:"size"`
+	Level  float64 `json:"level"`
+}
+
+// DeclaredResult is one declared comparison's primary result in its
+// family.
+type DeclaredResult struct {
+	Index      int      `json:"index"`
+	Comparison string   `json:"comparison,omitempty"`
+	Metric     string   `json:"metric"`
+	P          *float64 `json:"p,omitempty"`
+	Q          *float64 `json:"q,omitempty"`
+	Verdict    string   `json:"verdict,omitempty"`
+	Reason     string   `json:"reason"`
+	Final      bool     `json:"final"`
 }
 
 // Variables maps each logical variable of specs/008-analysis.md to its

@@ -2210,6 +2210,29 @@ paths:
                 "$ref": "#/components/schemas/Measurement"
         "404":
           "$ref": "#/components/responses/Error"
+  "/experiments/{id}/declared":
+    get:
+      tags:
+        - "comparisons"
+      operationId: "getDeclaredAnalysis"
+      summary: "An experiment's declared analysis"
+      description: "The primary results of the comparisons the experiment declared at create, corrected together by Benjamini and Hochberg over every declared comparison, each with its p, q, verdict and reason, computed as the declared comparisons are. Before any is computed, each entry says it is not computed yet. Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The declared analysis."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/DeclaredAnalysis"
+        "404":
+          "$ref": "#/components/responses/Error"
   "/experiments/{id}/comparisons":
     get:
       tags:
@@ -2242,6 +2265,11 @@ paths:
         - name: "automatic"
           in: "query"
           description: "true or false."
+          schema:
+            type: "boolean"
+        - name: "declared"
+          in: "query"
+          description: "true for the comparisons the experiment declared, false for the others."
           schema:
             type: "boolean"
         - name: "exploratory"
@@ -3118,6 +3146,34 @@ components:
           enum:
             - "execute"
             - "import"
+        comparisons:
+          description: "The comparisons the experiment declares it will make, at most MAX_DECLARED_COMPARISONS: a pair of candidates with an optional variable, or one candidate's two tasks by name or digest. Each is computed without being asked and is not exploratory, and their primary results are corrected together. Fixed at create."
+          type: "array"
+          maxItems: 128
+          items:
+            type: "object"
+            properties:
+              candidate:
+                type: "string"
+              reference_candidate:
+                type: "string"
+              variable:
+                type: "string"
+                enum:
+                  - "agent"
+                  - "model"
+                  - "reasoning"
+                  - "tools"
+                  - "environment"
+                  - "workspace"
+                  - "task"
+              task:
+                type: "string"
+              reference_task:
+                type: "string"
+            required:
+              - "candidate"
+            additionalProperties: false
         scheduling:
           type: "string"
           description: "How the experiment's cells take its parallelism and its external trials are leased: `task_by_task`, the default, a task's cells before the next task's, or `interleaved`, every cell of every task in turn, so trial i of every cell runs in one window. Fixed at create."
@@ -3171,6 +3227,34 @@ components:
           enum:
             - "task_by_task"
             - "interleaved"
+        comparisons:
+          description: "The comparisons the experiment declared at create, each candidate and task by digest."
+          type: "array"
+          maxItems: 128
+          items:
+            type: "object"
+            properties:
+              candidate:
+                type: "string"
+              reference_candidate:
+                type: "string"
+              variable:
+                type: "string"
+                enum:
+                  - "agent"
+                  - "model"
+                  - "reasoning"
+                  - "tools"
+                  - "environment"
+                  - "workspace"
+                  - "task"
+              task:
+                type: "string"
+              reference_task:
+                type: "string"
+            required:
+              - "candidate"
+            additionalProperties: false
         state:
           type: "string"
           enum:
@@ -3807,6 +3891,9 @@ components:
           type: "string"
         automatic:
           type: "boolean"
+        declared:
+          type: "integer"
+          description: "For a comparison its experiment declared, its position in the experiment's comparisons; absent otherwise."
         exploratory:
           type: "boolean"
         state:
@@ -3849,6 +3936,61 @@ components:
         - "exploratory"
         - "state"
         - "final"
+    DeclaredAnalysis:
+      type: "object"
+      properties:
+        experiment:
+          type: "string"
+        final:
+          type: "boolean"
+        family:
+          type: "object"
+          properties:
+            method:
+              type: "string"
+            size:
+              type: "integer"
+            level:
+              type: "number"
+          additionalProperties: false
+        comparisons:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              index:
+                type: "integer"
+              comparison:
+                type: "string"
+              metric:
+                type: "string"
+              p:
+                type: "number"
+              q:
+                type: "number"
+              verdict:
+                type: "string"
+              reason:
+                type: "string"
+              final:
+                type: "boolean"
+            required:
+              - "index"
+              - "metric"
+              - "reason"
+              - "final"
+            additionalProperties: false
+        independence:
+          type: "object"
+        computed_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "experiment"
+        - "final"
+        - "family"
+        - "comparisons"
+      additionalProperties: false
     Grid:
       type: "object"
       properties:

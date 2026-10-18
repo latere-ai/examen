@@ -281,6 +281,7 @@ type ComparisonFilter struct {
 	Baseline           string
 	ReferenceCandidate string
 	Automatic          *bool
+	Declared           *bool
 	Exploratory        *bool
 	Final              *bool
 	SingleVariable     *bool
@@ -421,4 +422,13 @@ type Experiments interface {
 	Computed(ctx context.Context, id string, state string, c objects.Computed, inputs []string) error
 	// Clean clears a comparison's dirty mark, as of the update it read.
 	Clean(ctx context.Context, id string, seen time.Time) error
+	// Declare recomputes an experiment's declared analysis under its row
+	// lock: correct is given the experiment and the newest comparison of
+	// each of its declared comparisons, and what it answers replaces the
+	// stored analysis. Serialized with every comparison's store, the last
+	// recomputation reads every comparison stored before it.
+	Declare(ctx context.Context, experiment string, correct func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error)) error
+	// DeclaredAnalysis reads an experiment's stored declared analysis;
+	// false when none is computed yet.
+	DeclaredAnalysis(ctx context.Context, experiment string) (objects.DeclaredAnalysis, bool, error)
 }

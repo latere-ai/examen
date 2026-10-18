@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"time"
 
 	"latere.ai/x/examen/authorizer"
@@ -124,16 +125,33 @@ func (e *Engine) Compute(ctx context.Context) error {
 	}
 	src := compare.Source{Experiments: x, Versions: e.Store.Versions(), Baselines: e.Store.Baselines(), Taxonomies: e.Store.Taxonomies()}
 	var errs []error
+	var declared []string
 	for _, c := range dirty {
 		computed, inputs, err := e.Analyzer.Compare(ctx, c, src)
 		switch {
 		case errors.Is(err, compare.ErrNotComputed):
 			errs = append(errs, x.Clean(ctx, c.ID, c.UpdatedAt))
+			continue
 		case err != nil:
 			e.log().ErrorContext(ctx, "a comparison failed", "comparison", c.ID, "error", apierr.LogText(err))
 			errs = append(errs, x.Computed(ctx, c.ID, objects.ComparisonFailed, objects.Computed{}, nil))
 		default:
 			errs = append(errs, x.Computed(ctx, c.ID, objects.ComparisonComplete, computed, inputs))
+		}
+		if c.DeclaredIndex != nil && !slices.Contains(declared, c.Experiment) {
+			declared = append(declared, c.Experiment)
+		}
+	}
+	// A declared comparison's primary result is corrected with every
+	// other declared comparison's, so each experiment whose declared
+	// comparisons changed has its declared analysis recomputed, under its
+	// row lock, from what they store now.
+	for _, eid := range declared {
+		err := x.Declare(ctx, eid, func(exp objects.Experiment, family []objects.Comparison) (objects.DeclaredAnalysis, error) {
+			return e.Analyzer.Declared(ctx, exp, family, src)
+		})
+		if !errors.Is(err, compare.ErrNotComputed) {
+			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)

@@ -565,7 +565,7 @@ func (c *computer) correct() {
 			family = append(family, pl)
 			ps = append(ps, pl.p)
 		}
-		if pl.primary && pl.tested {
+		if pl.primary && pl.tested && c.in.Declared == 0 {
 			pl.q = pl.p
 		}
 	}
@@ -605,6 +605,20 @@ func (c *computer) decide(pl *plan) {
 	case pl.selfReported:
 		res.P = ptr(pl.p)
 		res.Reason = reasonSelfReported(pl.p)
+	case pl.primary && c.in.Declared > 0:
+		// Its q and verdict are the declared family's, which the
+		// experiment's declared analysis computes from every declared
+		// comparison's p.
+		res.P = ptr(pl.p)
+		d := c.in.Declared
+		switch {
+		case pl.floorOK && pl.floor > fdr/float64(d):
+			res.Reason = reasonDeclaredFloor(pl.floorWhat, d)
+		case pl.zero:
+			res.Reason = reasonZeroDelta
+		default:
+			res.Reason = reasonDeclaredPrimary(pl.p, d)
+		}
 	default:
 		res.P, res.Q = ptr(pl.p), ptr(pl.q)
 		res.Verdict = verdict(m.Direction, pl.q, fdr, res.Delta)

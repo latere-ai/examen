@@ -40,6 +40,9 @@ func comparisonFilter(r *http.Request) (store.ComparisonFilter, error) {
 	if f.Automatic, err = boolParam(r, "automatic"); err != nil {
 		return f, err
 	}
+	if f.Declared, err = boolParam(r, "declared"); err != nil {
+		return f, err
+	}
 	if f.Exploratory, err = boolParam(r, "exploratory"); err != nil {
 		return f, err
 	}
@@ -76,6 +79,29 @@ func (s *Server) experimentComparisons(w http.ResponseWriter, r *http.Request, c
 		return apierr.Internal(err)
 	}
 	replyComparisons(w, list, p, cs)
+	return nil
+}
+
+// declaredAnalysis answers an experiment's declared analysis: the stored
+// one, or before any declared comparison is computed, each entry not
+// computed yet.
+func (s *Server) declaredAnalysis(w http.ResponseWriter, r *http.Request, c access.Caller) error {
+	e, err := s.readExperiment(r, c, r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	a, found, err := s.Store.Experiments().DeclaredAnalysis(r.Context(), e.ID)
+	if err != nil {
+		return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
+	}
+	if !found {
+		res, err := s.experimentSuite(r, e)
+		if err != nil {
+			return err
+		}
+		a = compare.Pending(e, res.Suite.PrimaryMetric)
+	}
+	reply(w, http.StatusOK, a)
 	return nil
 }
 

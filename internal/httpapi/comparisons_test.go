@@ -76,6 +76,10 @@ func (figures) Summaries(_ context.Context, _ objects.Experiment, cells []object
 	return out, nil
 }
 
+func (figures) Declared(context.Context, objects.Experiment, []objects.Comparison, compare.Source) (objects.DeclaredAnalysis, error) {
+	return objects.DeclaredAnalysis{}, compare.ErrNotComputed
+}
+
 func TestComparisons(t *testing.T) {
 	x := newAPI(t, func(s *Server) {
 		s.Analyzer = figures{}

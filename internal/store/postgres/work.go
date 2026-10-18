@@ -57,13 +57,28 @@ func (x experiments) begin(ctx context.Context, eid string, fn func(*change) err
 
 func scanLocked(row pgx.Row, seq *int64) (objects.Experiment, error) {
 	var e objects.Experiment
-	var metadata []byte
+	var metadata, declared []byte
 	if err := row.Scan(&e.ID, &e.Owner, &e.Suite, &e.SuiteID, &e.SuiteName, &e.Candidates, &e.CandidateIDs, &e.Trials, &e.Budget.Name,
-		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.Scheduling, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
+		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.Scheduling, &declared, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
 		&e.CreatedAt, &e.UpdatedAt, seq); err != nil {
 		return objects.Experiment{}, err
 	}
-	return e, unmarshal(metadata, &e.Metadata)
+	if err := unmarshal(metadata, &e.Metadata); err != nil {
+		return objects.Experiment{}, err
+	}
+	return e, declaredComparisons(declared, &e)
+}
+
+// declaredComparisons reads an experiment's declared comparisons, an empty
+// list when it declared none.
+func declaredComparisons(raw []byte, e *objects.Experiment) error {
+	if err := unmarshal(raw, &e.Comparisons); err != nil {
+		return err
+	}
+	if e.Comparisons == nil {
+		e.Comparisons = []objects.DeclaredComparison{}
+	}
+	return nil
 }
 
 // experimentState moves the experiment to a state and journals it, with
@@ -235,16 +250,21 @@ func (c *change) settle(ctx context.Context) error {
 	if err := c.experimentState(ctx, objects.StateComplete); err != nil {
 		return err
 	}
-	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET final = true, dirty = true, updated_at = $2 WHERE experiment = $1 AND automatic AND NOT final`, c.e.ID, c.now); err != nil {
+	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET final = true, dirty = true, updated_at = $2 WHERE experiment = $1 AND `+keptComparisons+` AND NOT final`, c.e.ID, c.now); err != nil {
 		return fmt.Errorf("postgres: finalizing comparisons: %w", err)
 	}
 	return nil
 }
 
+// keptComparisons selects the comparisons Examen keeps of an experiment
+// without being asked, which a trial reaching done marks and the
+// experiment's end finalizes: the automatic ones and the declared ones.
+const keptComparisons = `(automatic OR declared IS NOT NULL)`
+
 // dirty marks the experiment's comparisons that are not final, whose
 // inputs a trial reaching done changed.
 func (c *change) dirty(ctx context.Context) error {
-	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET dirty = true, updated_at = $2 WHERE experiment = $1 AND automatic AND NOT final`, c.e.ID, c.now); err != nil {
+	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET dirty = true, updated_at = $2 WHERE experiment = $1 AND `+keptComparisons+` AND NOT final`, c.e.ID, c.now); err != nil {
 		return fmt.Errorf("postgres: marking comparisons: %w", err)
 	}
 	return nil
@@ -843,7 +863,7 @@ func (c *change) reopen(ctx context.Context) error {
 	if err := c.experimentState(ctx, objects.StateRunning); err != nil {
 		return err
 	}
-	rows, err := c.tx.Query(ctx, `SELECT `+comparisonColumns+` FROM comparisons WHERE experiment = $1 AND automatic AND final`, c.e.ID)
+	rows, err := c.tx.Query(ctx, `SELECT `+comparisonColumns+` FROM comparisons WHERE experiment = $1 AND `+keptComparisons+` AND final`, c.e.ID)
 	if err != nil {
 		return fmt.Errorf("postgres: reading final comparisons: %w", err)
 	}

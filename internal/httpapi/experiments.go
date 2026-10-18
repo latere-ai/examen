@@ -44,6 +44,7 @@ func experimentRoutes() []route {
 		{method: http.MethodGet, path: "/experiments/{id}/measurements", handle: (*Server).experimentMeasurements},
 		{method: http.MethodGet, path: "/measurements/{id}", handle: (*Server).getMeasurement},
 		{method: http.MethodGet, path: "/experiments/{id}/comparisons", handle: (*Server).experimentComparisons},
+		{method: http.MethodGet, path: "/experiments/{id}/declared", handle: (*Server).declaredAnalysis},
 		{method: http.MethodPost, path: "/comparisons", idempotent: true, handle: (*Server).requestComparison},
 		{method: http.MethodGet, path: "/comparisons", handle: (*Server).listComparisons},
 		{method: http.MethodGet, path: "/comparisons/{id}", handle: (*Server).getComparison},
@@ -93,9 +94,21 @@ type createBody struct {
 		Baseline  string `json:"baseline"`
 		Candidate string `json:"candidate"`
 	} `json:"reference"`
-	Mode       string            `json:"mode"`
-	Scheduling string            `json:"scheduling"`
-	Metadata   map[string]string `json:"metadata"`
+	Mode        string            `json:"mode"`
+	Scheduling  string            `json:"scheduling"`
+	Comparisons []declaredBody    `json:"comparisons"`
+	Metadata    map[string]string `json:"metadata"`
+}
+
+// declaredBody is one comparison a create declares: a pair of candidates,
+// with an optional variable, or one candidate's pair of tasks by name or
+// digest.
+type declaredBody struct {
+	Candidate          string `json:"candidate"`
+	ReferenceCandidate string `json:"reference_candidate"`
+	Variable           string `json:"variable"`
+	Task               string `json:"task"`
+	ReferenceTask      string `json:"reference_task"`
 }
 
 // plan is a create's body, read and resolved in one owner's context.
@@ -184,7 +197,111 @@ func checkCreate(in createBody) (suiteDigest string, candDigests []string, err e
 	default:
 		return "", nil, apierr.OnField(apierr.CodeInvalidField, "scheduling", "scheduling is task_by_task or interleaved")
 	}
+	if err := checkDeclared(in.Comparisons, candDigests); err != nil {
+		return "", nil, err
+	}
 	return suiteDigest, candDigests, objects.ValidateMetadata("metadata", in.Metadata)
+}
+
+// checkDeclared holds a create's declared comparisons to the rules their
+// body alone decides: at most MAX_DECLARED_COMPARISONS, each a pair of two
+// of the create's candidates with an optional variable other than task, or
+// one of its candidates with two different tasks, and no pair of
+// candidates twice in either orientation. Tasks are resolved, and pairs of
+// tasks held once, against the suite (declaredTasks).
+func checkDeclared(list []declaredBody, candDigests []string) error {
+	if len(list) > limits.MaxDeclaredComparisons {
+		return apierr.Exceeds("MAX_DECLARED_COMPARISONS", "comparisons", "more declared comparisons than MAX_DECLARED_COMPARISONS ("+itoa(limits.MaxDeclaredComparisons)+")")
+	}
+	pairs := map[[2]string]bool{}
+	for i, d := range list {
+		f := "comparisons[" + itoa(i) + "]"
+		if d.Candidate == "" {
+			return apierr.OnField(apierr.CodeMissingField, f+".candidate", "a declared comparison names its candidate")
+		}
+		_, cand, err := objects.ParseRef(f+".candidate", d.Candidate)
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(candDigests, cand) {
+			return apierr.OnField(apierr.CodeNotInExperiment, f+".candidate", "the candidate is not one of the experiment's")
+		}
+		tasks := d.Task != "" || d.ReferenceTask != ""
+		_, known := objects.Variables[d.Variable]
+		switch {
+		case (d.ReferenceCandidate != "") == tasks:
+			return apierr.OnField(apierr.CodeInvalidField, f, "a declared comparison names exactly one reference: reference_candidate, or task and reference_task")
+		case d.Variable != "" && !known:
+			return apierr.OnField(apierr.CodeInvalidField, f+".variable", "variable is one logical variable: agent, model, reasoning, tools, environment, workspace or task")
+		case tasks && (d.Task == "" || d.ReferenceTask == ""):
+			return apierr.OnField(apierr.CodeMissingField, f+".reference_task", "a declared comparison across tasks names both tasks")
+		case tasks && d.Variable != "" && d.Variable != "task":
+			return apierr.OnField(apierr.CodeInvalidField, f+".variable", "a comparison across tasks varies the task")
+		case !tasks && d.Variable == "task":
+			return apierr.OnField(apierr.CodeInvalidField, f+".variable", "a pair of candidates varies a field of the candidate, never the task")
+		}
+		if tasks {
+			continue
+		}
+		_, ref, err := objects.ParseRef(f+".reference_candidate", d.ReferenceCandidate)
+		if err != nil {
+			return err
+		}
+		switch {
+		case !slices.Contains(candDigests, ref):
+			return apierr.OnField(apierr.CodeNotInExperiment, f+".reference_candidate", "the reference candidate is not one of the experiment's")
+		case ref == cand:
+			return apierr.OnField(apierr.CodeInvalidField, f+".reference_candidate", "a declared comparison compares two different candidates")
+		}
+		key := [2]string{min(cand, ref), max(cand, ref)}
+		if pairs[key] {
+			return apierr.OnField(apierr.CodeInvalidField, f, "the pair of candidates is declared twice")
+		}
+		pairs[key] = true
+	}
+	return nil
+}
+
+// declaredTasks resolves the declared comparisons of a create against its
+// suite, each task by name or digest, and refuses a task the suite does
+// not pin, one task twice, and one candidate's pair of tasks declared
+// twice in either orientation; it answers the declarations by digest.
+func declaredTasks(list []declaredBody, res objects.Resolved) ([]objects.DeclaredComparison, error) {
+	out := make([]objects.DeclaredComparison, len(list))
+	pairs := map[[3]string]bool{}
+	for i, d := range list {
+		f := "comparisons[" + itoa(i) + "]"
+		_, cand, _ := objects.ParseRef(f+".candidate", d.Candidate)
+		dc := objects.DeclaredComparison{Candidate: cand, Variable: d.Variable}
+		if d.ReferenceCandidate != "" {
+			_, dc.ReferenceCandidate, _ = objects.ParseRef(f+".reference_candidate", d.ReferenceCandidate)
+			out[i] = dc
+			continue
+		}
+		for _, t := range []struct {
+			field, ref string
+			into       *string
+		}{{f + ".task", d.Task, &dc.Task}, {f + ".reference_task", d.ReferenceTask, &dc.ReferenceTask}} {
+			digest, ok := t.ref, false
+			if _, ok = res.Tasks[t.ref]; !ok {
+				digest, ok = res.TaskByName(t.ref)
+			}
+			if !ok {
+				return nil, apierr.OnField(apierr.CodeNotInExperiment, t.field, "the suite pins no task "+t.ref)
+			}
+			*t.into = digest
+		}
+		if dc.Task == dc.ReferenceTask {
+			return nil, apierr.OnField(apierr.CodeInvalidField, f+".reference_task", "a declared comparison across tasks names two different tasks")
+		}
+		key := [3]string{cand, min(dc.Task, dc.ReferenceTask), max(dc.Task, dc.ReferenceTask)}
+		if pairs[key] {
+			return nil, apierr.OnField(apierr.CodeInvalidField, f, "the candidate's pair of tasks is declared twice")
+		}
+		pairs[key] = true
+		out[i] = dc
+	}
+	return out, nil
 }
 
 // resolvePlan reads a create's suite and candidates in an owner's
@@ -429,6 +546,10 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	if err := unbuilt(in, p, l.Budget != ""); err != nil {
 		return err
 	}
+	declared, err := declaredTasks(in.Comparisons, p.resolved)
+	if err != nil {
+		return err
+	}
 	mode := in.Mode
 	if mode == "" {
 		mode = objects.ModeExecute
@@ -439,7 +560,7 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	}
 	e := objects.Experiment{
 		ID: eid, Owner: p.owner, Suite: suiteDigest, Candidates: candDigests, Trials: trials, Budget: objects.Budget{Name: budget},
-		Parallelism: parallelism, Mode: mode, Scheduling: scheduling, CreatedBy: c.Subject, Metadata: in.Metadata,
+		Parallelism: parallelism, Mode: mode, Scheduling: scheduling, Comparisons: declared, CreatedBy: c.Subject, Metadata: in.Metadata,
 		SuiteID: p.suite.ID, SuiteName: p.suite.Name,
 	}
 	for _, v := range p.candidates {
@@ -498,20 +619,52 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 			ne.Cells = append(ne.Cells, nc)
 		}
 	}
+	kinds := map[string]string{}
 	for ci, d := range candDigests {
+		kinds[d] = p.candBodies[ci].Kind
+	}
+	provenance := func(candidate, reference string) []string {
+		var out []string
+		if kinds[candidate] == objects.CandidateExternal {
+			out = append(out, "candidate")
+		}
+		if reference == objects.CandidateExternal {
+			out = append(out, "reference")
+		}
+		return out
+	}
+	automatic := map[string]int{}
+	for _, d := range candDigests {
 		if d == e.Reference.Candidate {
 			continue
 		}
-		cmp := objects.Comparison{
+		automatic[d] = len(ne.Comparisons)
+		ne.Comparisons = append(ne.Comparisons, objects.Comparison{
 			ID: id.New(id.Comparison), Candidate: d, Baseline: e.Reference.Baseline, ReferenceCandidate: e.Reference.Candidate,
-			Automatic: true, State: objects.ComparisonComputing,
+			Automatic: true, State: objects.ComparisonComputing, DeclaredProvenance: provenance(d, referenceKind),
+		})
+	}
+	// A declared pair that is the automatic comparison's own, in its
+	// orientation and with no variable of its own, is that comparison;
+	// every other declared comparison is a record of its own.
+	for i, dc := range declared {
+		at, isAutomatic := automatic[dc.Candidate]
+		if isAutomatic && dc.ReferenceCandidate != "" && dc.ReferenceCandidate == e.Reference.Candidate && dc.Variable == "" {
+			ne.Comparisons[at].DeclaredIndex = ptr(i)
+			continue
 		}
-		if p.candBodies[ci].Kind == objects.CandidateExternal {
-			cmp.DeclaredProvenance = append(cmp.DeclaredProvenance, "candidate")
+		cmp := objects.Comparison{
+			ID: id.New(id.Comparison), Candidate: dc.Candidate, ReferenceCandidate: dc.ReferenceCandidate, Task: dc.Task, ReferenceTask: dc.ReferenceTask,
+			DeclaredIndex: ptr(i), State: objects.ComparisonComputing,
 		}
-		if referenceKind == objects.CandidateExternal {
-			cmp.DeclaredProvenance = append(cmp.DeclaredProvenance, "reference")
+		reference := dc.ReferenceCandidate
+		if dc.Task != "" {
+			reference = dc.Candidate
+			cmp.Variable = objects.Variables["task"]
+		} else if dc.Variable != "" {
+			cmp.Variable = objects.Variables[dc.Variable]
 		}
+		cmp.DeclaredProvenance = provenance(dc.Candidate, kinds[reference])
 		ne.Comparisons = append(ne.Comparisons, cmp)
 	}
 	if err := s.Store.Experiments().Create(r.Context(), ne); err != nil {

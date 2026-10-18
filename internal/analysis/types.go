@@ -296,6 +296,12 @@ type Input struct {
 	// holds one cell of one candidate, and they are two tasks.
 	AcrossTasks bool `json:"across_tasks,omitempty"`
 	Exploratory bool `json:"exploratory"`
+	// Declared is, for a comparison its experiment declared, D: the number
+	// of comparisons the experiment declared, whose primary results are
+	// corrected together. Its primary result is then in no comparison's
+	// family, draws PERMUTATION_RESAMPLES resolved with m = D, and carries
+	// its p alone. 0 for any other comparison.
+	Declared int `json:"declared,omitempty"`
 	// LabelTests is true once label tests are built (spec 008, Build
 	// order): a label result is then tested and can be changed; until then
 	// it carries its per-label figures and no p, q or verdict, outside the
@@ -483,6 +489,9 @@ type Correction struct {
 	Method  string `json:"method"`
 	Primary string `json:"primary,omitempty"`
 	Family  int    `json:"family"`
+	// Declared is, on a declared comparison, the size of the declared
+	// family its primary result is corrected in.
+	Declared int `json:"declared,omitempty"`
 }
 
 // Resolved are the values of PERMUTATION_RESAMPLES a comparison resolved:

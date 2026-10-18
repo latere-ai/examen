@@ -784,7 +784,7 @@ verdict is what it is, built from fixed templates with numbers in spec
 | a result that reads self-reported values | "p = 0.03 on values the external harness reported itself: not a finding, and outside the corrected family" |
 | a declared comparison's primary result | "p = 0.012 for the primary metric of a declared comparison; corrected with the primary results of 11 declared comparisons in the experiment's declared analysis" |
 | a declared comparison's primary result whose exact test cannot reach `FALSE_DISCOVERY_RATE / D` | "with 5 trials per side, no difference can be shown among 11 declared comparisons" |
-| a declared comparison in the declared analysis | "p = 0.012; q = 0.044 after correcting the primary results of 11 declared comparisons at 5%"; one not computed yet, "not computed yet: the candidate has no finished trial"; otherwise its comparison's own reason |
+| a declared comparison in the declared analysis | "p = 0.012; q = 0.044 after correcting the primary results of 11 declared comparisons at 5%"; one not computed yet, "not computed yet: the candidate has no finished trial"; one whose newest comparison failed, "not computed: the comparison could not be computed"; otherwise its comparison's own reason |
 | the experiment's test of independence | "p = 0.004 for the experiment's declared test of independence, tested alone without correction"; with a power floor, "with 4 tasks of 5 trials per candidate, no difference can be shown at 5%"; a statistic of 0, "no difference between the candidates" |
 | a mode share | "descriptive: a mode share depends on the number of trials, so it is not tested" |
 | a count of distinct labels | "descriptive: a count of distinct labels depends on the number of trials, so it is not tested" |

@@ -213,3 +213,6 @@ func strs(v []string) []string {
 	}
 	return v
 }
+
+// ptr is a pointer to a copy of v.
+func ptr[T any](v T) *T { return &v }

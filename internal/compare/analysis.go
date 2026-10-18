@@ -6,8 +6,10 @@ package compare
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"latere.ai/x/examen/internal/analysis"
 	"latere.ai/x/examen/internal/objects"
@@ -25,11 +27,17 @@ type Analysis struct{}
 // comparison recorded when it was first computed are the ones it is
 // recomputed with, so a progressive comparison reads one set throughout.
 func (Analysis) Compare(ctx context.Context, c objects.Comparison, src Source) (objects.Computed, []string, error) {
+	kept := c.Automatic || c.DeclaredIndex != nil
 	in, err := Input(ctx, c, src)
+	if errors.Is(err, errCellsMissing) && kept && !c.Final {
+		// A declared comparison across tasks waits for both its cells,
+		// which an experiment in mode import makes as trials arrive.
+		return objects.Computed{}, nil, ErrNotComputed
+	}
 	if err != nil {
 		return objects.Computed{}, nil, err
 	}
-	if c.Automatic && !c.Final && !finished(in.Candidate) {
+	if kept && !c.Final && !finished(in.Candidate) {
 		return objects.Computed{}, nil, ErrNotComputed
 	}
 	out, err := analysis.Compare(in)
@@ -46,6 +54,10 @@ func (Analysis) Compare(ctx context.Context, c objects.Comparison, src Source) (
 	}
 	return computed, read, nil
 }
+
+// errCellsMissing is a comparison across tasks whose candidate does not
+// hold exactly one cell of each of its tasks.
+var errCellsMissing = errors.New("compare: a comparison across tasks needs one cell of each task")
 
 // finished reports whether a side holds a finished trial: done with an
 // outcome the analysis reads, and not retried.
@@ -86,6 +98,9 @@ func Input(ctx context.Context, c objects.Comparison, src Source) (analysis.Inpu
 		}
 	}
 	in := analysis.Input{Parameters: params, Suite: su.suite, Exploratory: c.Exploratory}
+	if c.DeclaredIndex != nil {
+		in.Declared, in.Exploratory = len(e.Comparisons), false
+	}
 	cand, err := sideOf(ctx, src, e, su, c.Candidate, c.Task)
 	if err != nil {
 		return analysis.Input{}, err
@@ -138,7 +153,7 @@ func Input(ctx context.Context, c objects.Comparison, src Source) (analysis.Inpu
 		*s.into = analysis.Side{Candidate: s.from.candidate, Cells: cells}
 	}
 	if in.AcrossTasks && (len(in.Candidate.Cells) != 1 || len(in.Reference.Cells) != 1) {
-		return analysis.Input{}, fmt.Errorf("compare: %s compares two tasks of which the candidate holds %d and %d cells", c.ID, len(in.Candidate.Cells), len(in.Reference.Cells))
+		return analysis.Input{}, fmt.Errorf("%w: %s compares two tasks of which the candidate holds %d and %d cells", errCellsMissing, c.ID, len(in.Candidate.Cells), len(in.Reference.Cells))
 	}
 	if in.Taxonomies, err = taxonomies(ctx, src.Taxonomies, su); err != nil {
 		return analysis.Input{}, err
@@ -258,4 +273,139 @@ func (Analysis) Summaries(ctx context.Context, e objects.Experiment, cells []obj
 		out[cells[i].ID] = b
 	}
 	return out, nil
+}
+
+// Declared computes an experiment's declared analysis: the primary result
+// of the newest comparison of each of its declared comparisons, corrected
+// together by internal/analysis. It reads the suite for the primary
+// metric a declared comparison not yet computed names, and the level its
+// comparisons recorded.
+func (Analysis) Declared(ctx context.Context, e objects.Experiment, family []objects.Comparison, src Source) (objects.DeclaredAnalysis, error) {
+	su, err := readSuite(ctx, src.Versions, e)
+	if err != nil {
+		return objects.DeclaredAnalysis{}, err
+	}
+	primary := su.suite.PrimaryMetric
+	byIndex := map[int]objects.Comparison{}
+	for _, c := range family {
+		if c.DeclaredIndex != nil {
+			byIndex[*c.DeclaredIndex] = c
+		}
+	}
+	fdr := analysis.Defaults().FalseDiscoveryRate
+	primaries := make([]analysis.DeclaredPrimary, len(e.Comparisons))
+	for i := range e.Comparisons {
+		p := analysis.DeclaredPrimary{Metric: primary}
+		c, ok := byIndex[i]
+		if !ok || (c.State == objects.ComparisonComputing && len(c.Results) == 0) {
+			primaries[i] = p
+			continue
+		}
+		p.Comparison = c.ID
+		// A final record a trial or the experiment's end marked again
+		// holds the figures of its last computation until it is
+		// recomputed, so it counts as final once computed after the mark.
+		p.Final = c.Final && c.State == objects.ComparisonComplete && c.ComputedAt != nil && !c.ComputedAt.Before(c.UpdatedAt)
+		if level, ok := recordedLevel(c.Parameters); ok {
+			fdr = level
+		}
+		row, found := primaryRow(c, primary)
+		if c.State == objects.ComparisonFailed || !found {
+			p.Reason = analysis.ReasonDeclaredFailed
+			primaries[i] = p
+			continue
+		}
+		p.P, p.Reason, p.Direction = row.P, row.Reason, analysis.Direction(row.Direction)
+		if row.Verdict == string(analysis.Insufficient) {
+			p.Verdict = analysis.Insufficient
+		}
+		if len(row.Delta) > 0 {
+			d, err := readDelta(row.Delta)
+			if err != nil {
+				return objects.DeclaredAnalysis{}, fmt.Errorf("compare: the primary delta of %s: %w", c.ID, err)
+			}
+			p.Delta = &d
+		}
+		var confounds []struct {
+			Name string `json:"name"`
+		}
+		if len(row.Confounds) > 0 {
+			if err := json.Unmarshal(row.Confounds, &confounds); err != nil {
+				return objects.DeclaredAnalysis{}, fmt.Errorf("compare: the primary confounds of %s: %w", c.ID, err)
+			}
+		}
+		p.SelfReported = slices.ContainsFunc(confounds, func(c struct {
+			Name string `json:"name"`
+		}) bool {
+			return c.Name == "self_reported"
+		})
+		primaries[i] = p
+	}
+	return declaredRecord(e, analysis.CorrectDeclared(primaries, fdr)), nil
+}
+
+// Pending is the declared analysis of an experiment none of whose declared
+// comparisons is computed yet: every entry not computed, at the suite's
+// primary metric, and the family at the default level.
+func Pending(e objects.Experiment, primaryMetric string) objects.DeclaredAnalysis {
+	primaries := make([]analysis.DeclaredPrimary, len(e.Comparisons))
+	for i := range primaries {
+		primaries[i].Metric = primaryMetric
+	}
+	return declaredRecord(e, analysis.CorrectDeclared(primaries, analysis.Defaults().FalseDiscoveryRate))
+}
+
+// declaredRecord is a declared family as the store keeps it.
+func declaredRecord(e objects.Experiment, fam analysis.DeclaredFamily) objects.DeclaredAnalysis {
+	out := objects.DeclaredAnalysis{
+		Experiment: e.ID, Final: fam.Final, Family: objects.DeclaredFamily{Method: fam.Method, Size: fam.Size, Level: fam.Level},
+		Comparisons: make([]objects.DeclaredResult, len(fam.Comparisons)),
+	}
+	for i, d := range fam.Comparisons {
+		out.Comparisons[i] = objects.DeclaredResult{
+			Index: d.Index, Comparison: d.Comparison, Metric: d.Metric, P: d.P, Q: d.Q, Verdict: string(d.Verdict), Reason: d.Reason, Final: d.Final,
+		}
+	}
+	return out
+}
+
+// primaryRow is a declared comparison's primary result: the primary
+// metric's suite-level result, or across tasks its one task-level result.
+func primaryRow(c objects.Comparison, primary string) (objects.ResultRow, bool) {
+	level := "suite"
+	if c.ReferenceTask != "" {
+		level = "task"
+	}
+	for _, r := range c.Results {
+		if r.Metric == primary && r.Level == level {
+			return r, true
+		}
+	}
+	return objects.ResultRow{}, false
+}
+
+// recordedLevel is the FALSE_DISCOVERY_RATE a comparison recorded among its
+// parameters.
+func recordedLevel(raw json.RawMessage) (float64, bool) {
+	var p struct {
+		FalseDiscoveryRate *float64 `json:"false_discovery_rate"`
+	}
+	if len(raw) == 0 || json.Unmarshal(raw, &p) != nil || p.FalseDiscoveryRate == nil {
+		return 0, false
+	}
+	return *p.FalseDiscoveryRate, true
+}
+
+// readDelta reads a stored delta: a number, or an object from each label
+// to its difference.
+func readDelta(raw json.RawMessage) (analysis.Delta, error) {
+	var v float64
+	if err := json.Unmarshal(raw, &v); err == nil {
+		return analysis.Delta{Value: v}, nil
+	}
+	var per map[string]float64
+	if err := json.Unmarshal(raw, &per); err != nil {
+		return analysis.Delta{}, err
+	}
+	return analysis.Delta{PerLabel: per}, nil
 }
