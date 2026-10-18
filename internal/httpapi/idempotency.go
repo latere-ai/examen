@@ -10,7 +10,6 @@ import (
 	"encoding/hex"
 	"io"
 	"net/http"
-	"time"
 
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
@@ -25,25 +24,17 @@ const (
 	replayedHeader    = "Idempotent-Replayed"
 )
 
-// reserveTimeout is how long a key whose first request is still being
-// answered holds off a repeat with request_in_progress. A replica that
-// stops mid-request never finishes its key, and the reservation lapsing is
-// what lets a repeat run then; it is far longer than any request runs.
-const reserveTimeout = 5 * time.Minute
-
-// handlerTimeout bounds the first request of a key, well inside
-// reserveTimeout, so its reservation never lapses while it still runs and
-// a repeat cannot run it a second time.
-const handlerTimeout = 4 * time.Minute
-
 // idempotent answers a request that carries an Idempotency-Key
 // (specs/003-api.md): the same key from the same subject within
 // IDEMPOTENCY_WINDOW answers the first response again, its status and body,
 // with Idempotent-Replayed, and makes nothing; the same key with a body
 // whose canonical JSON differs, or sent to another route, is
 // idempotency_key_reused; a repeat while the first is served is
-// request_in_progress. A first request answered with a 5xx keeps no answer,
-// so a retry runs again.
+// request_in_progress for IDEMPOTENCY_RESERVATION, which lapses so a repeat
+// runs when a replica stopped mid-request. The first request is served for
+// at most REQUEST_DEADLINE, shorter than the reservation, so it never ends
+// after its reservation lapsed and a repeat never runs it twice. A first
+// request answered with a 5xx keeps no answer, so a retry runs again.
 func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Caller, rt route) {
 	key := r.Header.Get(idempotencyHeader)
 	if !visibleASCII(key, limits.IdempotencyKeyMaxBytes) {
@@ -58,7 +49,7 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 	k := store.IdempotencyKey{Subject: c.Subject, Key: key, Route: r.Method + " " + r.URL.Path, BodyDigest: bodyDigest(body)}
 	// The key outlives a caller that hangs up mid-answer.
 	ctx := context.WithoutCancel(r.Context())
-	held, fresh, err := s.Store.Idempotency().Begin(ctx, k, reserveTimeout)
+	held, fresh, err := s.Store.Idempotency().Begin(ctx, k, limits.IdempotencyReservation)
 	switch {
 	case err != nil:
 		s.log().WarnContext(ctx, "an idempotency key could not be reserved", "route", r.Pattern, "error", apierr.LogText(err))
@@ -83,7 +74,7 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-	bounded, cancel := context.WithTimeout(r.Context(), handlerTimeout)
+	bounded, cancel := context.WithTimeout(r.Context(), limits.RequestDeadline)
 	defer cancel()
 	if err := rt.handle(s, rec, r.WithContext(bounded), c); err != nil {
 		s.answer(rec, r, err)
