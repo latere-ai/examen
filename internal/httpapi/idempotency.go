@@ -31,6 +31,11 @@ const (
 // what lets a repeat run then; it is far longer than any request runs.
 const reserveTimeout = 5 * time.Minute
 
+// handlerTimeout bounds the first request of a key, well inside
+// reserveTimeout, so its reservation never lapses while it still runs and
+// a repeat cannot run it a second time.
+const handlerTimeout = 4 * time.Minute
+
 // idempotent answers a request that carries an Idempotency-Key
 // (specs/003-api.md): the same key from the same subject within
 // IDEMPOTENCY_WINDOW answers the first response again, its status and body,
@@ -78,7 +83,9 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 	}
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	rec := &recorder{ResponseWriter: w, status: http.StatusOK}
-	if err := rt.handle(s, rec, r, c); err != nil {
+	bounded, cancel := context.WithTimeout(r.Context(), handlerTimeout)
+	defer cancel()
+	if err := rt.handle(s, rec, r.WithContext(bounded), c); err != nil {
 		s.answer(rec, r, err)
 	}
 	if rec.status >= http.StatusInternalServerError {

@@ -19,11 +19,13 @@ import (
 	"latere.ai/x/pkg/otel"
 
 	"latere.ai/x/examen/internal/access"
+	"latere.ai/x/examen/internal/compare"
 	"latere.ai/x/examen/internal/config"
 	"latere.ai/x/examen/internal/httpapi"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/store/postgres"
 	"latere.ai/x/examen/internal/version"
+	"latere.ai/x/examen/internal/work"
 )
 
 // The times of the server.
@@ -52,6 +54,16 @@ type Hooks struct {
 	// SweepEvery, when it is not zero, replaces how often expired
 	// idempotency keys are deleted.
 	SweepEvery time.Duration
+	// WorkEvery, when it is not zero, replaces REPORT_INTERVAL, how often
+	// the unattended work ticks.
+	WorkEvery time.Duration
+}
+
+// reserved are the audiences Examen acts through: every core's and its
+// own, which no program candidate's credential may name.
+func reserved(s config.Settings) []string {
+	out := []string{s.ToposAudience, s.CellaAudience, s.LuxAudience, s.ArcaAudience, s.OrigoAudience}
+	return append(out, s.OIDCAudiences...)
 }
 
 // serve reads the configuration and serves until ctx ends, starting in the
@@ -103,22 +115,28 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 		return fmt.Errorf("EXAMEN_ADDR: %w", err)
 	}
 	var draining atomic.Bool
+	engine := &work.Engine{Store: st, Authz: who.Authorizer, Analyzer: compare.NotComputed{}, Log: log}
 	api := &httpapi.Server{
 		Store: st, Auth: who.Authenticator, Authz: who.Authorizer, BasePath: s.BasePath,
-		Draining: draining.Load, Log: log,
+		Draining: draining.Load, Log: log, Engine: engine, Analyzer: compare.NotComputed{}, Reserved: reserved(s),
 	}
 	httpSrv := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: readHeaderTimeout, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	failed := make(chan error, 1)
 	go func() { failed <- httpSrv.Serve(ln) }()
 	log.InfoContext(ctx, "listening", "address", ln.Addr().String())
 
-	work, stopWork := context.WithCancel(context.WithoutCancel(ctx))
+	background, stopWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer stopWork()
 	every := sweepEvery
 	if hooks.SweepEvery > 0 {
 		every = hooks.SweepEvery
 	}
-	go sweep(work, st.Idempotency(), every, log)
+	go sweep(background, st.Idempotency(), every, log)
+	tick := limits.ReportInterval
+	if hooks.WorkEvery > 0 {
+		tick = hooks.WorkEvery
+	}
+	go engine.Loop(background, tick)
 	if hooks.Ready != nil {
 		hooks.Ready <- ln.Addr().String()
 	}

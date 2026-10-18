@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"latere.ai/x/pkg/health"
@@ -27,10 +28,31 @@ import (
 	"latere.ai/x/examen/api"
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
+	"latere.ai/x/examen/internal/compare"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/version"
+	"latere.ai/x/examen/internal/work"
 )
+
+// analyzer is the server's analyzer, compare.NotComputed when none is set.
+func (s *Server) analyzer() compare.Analyzer {
+	if s.Analyzer != nil {
+		return s.Analyzer
+	}
+	return compare.NotComputed{}
+}
+
+// advance submits the rollouts a request queued, when the server takes
+// unattended work; a failure is logged and left to the ticker.
+func (s *Server) advance(r *http.Request, experiment string) {
+	if s.Engine == nil {
+		return
+	}
+	if err := s.Engine.Advance(context.WithoutCancel(r.Context()), experiment); err != nil {
+		s.log().WarnContext(r.Context(), "queued rollouts were not submitted; the ticker takes them", "experiment", experiment, "error", apierr.LogText(err))
+	}
+}
 
 // Server is the API of one process.
 type Server struct {
@@ -47,6 +69,23 @@ type Server struct {
 	// Now is the clock of the request rate. Nil takes time.Now.
 	Now func() time.Time
 	Log *slog.Logger
+	// Engine takes the unattended work a request makes: it submits the
+	// rollouts a create, a submit or a retry queues once experiment.run
+	// allows them. Nil leaves them to the ticker.
+	Engine *work.Engine
+	// Analyzer answers the figures of a grid and a comparison. Nil is
+	// compare.NotComputed.
+	Analyzer compare.Analyzer
+	// Reserved are the audiences Examen acts through, which no program
+	// candidate's credential may name.
+	Reserved []string
+	// StreamPoll and StreamKeepalive replace STREAM_POLL_INTERVAL and
+	// STREAM_KEEPALIVE when they are not zero, for a test.
+	StreamPoll      time.Duration
+	StreamKeepalive time.Duration
+
+	streamsMu sync.Mutex
+	streams   map[string]int
 }
 
 // route is one route of the contract this server serves, below the base
@@ -59,9 +98,15 @@ type route struct {
 }
 
 // routes are the routes of specs/003-api.md this release serves that take
-// a token, in the contract's order. The objects and their routes are the
-// next build step; until then the surface is the contract and the probes.
-var routes = []route{}
+// a token, in the contract's order.
+var routes = served()
+
+// served lists the routes of this release.
+func served() []route {
+	out := versionRoutes()
+	out = append(out, recordRoutes()...)
+	return append(out, experimentRoutes()...)
+}
 
 // Route is one route the server serves, as the contract spells it below
 // the base path.
@@ -112,9 +157,10 @@ func (s *Server) handler(served []route) http.Handler {
 	for _, rt := range served {
 		mux.Handle(rt.method+" "+b+rt.path, s.serve(rt, limiter))
 	}
+	document := api.Served(b)
 	mux.HandleFunc("GET "+b+"/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
-		if _, err := w.Write(api.OpenAPI); err != nil {
+		if _, err := w.Write(document); err != nil {
 			s.log().WarnContext(r.Context(), "the contract was not written whole", "error", err.Error())
 		}
 	})
