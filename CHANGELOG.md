@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.2.0 - 2026-10-18
+
 ### Fixed
 
 - `POST /experiments` that names no `owner` now resolves its suite and
