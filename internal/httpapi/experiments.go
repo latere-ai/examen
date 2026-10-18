@@ -98,6 +98,10 @@ type createBody struct {
 	Scheduling  string            `json:"scheduling"`
 	Comparisons []declaredBody    `json:"comparisons"`
 	Metadata    map[string]string `json:"metadata"`
+	// SignIn is an opaque value the client's installation gave it for this
+	// create, passed to the authorizer on experiment.create and kept
+	// nowhere: not on the experiment, in an answer, an event or a log.
+	SignIn *string `json:"sign_in"`
 }
 
 // declaredBody is one comparison a create declares: a pair of candidates,
@@ -191,6 +195,9 @@ func checkCreate(in createBody) (suiteDigest string, candDigests []string, err e
 	case "", objects.ModeExecute, objects.ModeImport:
 	default:
 		return "", nil, apierr.OnField(apierr.CodeInvalidField, "mode", "mode is execute or import")
+	}
+	if in.SignIn != nil && !visibleASCII(*in.SignIn, limits.SignInMaxBytes) {
+		return "", nil, apierr.OnField(apierr.CodeInvalidField, "sign_in", "sign_in is 1 to SIGN_IN_MAX_BYTES (255) bytes of visible ASCII")
 	}
 	switch in.Scheduling {
 	case "", objects.SchedulingTaskByTask, objects.SchedulingInterleaved:
@@ -372,6 +379,9 @@ func createMembers(r *http.Request, in createBody, suiteDigest string, candDiges
 	}
 	if in.Mode == "" {
 		m[authorizer.FieldMode] = objects.ModeExecute
+	}
+	if in.SignIn != nil {
+		m[authorizer.FieldSignIn] = *in.SignIn
 	}
 	if p == nil {
 		return m

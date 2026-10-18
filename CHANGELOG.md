@@ -6,6 +6,17 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Added
+
+- Pass your installation's handle for a create to its authorizer:
+  `sign_in` on `POST /experiments` is an opaque value of 1 to 255 bytes
+  of visible ASCII (`SIGN_IN_MAX_BYTES`) that reaches the authorizer as
+  the field `sign_in` of `experiment.create` and nowhere else. Examen
+  does not store it, answer it, log it or write it to an event, so an
+  installation that keeps a sign-in for each experiment its people start
+  can tie a create to the one its client obtained. A value that is empty,
+  too long or not visible ASCII is `400 invalid_field`.
+
 ## v0.3.0 - 2026-10-18
 
 ### Added

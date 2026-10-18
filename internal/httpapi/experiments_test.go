@@ -18,6 +18,7 @@ import (
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/id"
+	"latere.ai/x/examen/internal/limits"
 )
 
 func TestCreateRefusals(t *testing.T) {
@@ -144,6 +145,81 @@ func TestCreateSendsGraderKinds(t *testing.T) {
 	if kinds, _ := policy.asked[authorizer.FieldGraderKinds].([]string); !slices.Equal(kinds, []string{"annotation", "check", "model_judge"}) {
 		t.Fatalf("a suite with graders sends %#v", policy.asked[authorizer.FieldGraderKinds])
 	}
+}
+
+// askedPolicy records the resource fields of every question it passes on.
+type askedPolicy struct {
+	inner access.Authorizer
+	asked []access.Question
+}
+
+func (a *askedPolicy) Authorize(ctx context.Context, c access.Caller, q access.Question) (access.Decision, error) {
+	a.asked = append(a.asked, q)
+	return a.inner.Authorize(ctx, c, q)
+}
+
+// A create's sign_in reaches the authorizer as the field sign_in of
+// experiment.create and of no other question; it is not stored on the
+// experiment, answered, logged or written to its event log; a create
+// without one sends none; and one that is empty, too long or not visible
+// ASCII is refused invalid_field on sign_in before any question.
+func TestCreatePassesSignInToTheAuthorizerAlone(t *testing.T) {
+	policy := &askedPolicy{}
+	x := newAPI(t, func(s *Server) {
+		policy.inner = s.Authz
+		s.Authz = policy
+	})
+	f := x.fixture()
+	const handle = "ksh_7Q2ZJ5M3N4P6R8T0V2X4Z6B8D0"
+	policy.asked = nil
+	created := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice",
+		map[string]any{"suite": f.suite, "candidates": []string{f.high}, "budget": map[string]any{"name": "study"}, "sign_in": handle})
+	creates := 0
+	for _, q := range policy.asked {
+		v, sent := q.Resource.Fields[authorizer.FieldSignIn]
+		switch {
+		case q.Action == authorizer.ActionExperimentCreate:
+			creates++
+			if v != handle {
+				t.Errorf("experiment.create carries sign_in %#v, want the create's", v)
+			}
+		case sent:
+			t.Errorf("%s carries sign_in", q.Action)
+		}
+	}
+	if creates != 1 {
+		t.Fatalf("%d experiment.create questions, want 1", creates)
+	}
+	id, _ := created["id"].(string)
+	read := x.do(http.MethodGet, "/v1/experiments/"+id, "t-alice", nil)
+	events := x.do(http.MethodGet, "/v1/experiments/"+id+"/events", "t-alice", nil)
+	for name, body := range map[string]string{
+		"the create's answer": string(mustJSON(t, created)), "a read": string(read.body), "the event log": string(events.body), "the log": x.log(),
+	} {
+		if strings.Contains(body, handle) {
+			t.Errorf("%s carries the sign_in", name)
+		}
+	}
+
+	policy.asked = nil
+	x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice",
+		map[string]any{"suite": f.suite, "candidates": []string{f.high}, "budget": map[string]any{"name": "study"}})
+	for _, q := range policy.asked {
+		if _, sent := q.Resource.Fields[authorizer.FieldSignIn]; sent {
+			t.Errorf("a create without sign_in sends one on %s", q.Action)
+		}
+	}
+
+	for _, bad := range []string{"", strings.Repeat("a", limits.SignInMaxBytes+1), "has space", "tab\there", "\u00e9t\u00e9"} {
+		policy.asked = nil
+		d := x.refuse(http.StatusBadRequest, apierr.CodeInvalidField, http.MethodPost, "/v1/experiments", "t-alice",
+			map[string]any{"suite": f.suite, "candidates": []string{f.high}, "budget": map[string]any{"name": "study"}, "sign_in": bad})
+		if d["field"] != "sign_in" || len(policy.asked) != 0 {
+			t.Errorf("sign_in %q: refused on %v after %d questions", bad, d["field"], len(policy.asked))
+		}
+	}
+	x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice",
+		map[string]any{"suite": f.suite, "candidates": []string{f.high}, "budget": map[string]any{"name": "study"}, "sign_in": strings.Repeat("a", limits.SignInMaxBytes)})
 }
 
 // The limits an allow carries hold a create.

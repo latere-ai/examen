@@ -157,6 +157,12 @@ const (
 	// names, or the cap it gives in micro-dollars in its place.
 	FieldBudget            = "budget"
 	FieldBudgetCapUSDMicro = "budget_cap_usd_micro"
+	// FieldSignIn is, on experiment.create, the create's sign_in member as
+	// the client sent it: an opaque value its installation gave it for
+	// this create, such as a handle to a sign-in the installation keeps for
+	// the experiment. Examen sends it in this question alone and keeps it
+	// nowhere.
+	FieldSignIn = "sign_in"
 	// FieldReferenceCandidate is the candidate digest an experiment's
 	// reference names, when it names a candidate; FieldBaseline and
 	// FieldBaselineOwner the baseline record's id and owner when it names
@@ -236,7 +242,7 @@ var table = []action{
 	{ActionExperimentCreate, KindExperiment, []string{
 		FieldOwner, FieldSuite, FieldSuiteOwner, FieldCandidates, FieldExecutors, FieldModels, FieldJudgeModels, FieldGraderKinds, FieldCredentialAudiences,
 		FieldCells, FieldTrials, FieldTrialsTotal, FieldParallelism, FieldBudget, FieldBudgetCapUSDMicro, FieldReferenceCandidate,
-		FieldBaseline, FieldBaselineOwner, FieldMode,
+		FieldBaseline, FieldBaselineOwner, FieldMode, FieldSignIn,
 	}, true},
 	{ActionExperimentRead, KindExperiment, []string{FieldOwner, FieldSuite, FieldState, FieldMode, FieldShared}, true},
 	{ActionExperimentList, KindExperiment, []string{FieldOwner}, false},

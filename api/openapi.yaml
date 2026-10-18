@@ -3146,6 +3146,11 @@ components:
           enum:
             - "execute"
             - "import"
+        sign_in:
+          description: "An opaque value the client's installation gave it for this create, such as a handle to a sign-in the installation keeps for the experiment. Examen passes it to the authorizer as sign_in on experiment.create and keeps it nowhere: it is not stored on the experiment, answered, logged or sent in an event."
+          type: "string"
+          minLength: 1
+          maxLength: 255
         comparisons:
           description: "The comparisons the experiment declares it will make, at most MAX_DECLARED_COMPARISONS: a pair of candidates with an optional variable, or one candidate's two tasks by name or digest. Each is computed without being asked and is not exploratory, and their primary results are corrected together. Fixed at create."
           type: "array"

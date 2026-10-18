@@ -160,7 +160,7 @@ checks before the wire. Each action names one kind.
 | `Candidate` | `candidate.apply` | `PUT /candidates/{name}` | `owner`, `name`, `digest`, `candidate_kind`, `agent`, `image`, `model`, `reasoning`, `harness`, `credential_audiences` |
 | `Candidate` | `candidate.read` | `GET /candidates/{ref}`, `GET /candidates/{name}/versions` | id; `owner`, `name`, `digest`, `candidate_kind` |
 | `Candidate` | `candidate.list` | `GET /candidates` | `owner` |
-| `Experiment` | `experiment.create` | `POST /experiments` | id (minted before the question, so an authorizer can keep a record of the experiment it allows); `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `grader_kinds`, `credential_audiences`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `budget_cap_usd_micro`, `reference_candidate`, `baseline`, `baseline_owner`, `benchmark`, `mode`, `adopt` |
+| `Experiment` | `experiment.create` | `POST /experiments` | id (minted before the question, so an authorizer can keep a record of the experiment it allows); `owner`, `suite`, `suite_owner`, `candidates`, `executors`, `models`, `judge_models`, `grader_kinds`, `credential_audiences`, `cells`, `trials`, `trials_total`, `parallelism`, `budget`, `budget_cap_usd_micro`, `reference_candidate`, `baseline`, `baseline_owner`, `benchmark`, `mode`, `adopt`, `sign_in` |
 | `Experiment` | `experiment.read` | `GET /experiments/{id}` and every route below it that reads, `GET /cells/{id}`, `GET /trials/{id}`, `GET /measurements/{id}`, `GET /comparisons/{id}` with its rows, `POST /comparisons`; and the experiment each export, baseline pin or bar evaluation names | id; `owner`, `suite`, `state`, `mode`, `shared` |
 | `Experiment` | `experiment.list` | `GET /experiments`, `GET /comparisons` | `owner` |
 | `Experiment` | `experiment.update` | `PATCH /experiments/{id}`, `POST /experiments/{id}/close` | id; `owner`, `suite`, `state`, `mode`, and what it changes: `trials` with `trials_total`, `parallelism`, or the reference as `reference_candidate`, or `baseline` with `baseline_owner` |
@@ -252,6 +252,7 @@ object's own `type` or `kind` is sent as `metric_type`, `grader_kind`,
 | `grader_kinds` | on `experiment.create`: the kinds of the graders the suite version names, its `decline_judge` and its `canonicalizers` included, each once: `check`, `model_judge`, `agent_judge` or `annotation`; the built-in decline judge is none of them. With `executors`, it tells an authorizer whether the experiment's work needs an owner token at all: an experiment whose candidates are all `external` and whose graders include no `check`, `model_judge` or `agent_judge` reaches no core as the owner while no file store is configured (spec 003, The v0.1 profile) |
 | `cells`, `trials`, `trials_total` | tasks × candidates; N; cells × N |
 | `budget`, `budget_cap_usd_micro` | on `experiment.create`: the Budget's name the request gave, or the cap it gave in micro-dollars in its place; on `experiment.run`, `budget` is the stored Budget's name |
+| `sign_in` | on `experiment.create`: the create's `sign_in` member as the client sent it, absent when it sent none (spec 003). An authorizer whose installation keeps a sign-in for each experiment its people start reads it to tie the create to the one sign-in the client obtained for it, so a create from a client that obtained none, a key's or another program's, finds none. Examen sends it in this question alone and keeps it nowhere |
 | `benchmark` | on `experiment.create`: the publication id of the benchmark the request runs another owner's suite through; on a submission action, the benchmark's publication id |
 | `benchmark_owner` | on a submission action: the benchmark's owner |
 | `reference_candidate` | on `experiment.create` and `experiment.update`: the candidate digest the experiment's `reference` names, when it names a candidate |
@@ -865,6 +866,11 @@ object's content beyond the fields sent.
 
 ## Acceptance criteria
 
+- A create's `sign_in` reaches the authorizer verbatim as the field
+  `sign_in` of `experiment.create`, and of no other question; it is in no
+  stored experiment, answer, event, log line or span; one that is empty,
+  longer than `SIGN_IN_MAX_BYTES` or not visible ASCII is `400
+  invalid_field` on `sign_in` before any question.
 - The verifier passes the shared conformance suite; a verified token
   becomes a caller whose subject is `<iss>|<sub>` and whose claims are
   the token's, verbatim; two issuers that agree on a `sub` are two

@@ -63,6 +63,7 @@ const (
 	DeliveryRetryWindow           = 24 * time.Hour
 	IdempotencyWindow             = 24 * time.Hour
 	IdempotencyKeyMaxBytes        = 255
+	SignInMaxBytes                = 255
 	IdempotencyReservation        = 5 * time.Minute
 	RequestDeadline               = time.Minute
 	MaxStreamsPerSubject          = 10

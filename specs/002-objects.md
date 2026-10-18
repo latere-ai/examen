@@ -218,6 +218,7 @@ else. The last column names the spec that explains its use.
 | `API_REQUESTS_PER_MINUTE` | 600 | requests one subject may make to one replica in a minute | 012 |
 | `IDEMPOTENCY_WINDOW` | 24 hours | how long an `Idempotency-Key` answers its first response | 003 |
 | `IDEMPOTENCY_KEY_MAX_BYTES` | 255 | the longest `Idempotency-Key` | 003 |
+| `SIGN_IN_MAX_BYTES` | 255 | the longest `sign_in` an experiment's create carries | 003 |
 | `IDEMPOTENCY_RESERVATION` | 5 minutes | how long an `Idempotency-Key` whose first request is still being served holds off a repeat with `request_in_progress`; it lapses so a repeat runs when a replica stopped mid-request | 003 |
 | `REQUEST_DEADLINE` | 1 minute | how long examend serves one request that carries an `Idempotency-Key` before it abandons it; shorter than `IDEMPOTENCY_RESERVATION`, so no first request ends after its reservation lapsed | 003 |
 | `STREAM_POLL_INTERVAL` | 1 second | how often an open stream reads the event log for new entries | 003 |
