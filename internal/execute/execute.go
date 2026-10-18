@@ -61,6 +61,61 @@ func Deal(parallelism int, loads []Load) map[string]int {
 	return shares
 }
 
+// Unfinished is one trial of a submitted rollout that is not yet done: its
+// cell, the cell's place in the deal, its rollout's rank (smoke 0, retry 1,
+// main 2) and its index, and whether it is held, leased or checking, and so
+// already counts against the parallelism.
+type Unfinished struct {
+	Cell         string
+	TaskPos      int
+	CandidatePos int
+	Rank         int
+	Index        int
+	Held         bool
+}
+
+// Before orders two unfinished trials the way an experiment's scheduling
+// deals and leases them. Under task_by_task a task's trials come before
+// the next task's, and within a task a cell's smoke trials, then its
+// retries, then its main trials, each by index, the task's cells taking
+// turns trial by trial. Under interleaved every cell of every task takes
+// its turn: smoke trials, then retries, then main trials, each by index,
+// across every cell in the suite's task order and the experiment's
+// candidate order.
+func Before(scheduling string, a, b Unfinished) int {
+	if scheduling == objects.SchedulingInterleaved {
+		return cmp.Or(cmp.Compare(a.Rank, b.Rank), cmp.Compare(a.Index, b.Index),
+			cmp.Compare(a.TaskPos, b.TaskPos), cmp.Compare(a.CandidatePos, b.CandidatePos))
+	}
+	return cmp.Or(cmp.Compare(a.TaskPos, b.TaskPos), cmp.Compare(a.Rank, b.Rank), cmp.Compare(a.Index, b.Index),
+		cmp.Compare(a.CandidatePos, b.CandidatePos))
+}
+
+// DealInterleaved deals an experiment's parallelism under interleaved
+// scheduling: every held trial keeps its place, and the rest of the
+// parallelism goes to the pending trials in the order Before gives, so
+// every cell of every task takes one trial before any takes its next. A
+// cell's share is its held trials and the pending ones dealt to it. When
+// the held trials already fill the parallelism, as after it was lowered,
+// nothing more is dealt.
+func DealInterleaved(parallelism int, trials []Unfinished) map[string]int {
+	shares := map[string]int{}
+	var pending []Unfinished
+	for _, t := range trials {
+		if t.Held {
+			shares[t.Cell]++
+			parallelism--
+			continue
+		}
+		pending = append(pending, t)
+	}
+	slices.SortStableFunc(pending, func(a, b Unfinished) int { return Before(objects.SchedulingInterleaved, a, b) })
+	for _, t := range pending[:max(0, min(parallelism, len(pending)))] {
+		shares[t.Cell]++
+	}
+	return shares
+}
+
 // Cell is what a decision reads of one cell: its state, the trials it
 // declares, its rollouts and every trial it holds.
 type Cell struct {

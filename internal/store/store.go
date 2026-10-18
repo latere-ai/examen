@@ -293,7 +293,8 @@ type TrialCounts struct {
 	Retried  int
 }
 
-// LeaseRequest asks for pending trials of an external candidate.
+// LeaseRequest asks for pending trials of an external candidate, or of
+// every candidate whose cells it names when Candidate is empty.
 type LeaseRequest struct {
 	Experiment string
 	Candidate  string
@@ -408,7 +409,7 @@ type Experiments interface {
 	SubmitRollout(ctx context.Context, cell, key string) error
 	Park(ctx context.Context, cell, state, reason string) error
 	// Leasable are the cells of a candidate with pending trials in
-	// submitted rollouts.
+	// submitted rollouts, or of every candidate when it names none.
 	Leasable(ctx context.Context, experiment, candidate string) ([]objects.Cell, error)
 
 	Comparisons(ctx context.Context, f ComparisonFilter, p Page) ([]objects.Comparison, error)

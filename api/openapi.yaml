@@ -2003,8 +2003,8 @@ paths:
       tags:
         - "trials"
       operationId: "leaseTrials"
-      summary: "Lease pending trials of an external candidate, or renew a lease"
-      description: "Hands out the candidate's pending trials within each cell's share of the parallelism, smoke trials first and main trials only after a cell's smoke passes, for EXTERNAL_LEASE. `204` when nothing may be leased now. No answer carries a reference. Asks `trial.lease`."
+      summary: "Lease pending trials of an external candidate, or of every one, or renew a lease"
+      description: "Hands out pending trials of the named candidate, or of every external candidate when the body names none, within each cell's share of the parallelism and never more at once than the parallelism, smoke trials first and main trials only after a cell's smoke passes, in the order the experiment's scheduling deals them, for EXTERNAL_LEASE. Each trial names the candidate it runs. `204` when nothing may be leased now. No answer carries a reference. Asks `trial.lease`, with the candidate and its harness when the body names one."
       parameters:
         - name: "id"
           in: "path"
@@ -3118,6 +3118,12 @@ components:
           enum:
             - "execute"
             - "import"
+        scheduling:
+          type: "string"
+          description: "How the experiment's cells take its parallelism and its external trials are leased: `task_by_task`, the default, a task's cells before the next task's, or `interleaved`, every cell of every task in turn, so trial i of every cell runs in one window. Fixed at create."
+          enum:
+            - "task_by_task"
+            - "interleaved"
         metadata:
           type: "object"
           additionalProperties:
@@ -3160,6 +3166,11 @@ components:
           additionalProperties: false
         mode:
           type: "string"
+        scheduling:
+          type: "string"
+          enum:
+            - "task_by_task"
+            - "interleaved"
         state:
           type: "string"
           enum:
@@ -3423,6 +3434,7 @@ components:
       properties:
         candidate:
           type: "string"
+          description: "An external candidate of the experiment; absent, the lease takes trials of every external candidate."
         max:
           type: "integer"
         renew:
@@ -3447,6 +3459,33 @@ components:
                 type: "string"
               index:
                 type: "integer"
+              candidate:
+                type: "object"
+                description: "The candidate the trial runs, with the configuration its harness declared."
+                properties:
+                  name:
+                    type: "string"
+                  digest:
+                    type: "string"
+                  external:
+                    type: "object"
+                    properties:
+                      harness:
+                        type: "string"
+                      version:
+                        type: "string"
+                      digest:
+                        type: "string"
+                      model:
+                        type: "string"
+                      reasoning:
+                        type: "string"
+                      flags:
+                        type: "object"
+                        additionalProperties:
+                          type: "string"
+                    additionalProperties: false
+                additionalProperties: false
               task:
                 type: "object"
                 properties:

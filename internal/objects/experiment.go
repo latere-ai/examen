@@ -55,22 +55,25 @@ type Progress struct {
 
 // Experiment is one execution of a suite against candidates.
 type Experiment struct {
-	ID          string            `json:"id"`
-	Owner       string            `json:"owner"`
-	Suite       string            `json:"suite"`
-	Candidates  []string          `json:"candidates"`
-	Trials      int               `json:"trials"`
-	Budget      Budget            `json:"budget"`
-	Parallelism int               `json:"parallelism"`
-	Reference   Reference         `json:"reference"`
-	Mode        string            `json:"mode"`
-	State       string            `json:"state"`
-	CreatedBy   string            `json:"created_by"`
-	Judgments   []json.RawMessage `json:"judgments"`
-	Progress    *Progress         `json:"progress,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	ID          string    `json:"id"`
+	Owner       string    `json:"owner"`
+	Suite       string    `json:"suite"`
+	Candidates  []string  `json:"candidates"`
+	Trials      int       `json:"trials"`
+	Budget      Budget    `json:"budget"`
+	Parallelism int       `json:"parallelism"`
+	Reference   Reference `json:"reference"`
+	Mode        string    `json:"mode"`
+	// Scheduling is the order in which the experiment's cells take its
+	// parallelism and its external trials are leased, fixed at create.
+	Scheduling string            `json:"scheduling"`
+	State      string            `json:"state"`
+	CreatedBy  string            `json:"created_by"`
+	Judgments  []json.RawMessage `json:"judgments"`
+	Progress   *Progress         `json:"progress,omitempty"`
+	Metadata   map[string]string `json:"metadata,omitempty"`
+	CreatedAt  time.Time         `json:"created_at"`
+	UpdatedAt  time.Time         `json:"updated_at"`
 
 	// SuiteID and CandidateIDs are the version ids the digests resolved
 	// to in the owner's context, and SuiteName the suite's name.

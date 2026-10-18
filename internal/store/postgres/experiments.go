@@ -24,13 +24,13 @@ func (s *Store) Experiments() store.Experiments { return experiments{s} }
 type experiments struct{ s *Store }
 
 const experimentColumns = `id, owner, suite, suite_id, suite_name, candidates, candidate_ids, trials, budget, parallelism,
-	coalesce(reference_baseline, ''), coalesce(reference_candidate, ''), mode, state, created_by, metadata, intake_closed, created_at, updated_at`
+	coalesce(reference_baseline, ''), coalesce(reference_candidate, ''), mode, scheduling, state, created_by, metadata, intake_closed, created_at, updated_at`
 
 func scanExperiment(row pgx.Row) (objects.Experiment, error) {
 	var e objects.Experiment
 	var metadata []byte
 	if err := row.Scan(&e.ID, &e.Owner, &e.Suite, &e.SuiteID, &e.SuiteName, &e.Candidates, &e.CandidateIDs, &e.Trials, &e.Budget.Name,
-		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
+		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.Scheduling, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
 		&e.CreatedAt, &e.UpdatedAt); err != nil {
 		return objects.Experiment{}, err
 	}
@@ -125,11 +125,15 @@ func (x experiments) Create(ctx context.Context, ne store.NewExperiment) error {
 		} else {
 			refCandidate = &e.Reference.Candidate
 		}
+		scheduling := e.Scheduling
+		if scheduling == "" {
+			scheduling = objects.SchedulingTaskByTask
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO experiments (id, owner, suite, suite_id, suite_name, candidates, candidate_ids, trials, budget, parallelism,
-				reference_baseline, reference_candidate, mode, state, created_by, metadata, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14, $15, $16, $16)`,
+				reference_baseline, reference_candidate, mode, scheduling, state, created_by, metadata, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'pending', $15, $16, $17, $17)`,
 			e.ID, e.Owner, e.Suite, e.SuiteID, e.SuiteName, e.Candidates, e.CandidateIDs, e.Trials, e.Budget.Name, e.Parallelism,
-			refBaseline, refCandidate, e.Mode, e.CreatedBy, metadata, now); err != nil {
+			refBaseline, refCandidate, e.Mode, scheduling, e.CreatedBy, metadata, now); err != nil {
 			return fmt.Errorf("postgres: storing an experiment: %w", err)
 		}
 		j := &journal{tx: tx, exp: e.ID, owner: e.Owner, seq: 1, now: now}

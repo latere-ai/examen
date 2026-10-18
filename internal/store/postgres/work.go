@@ -4,6 +4,7 @@
 package postgres
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -58,7 +59,7 @@ func scanLocked(row pgx.Row, seq *int64) (objects.Experiment, error) {
 	var e objects.Experiment
 	var metadata []byte
 	if err := row.Scan(&e.ID, &e.Owner, &e.Suite, &e.SuiteID, &e.SuiteName, &e.Candidates, &e.CandidateIDs, &e.Trials, &e.Budget.Name,
-		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
+		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.Scheduling, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
 		&e.CreatedAt, &e.UpdatedAt, seq); err != nil {
 		return objects.Experiment{}, err
 	}
@@ -443,102 +444,13 @@ func (x experiments) Lease(ctx context.Context, r store.LeaseRequest) (store.Lea
 		if _, err := c.lapse(ctx); err != nil {
 			return err
 		}
-		cells, err := collectCellsQuery(ctx, c.tx, `SELECT `+cellColumns+` FROM cells WHERE experiment = $1 ORDER BY task_pos, candidate_pos`, c.e.ID)
-		if err != nil {
+		take, err := c.leasable(ctx, r)
+		if err != nil || len(take) == 0 {
 			return err
 		}
-		type count struct{ pending, held int }
-		counts := map[string]map[string]*count{}
-		rows, err := c.tx.Query(ctx, `SELECT cell, rollout, state, count(*) FROM trials WHERE experiment = $1 AND state <> 'done' GROUP BY cell, rollout, state`, c.e.ID)
-		if err != nil {
-			return fmt.Errorf("postgres: counting open trials: %w", err)
-		}
-		for rows.Next() {
-			var cell, rollout, state string
-			var n int
-			if err := rows.Scan(&cell, &rollout, &state, &n); err != nil {
-				rows.Close()
-				return fmt.Errorf("postgres: reading open trials: %w", err)
-			}
-			if counts[cell] == nil {
-				counts[cell] = map[string]*count{}
-			}
-			if counts[cell][rollout] == nil {
-				counts[cell][rollout] = &count{}
-			}
-			if state == objects.StatePending {
-				counts[cell][rollout].pending += n
-			} else {
-				counts[cell][rollout].held += n
-			}
-		}
-		rows.Close()
-		if err := rows.Err(); err != nil {
-			return fmt.Errorf("postgres: reading open trials: %w", err)
-		}
-		loads := make([]execute.Load, 0, len(cells))
-		held := map[string]int{}
-		for _, cell := range cells {
-			l := execute.Load{Cell: cell.ID, TaskPos: cell.TaskPos, CandidatePos: cell.CandidatePos}
-			for _, key := range openRollouts(cell) {
-				if n := counts[cell.ID][key]; n != nil {
-					l.Unfinished += n.pending + n.held
-					held[cell.ID] += n.held
-				}
-			}
-			loads = append(loads, l)
-		}
-		shares := execute.Deal(c.e.Parallelism, loads)
-		var take []string
-		budget := r.Max
-		for _, cell := range cells {
-			if cell.Candidate != r.Candidate || !slices.Contains(r.Cells, cell.ID) || objects.Parked(cell.State) {
-				continue
-			}
-			room := shares[cell.ID] - held[cell.ID]
-			if r.Max > 0 {
-				room = min(room, budget-len(take))
-			}
-			if room <= 0 {
-				continue
-			}
-			rows, err := c.tx.Query(ctx, `SELECT id, rollout, idx FROM trials WHERE cell = $1 AND state = 'pending' AND rollout = ANY($2) FOR UPDATE`, cell.ID, openRollouts(cell))
-			if err != nil {
-				return fmt.Errorf("postgres: reading pending trials: %w", err)
-			}
-			type pending struct {
-				id, rollout string
-				idx         int
-			}
-			var ps []pending
-			for rows.Next() {
-				var p pending
-				if err := rows.Scan(&p.id, &p.rollout, &p.idx); err != nil {
-					rows.Close()
-					return fmt.Errorf("postgres: reading a pending trial: %w", err)
-				}
-				ps = append(ps, p)
-			}
-			rows.Close()
-			if err := rows.Err(); err != nil {
-				return fmt.Errorf("postgres: reading pending trials: %w", err)
-			}
-			slices.SortFunc(ps, func(a, b pending) int {
-				if d := rolloutRank(cell, a.rollout) - rolloutRank(cell, b.rollout); d != 0 {
-					return d
-				}
-				return a.idx - b.idx
-			})
-			for _, p := range ps[:min(room, len(ps))] {
-				take = append(take, p.id)
-			}
-		}
-		if len(take) == 0 {
-			return nil
-		}
 		out.Lease, out.ExpiresAt = id.New(id.Lease), c.now.Add(limits.ExternalLease)
-		rows, err = c.tx.Query(ctx, `UPDATE trials SET state = 'running', lease_id = $2, lease_subject = $3, lease_expires_at = $4, updated_at = $5
-			WHERE id = ANY($1) RETURNING `+trialColumns, take, out.Lease, r.Subject, out.ExpiresAt, c.now)
+		rows, err := c.tx.Query(ctx, `UPDATE trials SET state = 'running', lease_id = $2, lease_subject = $3, lease_expires_at = $4, updated_at = $5
+			WHERE id = ANY($1) AND state = 'pending' RETURNING `+trialColumns, take, out.Lease, r.Subject, out.ExpiresAt, c.now)
 		if err != nil {
 			return fmt.Errorf("postgres: leasing trials: %w", err)
 		}
@@ -560,6 +472,111 @@ func (x experiments) Lease(ctx context.Context, r store.LeaseRequest) (store.Lea
 		return nil
 	})
 	return out, err
+}
+
+// unfinished is one trial of a submitted rollout not yet done, with its id.
+type unfinished struct {
+	execute.Unfinished
+	id string
+}
+
+// leasable picks the pending trials a lease takes: every unfinished trial
+// of the experiment's open rollouts is dealt the parallelism by its
+// scheduling, and the pending ones of the cells the request may take, of
+// its candidate or of every candidate when it names none, are taken in the
+// scheduling's order, each cell within its share less the trials it
+// already holds, and never more than the parallelism less every trial
+// already held, nor more than the request's max.
+func (c *change) leasable(ctx context.Context, r store.LeaseRequest) ([]string, error) {
+	cells, err := collectCellsQuery(ctx, c.tx, `SELECT `+cellColumns+` FROM cells WHERE experiment = $1 ORDER BY task_pos, candidate_pos`, c.e.ID)
+	if err != nil {
+		return nil, err
+	}
+	byID := map[string]objects.Cell{}
+	for _, cell := range cells {
+		byID[cell.ID] = cell
+	}
+	rows, err := c.tx.Query(ctx, `SELECT id, cell, rollout, idx, state FROM trials WHERE experiment = $1 AND state <> 'done'`, c.e.ID)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: reading open trials: %w", err)
+	}
+	var all []unfinished
+	for rows.Next() {
+		var u unfinished
+		var rollout, state string
+		if err := rows.Scan(&u.id, &u.Cell, &rollout, &u.Index, &state); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("postgres: reading an open trial: %w", err)
+		}
+		cell, ok := byID[u.Cell]
+		if !ok || !slices.Contains(openRollouts(cell), rollout) {
+			continue
+		}
+		u.TaskPos, u.CandidatePos, u.Rank, u.Held = cell.TaskPos, cell.CandidatePos, rolloutRank(cell, rollout), state != objects.StatePending
+		all = append(all, u)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: reading open trials: %w", err)
+	}
+	trials := make([]execute.Unfinished, len(all))
+	for i, u := range all {
+		trials[i] = u.Unfinished
+	}
+	shares := deal(c.e.Scheduling, c.e.Parallelism, cells, trials)
+	held := map[string]int{}
+	totalHeld := 0
+	for _, u := range all {
+		if u.Held {
+			held[u.Cell]++
+			totalHeld++
+		}
+	}
+	room := map[string]int{}
+	for _, cell := range cells {
+		if (r.Candidate != "" && cell.Candidate != r.Candidate) || !slices.Contains(r.Cells, cell.ID) || objects.Parked(cell.State) {
+			continue
+		}
+		room[cell.ID] = shares[cell.ID] - held[cell.ID]
+	}
+	limit := c.e.Parallelism - totalHeld
+	if r.Max > 0 {
+		limit = min(limit, r.Max)
+	}
+	slices.SortStableFunc(all, func(a, b unfinished) int {
+		return cmp.Or(execute.Before(c.e.Scheduling, a.Unfinished, b.Unfinished), strings.Compare(a.id, b.id))
+	})
+	var take []string
+	for _, u := range all {
+		if len(take) >= limit {
+			break
+		}
+		if u.Held || room[u.Cell] <= 0 {
+			continue
+		}
+		take = append(take, u.id)
+		room[u.Cell]--
+	}
+	return take, nil
+}
+
+// deal is each cell's share of the parallelism under the experiment's
+// scheduling: under task_by_task, tasks in the suite's order and a task's
+// cells round robin; under interleaved, every held trial and then the
+// pending ones in the order every cell takes its turn.
+func deal(scheduling string, parallelism int, cells []objects.Cell, trials []execute.Unfinished) map[string]int {
+	if scheduling == objects.SchedulingInterleaved {
+		return execute.DealInterleaved(parallelism, trials)
+	}
+	unfinishedOf := map[string]int{}
+	for _, t := range trials {
+		unfinishedOf[t.Cell]++
+	}
+	loads := make([]execute.Load, 0, len(cells))
+	for _, cell := range cells {
+		loads = append(loads, execute.Load{Cell: cell.ID, TaskPos: cell.TaskPos, CandidatePos: cell.CandidatePos, Unfinished: unfinishedOf[cell.ID]})
+	}
+	return execute.Deal(parallelism, loads)
 }
 
 func collectCellsQuery(ctx context.Context, tx pgx.Tx, sql string, args ...any) ([]objects.Cell, error) {
@@ -951,11 +968,11 @@ func (x experiments) Park(ctx context.Context, cid, state, reason string) error 
 }
 
 func (x experiments) Leasable(ctx context.Context, eid, candidate string) ([]objects.Cell, error) {
-	rows, err := x.s.pool.Query(ctx, `SELECT `+cellColumns+` FROM cells c WHERE experiment = $1 AND candidate = $2
+	rows, err := x.s.pool.Query(ctx, `SELECT `+cellColumns+` FROM cells c WHERE experiment = $1 AND ($2 = '' OR candidate = $2)
 		AND state NOT IN ('blocked', 'over_budget', 'canceled', 'complete')
 		AND EXISTS (SELECT 1 FROM trials t WHERE t.cell = c.id
 			AND (t.state = 'pending' OR (t.state = 'running' AND t.lease_expires_at <= coalesce($3::timestamptz, now()))))
-		ORDER BY task_pos`, eid, candidate, x.s.at())
+		ORDER BY task_pos, candidate_pos`, eid, candidate, x.s.at())
 	if err != nil {
 		return nil, fmt.Errorf("postgres: reading leasable cells: %w", err)
 	}

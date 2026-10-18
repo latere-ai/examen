@@ -640,17 +640,18 @@ func (s *Server) importTrial(w http.ResponseWriter, r *http.Request, c access.Ca
 }
 
 // leasedTrial is a trial as a lease hands it to a harness: what it runs,
-// and never a reference.
+// the candidate it runs, and never a reference.
 type leasedTrial struct {
-	ID          string       `json:"id"`
-	Cell        string       `json:"cell"`
-	Index       int          `json:"index"`
-	Task        taskName     `json:"task"`
-	Instruction string       `json:"instruction,omitempty"`
-	Inputs      *[]inputLink `json:"inputs,omitempty"`
-	Outputs     []string     `json:"outputs"`
-	Timeout     string       `json:"timeout"`
-	MaxTurns    int          `json:"max_turns,omitempty"`
+	ID          string          `json:"id"`
+	Cell        string          `json:"cell"`
+	Index       int             `json:"index"`
+	Candidate   leasedCandidate `json:"candidate"`
+	Task        taskName        `json:"task"`
+	Instruction string          `json:"instruction,omitempty"`
+	Inputs      *[]inputLink    `json:"inputs,omitempty"`
+	Outputs     []string        `json:"outputs"`
+	Timeout     string          `json:"timeout"`
+	MaxTurns    int             `json:"max_turns,omitempty"`
 }
 
 // inputLink is one presigned link to a task's input. This release mints
@@ -660,6 +661,15 @@ type inputLink struct {
 	URL    string `json:"url"`
 	Digest string `json:"digest"`
 	Size   int64  `json:"size"`
+}
+
+// leasedCandidate is the candidate a leased trial runs: its name, its
+// digest, and the configuration its harness declared, so a harness that
+// leased without naming a candidate knows what to run.
+type leasedCandidate struct {
+	Name     string            `json:"name"`
+	Digest   string            `json:"digest"`
+	External *objects.External `json:"external,omitempty"`
 }
 
 // taskName is a task by its name and digest.
@@ -701,8 +711,6 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	switch {
 	case in.Renew != "" && (in.Candidate != "" || in.Max != nil):
 		return apierr.OnField(apierr.CodeInvalidField, "renew", "a renewal names its lease in place of candidate and max")
-	case in.Renew == "" && in.Candidate == "":
-		return apierr.OnField(apierr.CodeMissingField, "candidate", "a lease names the external candidate whose trials it takes")
 	case in.Max != nil && *in.Max < 1:
 		return apierr.OnField(apierr.CodeInvalidField, "max", "max is 1 or more")
 	}
@@ -716,22 +724,22 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 			return err
 		}
 	}
-	var cand objects.Candidate
-	if ci := slices.Index(e.Candidates, candidate); ci >= 0 {
-		cv, err := s.Store.Versions().ByID(r.Context(), objects.KindCandidate, e.CandidateIDs[ci])
-		if err != nil {
-			return apierr.Internal(err)
-		}
-		if err := json.Unmarshal(cv.Body, &cand); err != nil {
-			return apierr.Internal(err)
-		}
+	bodies, err := s.experimentCandidates(r, e)
+	if err != nil {
+		return err
 	}
+	cand := bodies[candidate]
 	harness := ""
 	if cand.External != nil {
 		harness = cand.External.Harness
 	}
+	// A lease that names no candidate sends neither the candidate nor its
+	// harness: it may take the trials of every external candidate.
 	members := experimentMembers(e, c)
-	members[authorizer.FieldCandidate], members[authorizer.FieldHarness], members[authorizer.FieldLease] = candidate, harness, in.Renew
+	members[authorizer.FieldLease] = in.Renew
+	if candidate != "" {
+		members[authorizer.FieldCandidate], members[authorizer.FieldHarness] = candidate, harness
+	}
 	if _, err := s.allowed(r, c, authorizer.ActionTrialLease, e.ID, members, apierr.CodeExperimentNotFound, "no experiment the caller may lease trials of has the id "+eid); err != nil {
 		return err
 	}
@@ -740,12 +748,12 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 		if err != nil {
 			return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
 		}
-		return s.replyLease(w, r, held, false)
+		return s.replyLease(w, r, e, held, false)
 	}
 	switch {
-	case !slices.Contains(e.Candidates, candidate):
+	case candidate != "" && !slices.Contains(e.Candidates, candidate):
 		return apierr.OnField(apierr.CodeNotInExperiment, "candidate", "the candidate is not one of the experiment's")
-	case cand.Kind != objects.CandidateExternal:
+	case candidate != "" && cand.Kind != objects.CandidateExternal:
 		return apierr.OnField(apierr.CodeInvalidField, "candidate", "trials are leased of a candidate of kind external alone")
 	case e.Mode == objects.ModeImport:
 		return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "lease: the experiment is in mode import, whose trials are imported", State: e.State}
@@ -757,6 +765,9 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	if err != nil {
 		return apierr.Internal(err)
 	}
+	// Only an external candidate's trials are leased, whichever candidates
+	// the lease reaches.
+	cells = slices.DeleteFunc(cells, func(cl objects.Cell) bool { return bodies[cl.Candidate].Kind != objects.CandidateExternal })
 	allowed := make([]string, 0, len(cells))
 	if s.Engine != nil {
 		if allowed, err = s.Engine.Allowed(r.Context(), e, cells); err != nil {
@@ -779,13 +790,35 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}
-	return s.replyLease(w, r, held, true)
+	return s.replyLease(w, r, e, held, true)
+}
+
+// experimentCandidates reads the bodies of an experiment's candidates, by
+// digest.
+func (s *Server) experimentCandidates(r *http.Request, e objects.Experiment) (map[string]objects.Candidate, error) {
+	versions, err := s.Store.Versions().Many(r.Context(), e.CandidateIDs)
+	if err != nil {
+		return nil, apierr.Internal(err)
+	}
+	out := make(map[string]objects.Candidate, len(e.Candidates))
+	for i, d := range e.Candidates {
+		var cb objects.Candidate
+		if err := json.Unmarshal(versions[e.CandidateIDs[i]].Body, &cb); err != nil {
+			return nil, apierr.Internal(err)
+		}
+		out[d] = cb
+	}
+	return out, nil
 }
 
 // replyLease answers a lease with each trial's task, and on a new lease
 // its input links, of which this release delivers none: a task with inputs
 // is refused at create.
-func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, held store.Leased, links bool) error {
+func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, e objects.Experiment, held store.Leased, links bool) error {
+	bodies, err := s.experimentCandidates(r, e)
+	if err != nil {
+		return err
+	}
 	cells := map[string]objects.Cell{}
 	var taskIDs []string
 	for _, t := range held.Trials {
@@ -810,7 +843,9 @@ func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, held store.L
 		if err := json.Unmarshal(versions[cl.TaskID].Body, &task); err != nil {
 			return apierr.Internal(err)
 		}
-		lt := leasedTrial{ID: t.ID, Cell: t.Cell, Index: t.Index, Task: taskName{Name: task.Name, Digest: cl.Task},
+		cb := bodies[cl.Candidate]
+		lt := leasedTrial{ID: t.ID, Cell: t.Cell, Index: t.Index, Candidate: leasedCandidate{Name: cb.Name, Digest: cl.Candidate, External: cb.External},
+			Task:        taskName{Name: task.Name, Digest: cl.Task},
 			Instruction: task.Instruction, Outputs: task.Outputs, Timeout: duration(task.TimeoutOf()), MaxTurns: task.MaxTurns}
 		if lt.Outputs == nil {
 			lt.Outputs = []string{}

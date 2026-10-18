@@ -121,6 +121,14 @@ const (
 	ModeImport  = "import"
 )
 
+// The schedulings of an experiment (specs/005-execution.md): task by task,
+// a task's cells taking turns before the next task's start, or interleaved,
+// every cell of every task taking its turn before any takes a second.
+const (
+	SchedulingTaskByTask  = "task_by_task"
+	SchedulingInterleaved = "interleaved"
+)
+
 // The reserved grader digests (specs/002-objects.md).
 const (
 	GraderBuiltin = "builtin"

@@ -6,6 +6,7 @@ package execute
 import (
 	"maps"
 	"slices"
+	"strconv"
 	"testing"
 
 	"latere.ai/x/examen/internal/limits"
@@ -33,6 +34,72 @@ func TestDeal(t *testing.T) {
 	// Round robin within a task keeps two cells' trials in one window.
 	if got := Deal(4, []Load{{Cell: "x", Unfinished: 10}, {Cell: "y", CandidatePos: 1, Unfinished: 10}}); got["x"] != 2 || got["y"] != 2 {
 		t.Fatalf("round robin: %v", got)
+	}
+}
+
+// Under interleaved scheduling every cell of every task takes one trial
+// before any takes a second: with four cells of two tasks and a
+// parallelism of six, each cell holds one and the first two in the deal's
+// order a second; held trials keep their places, and a parallelism they
+// already fill deals nothing more.
+func TestInterleavedAcrossTasks(t *testing.T) {
+	var trials []Unfinished
+	for _, c := range []Unfinished{{Cell: "b2", TaskPos: 1, CandidatePos: 1}, {Cell: "a1"}, {Cell: "a2", CandidatePos: 1}, {Cell: "b1", TaskPos: 1}} {
+		for i := range 3 {
+			u := c
+			u.Rank, u.Index = 2, i
+			trials = append(trials, u)
+		}
+	}
+	if got := DealInterleaved(6, trials); !maps.Equal(got, map[string]int{"a1": 2, "a2": 2, "b1": 1, "b2": 1}) {
+		t.Fatalf("six: %v", got)
+	}
+	if got := DealInterleaved(100, trials); !maps.Equal(got, map[string]int{"a1": 3, "a2": 3, "b1": 3, "b2": 3}) {
+		t.Fatalf("all: %v", got)
+	}
+	// b2's trial 0 is held: it keeps its place, and the three slots left go
+	// to trial 0 of the other cells, not to a second trial of task 0.
+	held := slices.Clone(trials)
+	held[0].Held = true
+	if got := DealInterleaved(4, held); !maps.Equal(got, map[string]int{"a1": 1, "a2": 1, "b1": 1, "b2": 1}) {
+		t.Fatalf("held: %v", got)
+	}
+	// Held trials beyond a lowered parallelism deal nothing more.
+	for i := range held[:4] {
+		held[i].Held = true
+	}
+	if got := DealInterleaved(2, held); !maps.Equal(got, map[string]int{"a1": 1, "b2": 3}) {
+		t.Fatalf("lowered: %v", got)
+	}
+}
+
+// Before orders trials smoke first, then retries, then main trials, each by
+// index: across every cell under interleaved, and within a task, the task
+// first, under task_by_task.
+func TestBefore(t *testing.T) {
+	trials := []Unfinished{
+		{Cell: "b1", TaskPos: 1, Rank: 2, Index: 1},
+		{Cell: "a2", CandidatePos: 1, Rank: 2, Index: 2},
+		{Cell: "a1", Rank: 0, Index: 0},
+		{Cell: "b1", TaskPos: 1, Rank: 1, Index: 3},
+		{Cell: "a1", Rank: 2, Index: 1},
+	}
+	name := func(ts []Unfinished) []string {
+		var out []string
+		for _, u := range ts {
+			out = append(out, u.Cell+":"+strconv.Itoa(u.Index))
+		}
+		return out
+	}
+	inter := slices.Clone(trials)
+	slices.SortStableFunc(inter, func(a, b Unfinished) int { return Before(objects.SchedulingInterleaved, a, b) })
+	if got, want := name(inter), []string{"a1:0", "b1:3", "a1:1", "b1:1", "a2:2"}; !slices.Equal(got, want) {
+		t.Fatalf("interleaved %v, want %v", got, want)
+	}
+	byTask := slices.Clone(trials)
+	slices.SortStableFunc(byTask, func(a, b Unfinished) int { return Before(objects.SchedulingTaskByTask, a, b) })
+	if got, want := name(byTask), []string{"a1:0", "a1:1", "a2:2", "b1:3", "b1:1"}; !slices.Equal(got, want) {
+		t.Fatalf("task by task %v, want %v", got, want)
 	}
 }
 

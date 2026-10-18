@@ -93,8 +93,9 @@ type createBody struct {
 		Baseline  string `json:"baseline"`
 		Candidate string `json:"candidate"`
 	} `json:"reference"`
-	Mode     string            `json:"mode"`
-	Metadata map[string]string `json:"metadata"`
+	Mode       string            `json:"mode"`
+	Scheduling string            `json:"scheduling"`
+	Metadata   map[string]string `json:"metadata"`
 }
 
 // plan is a create's body, read and resolved in one owner's context.
@@ -177,6 +178,11 @@ func checkCreate(in createBody) (suiteDigest string, candDigests []string, err e
 	case "", objects.ModeExecute, objects.ModeImport:
 	default:
 		return "", nil, apierr.OnField(apierr.CodeInvalidField, "mode", "mode is execute or import")
+	}
+	switch in.Scheduling {
+	case "", objects.SchedulingTaskByTask, objects.SchedulingInterleaved:
+	default:
+		return "", nil, apierr.OnField(apierr.CodeInvalidField, "scheduling", "scheduling is task_by_task or interleaved")
 	}
 	return suiteDigest, candDigests, objects.ValidateMetadata("metadata", in.Metadata)
 }
@@ -427,9 +433,13 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	if mode == "" {
 		mode = objects.ModeExecute
 	}
+	scheduling := in.Scheduling
+	if scheduling == "" {
+		scheduling = objects.SchedulingTaskByTask
+	}
 	e := objects.Experiment{
 		ID: eid, Owner: p.owner, Suite: suiteDigest, Candidates: candDigests, Trials: trials, Budget: objects.Budget{Name: budget},
-		Parallelism: parallelism, Mode: mode, CreatedBy: c.Subject, Metadata: in.Metadata,
+		Parallelism: parallelism, Mode: mode, Scheduling: scheduling, CreatedBy: c.Subject, Metadata: in.Metadata,
 		SuiteID: p.suite.ID, SuiteName: p.suite.Name,
 	}
 	for _, v := range p.candidates {
