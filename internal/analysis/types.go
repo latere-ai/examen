@@ -141,11 +141,20 @@ func (m Metric) numeric() bool {
 // Suite is the part of the candidate's suite version a comparison reads:
 // its metrics, its task weights by task digest, and its primary metric.
 type Suite struct {
-	Metrics []Metric `json:"metrics"`
+	// Tasks are the suite version's tasks; when empty, the candidate side's
+	// cells name them.
+	Tasks   []SuiteTask `json:"tasks,omitempty"`
+	Metrics []Metric    `json:"metrics"`
 	// Weights maps a task digest to its weight; a task it does not list
 	// weighs 1.
 	Weights       map[string]float64 `json:"weights,omitempty"`
 	PrimaryMetric string             `json:"primary_metric"`
+}
+
+// SuiteTask is one task of a suite version: its name and digest.
+type SuiteTask struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
 }
 
 // weight is a task's weight.
@@ -247,9 +256,12 @@ type Cell struct {
 // Side is one side of a comparison: a candidate's cells in one experiment
 // and its candidate-level measurements.
 type Side struct {
-	Candidate string        `json:"candidate"`
-	Cells     []Cell        `json:"cells"`
-	Values    []Measurement `json:"values,omitempty"`
+	Candidate string `json:"candidate"`
+	Cells     []Cell `json:"cells"`
+	// Values are the candidate-level measurements of the side's candidate,
+	// and Producers each candidate-level metric's producing grader.
+	Values    []Measurement     `json:"values,omitempty"`
+	Producers map[string]string `json:"producers,omitempty"`
 }
 
 // Taxonomy is one taxonomy record of an open-vocabulary metric.

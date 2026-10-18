@@ -20,7 +20,7 @@ import (
 // instruction, so it cannot change a figure between architectures. Exp,
 // Log, Pow, Lgamma, Erf, Erfinv and the rest are internal/analysis/mathx's.
 var allowedMath = map[string]bool{
-	"Sqrt": true, "Abs": true, "Floor": true, "Ceil": true, "Trunc": true,
+	"Sqrt": true, "Abs": true, "Floor": true, "Ceil": true, "Trunc": true, "Round": true,
 	"Max": true, "Min": true, "Copysign": true, "Signbit": true,
 	"Ldexp": true, "Frexp": true, "Inf": true, "NaN": true, "IsInf": true,
 	"IsNaN": true, "Float64bits": true, "Float64frombits": true,

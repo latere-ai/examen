@@ -14,7 +14,7 @@
 //
 // The functions of package math that stay allowed in the analysis are the
 // ones IEEE 754 defines exactly, whatever the instruction that computes
-// them: Sqrt (correctly rounded), Abs, Floor, Ceil, Trunc, Max, Min,
+// them: Sqrt (correctly rounded), Abs, Floor, Ceil, Trunc, Round, Max, Min,
 // Copysign, Signbit, Ldexp, Frexp, Inf, NaN, IsInf, IsNaN, Float64bits and
 // Float64frombits. Floor, Max and Min have assembly on some architectures,
 // but each returns the one exact answer, so the instruction cannot change
