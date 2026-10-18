@@ -89,7 +89,7 @@ func TestStoredAnalysis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmp := mustCompare(t, in)
+	cmp := goldenComparison(t)
 	for d, s := range ca.Summaries {
 		cs := cmp.CandidateSuite[d]
 		if v1, _ := s.Number(); s.Value != nil {

@@ -12,6 +12,7 @@ import (
 	"math"
 	"runtime"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 )
@@ -71,8 +72,22 @@ func golden() Input {
 // machine.
 const goldenDigest = "2186c0886bede1a7b0fe41d453ed6cde40aa9a63058e1f9d415e8c60ab0abb0f"
 
+// goldenOnce computes the golden comparison at the defaults once for the
+// tests that read it: it is the costliest comparison of the suite, and the
+// suite runs under the race detector with atomic coverage counters.
+var goldenOnce = sync.OnceValues(func() (Comparison, error) { return Compare(golden()) })
+
+func goldenComparison(t *testing.T) Comparison {
+	t.Helper()
+	c, err := goldenOnce()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
 func TestGoldenAcrossArchitectures(t *testing.T) {
-	c := mustCompare(t, golden())
+	c := goldenComparison(t)
 	b, err := json.Marshal(c)
 	if err != nil {
 		t.Fatal(err)
@@ -82,7 +97,13 @@ func TestGoldenAcrossArchitectures(t *testing.T) {
 	if got != goldenDigest {
 		t.Errorf("the golden comparison's digest on %s is %s, want %s", runtime.GOARCH, got, goldenDigest)
 	}
-	// Spot checks that it reads every kind of figure.
+	readsEveryKind(t, c)
+}
+
+// readsEveryKind spot-checks that a comparison of the golden input reads
+// every kind of figure.
+func readsEveryKind(t *testing.T, c Comparison) {
+	t.Helper()
 	kinds := map[string]bool{}
 	for _, r := range c.Results {
 		if r.Method != "" {
@@ -104,17 +125,35 @@ func TestGoldenAcrossArchitectures(t *testing.T) {
 
 const statWelchTfalse = statWelchT + "false"
 
+// smallParameters are the defaults with fewer bootstrap resamples,
+// Boschloo grid points and stopping exceedances, for a test whose
+// assertions read none of them, such as the byte identity of a
+// recomputation or the permutation B a family resolves: the comparison
+// computes every figure it computes at the defaults, at a small part of
+// the time. They differ from the defaults, so a comparison that records
+// them shows it records the parameters it read.
+func smallParameters() Parameters {
+	p := Defaults()
+	p.BootstrapResamples = 200
+	p.BoschlooGridPoints = 50
+	p.PermutationStopExceedances = 10
+	return p
+}
+
 // A final comparison recomputed from its recorded inputs is byte-identical,
 // and its seeds are the recorded ones.
 func TestRecomputeFromRecordedInputs(t *testing.T) {
 	in := golden()
+	in.Parameters = smallParameters()
 	a := mustCompare(t, in)
+	readsEveryKind(t, a)
 	ja, err := json.Marshal(a)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The same reads in another order: cells and trials shuffled.
 	shuffled := golden()
+	shuffled.Parameters = in.Parameters
 	for _, side := range []*Side{&shuffled.Candidate, &shuffled.Reference} {
 		side.Cells[0], side.Cells[2] = side.Cells[2], side.Cells[0]
 		for ci := range side.Cells {
@@ -151,8 +190,12 @@ func TestRecomputeFromRecordedInputs(t *testing.T) {
 			t.Errorf("%s %s %s: seed %s, want %s", r.MetricName, r.Level, r.Task, r.Seed, want)
 		}
 	}
-	// Recorded parameters are read: a changed default does not move a
-	// comparison computed with the recorded ones.
+	// Recorded parameters are read: the comparison records the parameters
+	// it computed with, not the defaults, so a changed default does not
+	// move a comparison recomputed with the recorded ones.
+	if a.Parameters != smallParameters() {
+		t.Errorf("recorded parameters %+v, want the ones computed with", a.Parameters)
+	}
 	in.Parameters = a.Parameters
 	jc, err := json.Marshal(mustCompare(t, in))
 	if err != nil {
@@ -246,12 +289,15 @@ func normal(g *generator) float64 {
 
 // levelResamples and levelStop are the relabelings each simulated test
 // draws and the exceedances it stops at. The level is a property of the
-// statistic; B and the stop rule only resolve the p-value, and any stop
-// keeps it valid, so 500 draws stopped at 50 exceedances decide p <= 0.05
-// at a small part of the defaults' time.
+// statistic; B only resolves the p-value, and a Monte Carlo test of any B
+// keeps the level, exactly when (1 + B)·0.05 is whole, as at B = 59. Of
+// 59 draws, p = (1 + c)/60 <= 0.05 needs at most 2 exceedances, and a
+// stop at the 3rd gives p = 3/L > 0.05 at every L up to 59, so stopping
+// there decides every experiment as the 59 draws would, at a small part of
+// the defaults' time.
 const (
-	levelResamples = 500
-	levelStop      = 50
+	levelResamples = 59
+	levelStop      = 3
 )
 
 // With equal means and equal medians, 50 normal trials of spread 1 against

@@ -50,13 +50,13 @@ func TestVerdictRule(t *testing.T) {
 		}
 	}
 	// The verdict follows q and the sign alone: a significant difference
-	// whose interval reaches zero is still improved. 9/10 against 3/10 is
+	// whose interval reaches zero is still improved. 6/7 against 1/7 is
 	// significant by Boschloo's test.
 	m := binaryMetric("pass", HigherIsBetter)
-	c := mustCompare(t, pairInput(m, map[string][]any{"t1": bools(9, 10)}, map[string][]any{"t1": bools(3, 10)}))
+	c := mustCompare(t, pairInput(m, map[string][]any{"t1": bools(6, 7)}, map[string][]any{"t1": bools(1, 7)}))
 	r := find(c, m.Digest, LevelTask, "t1")
 	if r.Verdict != Improved || *r.Q > 0.05 {
-		t.Errorf("9/10 against 3/10: %s q %v", r.Verdict, *r.Q)
+		t.Errorf("6/7 against 1/7: %s q %v", r.Verdict, *r.Q)
 	}
 }
 
@@ -151,14 +151,14 @@ func TestSuiteWeights(t *testing.T) {
 
 func TestDirectionNone(t *testing.T) {
 	m := binaryMetric("completed", NoDirection)
-	c := mustCompare(t, pairInput(m, map[string][]any{"t1": bools(10, 10)}, map[string][]any{"t1": bools(0, 10)}))
+	c := mustCompare(t, pairInput(m, map[string][]any{"t1": bools(7, 7)}, map[string][]any{"t1": bools(0, 7)}))
 	for _, r := range c.Results {
 		if r.Verdict == Improved || r.Verdict == Regressed {
 			t.Errorf("%s %s: %s", r.Level, r.Task, r.Verdict)
 		}
 	}
 	if r := find(c, m.Digest, LevelTask, "t1"); r.Verdict != Changed {
-		t.Errorf("10/10 against 0/10: %s", r.Verdict)
+		t.Errorf("7/7 against 0/7: %s", r.Verdict)
 	}
 }
 
@@ -200,7 +200,9 @@ func TestEqualSidesAreWithinNoise(t *testing.T) {
 func TestCountsUseTheirAggregate(t *testing.T) {
 	for agg, stat := range map[Aggregate]string{AggMean: statWelchT, AggMedian: statStudentizedQ, AggP90: statStudentizedQ} {
 		m := numericMetric("turns", TypeCount, agg, NoDirection)
-		c := mustCompare(t, pairInput(m, map[string][]any{"t1": nums(3, 4, 5, 6, 30), "t2": nums(1, 2, 3, 4, 5)}, map[string][]any{"t1": nums(2, 3, 4, 5, 6), "t2": nums(1, 2, 3, 4, 6)}))
+		in := pairInput(m, map[string][]any{"t1": nums(3, 4, 5, 6, 30), "t2": nums(1, 2, 3)}, map[string][]any{"t1": nums(2, 3, 4, 5, 6), "t2": nums(1, 2, 4)})
+		in.Parameters = smallParameters()
+		c := mustCompare(t, in)
 		r := find(c, m.Digest, LevelTask, "t1")
 		if r.Method != methodPerm || r.Statistic != stat {
 			t.Errorf("%s: %s %s, want permutation %s", agg, r.Method, r.Statistic, stat)
@@ -318,7 +320,7 @@ func TestSelfReported(t *testing.T) {
 
 func TestDeclaredProvenance(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	in.Reference.Cells[0].Tuple.CandidateKind = "external"
 	c := mustCompare(t, in)
 	if len(c.DeclaredProvenance) != 1 || c.DeclaredProvenance[0] != "reference" {
@@ -328,7 +330,7 @@ func TestDeclaredProvenance(t *testing.T) {
 
 func TestModelComparisonIsSingleVariable(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	c := mustCompare(t, pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)}))
+	c := mustCompare(t, pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)}))
 	if !c.SingleVariable || len(c.Variable) != 1 || c.Variable[0] != FieldModel || len(c.Confounds) != 0 {
 		t.Errorf("variable %v single %v confounds %v", c.Variable, c.SingleVariable, c.Confounds)
 	}
@@ -402,7 +404,7 @@ func sortedStrings(v []string) []string {
 
 func TestSentLayers(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	in.Variable = "tools"
 	// The candidate's first trial sent nothing to its configured model, and
 	// its requests carried a reasoning value the reference never sent.
@@ -470,7 +472,7 @@ func TestDeclaredImage(t *testing.T) {
 
 func TestDeclaredReasoningIsSingleVariable(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	for _, side := range []*Side{&in.Candidate, &in.Reference} {
 		side.Cells[0].Tuple.CandidateKind = "external"
 		side.Cells[0].Tuple.Program = `{"harness":"h","version":"1"}`
@@ -485,7 +487,7 @@ func TestDeclaredReasoningIsSingleVariable(t *testing.T) {
 
 func TestProgramConfigIsSingleVariable(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	for _, side := range []*Side{&in.Candidate, &in.Reference} {
 		side.Cells[0].Tuple.CandidateKind = "program"
 		side.Cells[0].Tuple.AgentOrImageDigest = "sha256:runner"
@@ -535,7 +537,7 @@ func TestVariableIsOneLogicalVariable(t *testing.T) {
 // confound disappears; a partly re-graded one is not.
 func TestReferenceReadAtCandidatesGrader(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	in.Candidate.Cells[0].Producers[m.Digest] = "sha256:judge-v2"
 	for i := range in.Candidate.Cells[0].Trials {
 		in.Candidate.Cells[0].Trials[i].Measurements[0].Grader = "sha256:judge-v2"
@@ -550,8 +552,8 @@ func TestReferenceReadAtCandidatesGrader(t *testing.T) {
 	if confound(r, FieldGraderDigests) != nil || !c.SingleVariable {
 		t.Errorf("re-graded: %+v", r.Confounds)
 	}
-	if k := *r.Reference.Numerator; k != 10 {
-		t.Errorf("read at the re-grade, the reference holds %d true values, want 10", k)
+	if k := *r.Reference.Numerator; k != 6 {
+		t.Errorf("read at the re-grade, the reference holds %d true values, want 6", k)
 	}
 	ref.Trials[0].Measurements = ref.Trials[0].Measurements[:1]
 	c = mustCompare(t, in)
@@ -559,14 +561,14 @@ func TestReferenceReadAtCandidatesGrader(t *testing.T) {
 	if confound(r, FieldGraderDigests) == nil || c.SingleVariable {
 		t.Errorf("partly re-graded: %+v", r.Confounds)
 	}
-	if k := *r.Reference.Numerator; k != 5 {
-		t.Errorf("read at its own grader, the reference holds %d true values, want 5", k)
+	if k := *r.Reference.Numerator; k != 3 {
+		t.Errorf("read at its own grader, the reference holds %d true values, want 3", k)
 	}
 }
 
 func TestIncomplete(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	in.Candidate.Cells[0].Trials = append(in.Candidate.Cells[0].Trials,
 		Trial{ID: "c-t1-900", Outcome: OutcomeInfraFailed, Retried: true},
 		Trial{ID: "c-t1-901", Outcome: OutcomeInfraFailed},
@@ -578,11 +580,11 @@ func TestIncomplete(t *testing.T) {
 	if cf := confound(r, confoundIncomplete); cf == nil || cf.Candidate != 2 || cf.Reference != 0 {
 		t.Errorf("incomplete %+v", cf)
 	}
-	if !strings.HasSuffix(r.Reason, "; 2 of 12 candidate trials were left out: failed to run, canceled or over budget") {
+	if !strings.HasSuffix(r.Reason, "; 2 of 8 candidate trials were left out: failed to run, canceled or over budget") {
 		t.Errorf("reason %q", r.Reason)
 	}
 	ex := r.Candidate.Excluded
-	if ex[excludedRetried] != 1 || ex[excludedInfraFailed] != 1 || ex[excludedOverBudget] != 1 || ex[excludedNotDone] != 1 || r.Candidate.N != 10 {
+	if ex[excludedRetried] != 1 || ex[excludedInfraFailed] != 1 || ex[excludedOverBudget] != 1 || ex[excludedNotDone] != 1 || r.Candidate.N != 6 {
 		t.Errorf("excluded %v n %d", ex, r.Candidate.N)
 	}
 	if !c.SingleVariable {
@@ -592,7 +594,7 @@ func TestIncomplete(t *testing.T) {
 
 func TestWindow(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	for i := range in.Reference.Cells[0].Trials {
 		tr := &in.Reference.Cells[0].Trials[i]
 		tr.StartedAt = tr.StartedAt.Add(-41 * 24 * time.Hour)
@@ -617,7 +619,7 @@ func TestWindow(t *testing.T) {
 		t.Error("the suite-level result carries no window")
 	}
 	// Within WINDOW_TOLERANCE, none.
-	in = pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in = pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	for i := range in.Reference.Cells[0].Trials {
 		in.Reference.Cells[0].Trials[i].StartedAt = in.Reference.Cells[0].Trials[i].StartedAt.Add(-6 * 24 * time.Hour)
 		in.Reference.Cells[0].Trials[i].EndedAt = in.Reference.Cells[0].Trials[i].EndedAt.Add(-6 * 24 * time.Hour)
@@ -668,8 +670,8 @@ func TestComparisonAcrossTasks(t *testing.T) {
 	cost := numericMetric("cost", TypeCost, AggMean, LowerIsBetter)
 	tp1, tp2 := tuple("model-a", "prompt-1"), tuple("model-a", "prompt-2")
 	tp2.EnvironmentDigest = "sha256:env-2"
-	x := cell("prompt-1", tp1, merge(trialsOf("x", epoch, pass, bools(9, 10)...), trialsOf("x", epoch, cost, nums(1, 2, 1, 2, 1, 2, 1, 2, 1, 2)...)), pass, cost)
-	y := cell("prompt-2", tp2, merge(trialsOf("y", epoch, pass, bools(2, 10)...), trialsOf("y", epoch, cost, nums(2, 3, 2, 3, 2, 3, 2, 3, 2, 3)...)), pass, cost)
+	x := cell("prompt-1", tp1, merge(trialsOf("x", epoch, pass, bools(6, 7)...), trialsOf("x", epoch, cost, nums(1, 2, 1, 2, 1, 2, 1)...)), pass, cost)
+	y := cell("prompt-2", tp2, merge(trialsOf("y", epoch, pass, bools(1, 7)...), trialsOf("y", epoch, cost, nums(2, 3, 2, 3, 2, 3, 2)...)), pass, cost)
 	in := Input{
 		Parameters: Defaults(), Suite: Suite{Metrics: []Metric{pass, cost}, PrimaryMetric: pass.Digest},
 		Candidate: Side{Candidate: "sha256:c", Cells: []Cell{x}}, Reference: Side{Candidate: "sha256:c", Cells: []Cell{y}},
@@ -698,7 +700,7 @@ func TestComparisonAcrossTasks(t *testing.T) {
 func TestCandidateLevelIsDescriptive(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
 	style := Metric{Digest: "sha256:style", Name: "style", Type: TypeScore, Direction: HigherIsBetter, Level: LevelCandidate}
-	in := pairInput(m, map[string][]any{"t1": bools(5, 10)}, map[string][]any{"t1": bools(5, 10)})
+	in := pairInput(m, map[string][]any{"t1": bools(3, 6)}, map[string][]any{"t1": bools(3, 6)})
 	in.Suite.Metrics = append(in.Suite.Metrics, style)
 	in.Candidate.Values = []Measurement{{ID: "v1", Metric: style.Digest, Grader: "sha256:j", Generation: 1, Value: 0.5}, {ID: "v2", Metric: style.Digest, Grader: "sha256:j", Generation: 2, Value: 0.75}}
 	in.Reference.Values = []Measurement{{ID: "v3", Metric: style.Digest, Grader: "sha256:j", Generation: 1, Value: 0.5}}
@@ -993,6 +995,18 @@ func TestPowerFloor(t *testing.T) {
 	if pl.floor != 2.0/184756 || 0.05/4619 >= pl.floor || 0.05/4618 < pl.floor {
 		t.Errorf("10 against 10: floor %v, a floor from m = 4,619", pl.floor)
 	}
+	// 10 against 10 is enumerated in full under PERMUTATION_EXACT_MAX, and
+	// of its 184,756 relabelings two reach the largest difference: the
+	// observed one and its mirror. This is the suite's one enumeration of
+	// that size.
+	x, y := make([]float64, 10), make([]float64, 10)
+	for i := range x {
+		x[i], y[i] = float64(i), float64(10+i)
+	}
+	diff := func(a, b []float64) float64 { return mean(a) - mean(b) }
+	if r := permutationTest(x, y, diff, Defaults().PermutationExactMax, mc("floor", 10000)); !r.exact || r.resamples != 184756 || r.p != 2.0/184756 {
+		t.Errorf("10 against 10: %+v, want 2/184,756 of 184,756 exact", r)
+	}
 	// The primary result tested alone: a suite of one task of 2 trials per
 	// side cannot be shown at 5% by the exact stratified test.
 	mean := numericMetric("cost", TypeCost, AggMean, LowerIsBetter)
@@ -1035,7 +1049,9 @@ func TestResamplesGrowWithTheFamily(t *testing.T) {
 		}
 		cand[task], ref[task] = nums(v...), nums(v...)
 	}
-	c := mustCompare(t, pairInput(m, cand, ref))
+	in := pairInput(m, cand, ref)
+	in.Parameters = smallParameters()
+	c := mustCompare(t, in)
 	if c.Resamples.Family != 12000 {
 		t.Errorf("family of 30: %d", c.Resamples.Family)
 	}
@@ -1088,7 +1104,9 @@ func TestMeanResults(t *testing.T) {
 	m := numericMetric("cost", TypeCost, AggMean, LowerIsBetter)
 	x := nums(0.10, 0.12, 0.11, 0.13, 0.09, 0.10, 0.14, 0.12)
 	y := nums(0.20, 0.22, 0.19, 0.25, 0.21, 0.18, 0.23, 0.20)
-	c := mustCompare(t, pairInput(m, map[string][]any{"t1": x, "t2": x}, map[string][]any{"t1": y, "t2": y}))
+	in := pairInput(m, map[string][]any{"t1": x, "t2": x}, map[string][]any{"t1": y, "t2": y})
+	in.Parameters = smallParameters()
+	c := mustCompare(t, in)
 	r := find(c, m.Digest, LevelTask, "t1")
 	if r.Statistic != statWelchT || !*r.Exact || *r.Resamples != 12870 || r.Verdict != Improved || r.DeltaInterval == nil {
 		t.Errorf("mean result %+v", r)

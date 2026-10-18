@@ -252,44 +252,44 @@ func TestOrderStatisticInterval(t *testing.T) {
 }
 
 // expectedModeShare is the expected mode share of d trials spread evenly
-// over k labels, in exact rationals: E[max count]/d, with
-// P(max <= m) = d!·[x^d](Σ_{j <= m} x^j/j!)^k / k^d.
+// over k labels, exactly: E[max count]/d with
+// E[max count] = Σ_{m=1..d} (1 - N(m-1)/k^d), where N(M), the assignments
+// of the d trials to the k labels that give no label more than M trials,
+// is counted in integers one label at a time: a label given j of the n
+// trials placed so far takes C(n, j) of their positions.
 func expectedModeShare(d, k int) float64 {
-	atMost := func(m int) *big.Rat {
-		base := make([]*big.Rat, m+1)
-		f := big.NewRat(1, 1)
-		for j := 0; j <= m; j++ {
-			if j > 0 {
-				f.Quo(f, big.NewRat(int64(j), 1))
-			}
-			base[j] = new(big.Rat).Set(f)
+	choose := make([][]*big.Int, d+1)
+	for n := range choose {
+		choose[n] = make([]*big.Int, n+1)
+		for j := range choose[n] {
+			choose[n][j] = new(big.Int).Binomial(int64(n), int64(j))
 		}
-		poly := []*big.Rat{big.NewRat(1, 1)}
+	}
+	total := new(big.Int).Exp(big.NewInt(int64(k)), big.NewInt(int64(d)), nil)
+	sum, prod := new(big.Int), new(big.Int)
+	ways, next := make([]*big.Int, d+1), make([]*big.Int, d+1)
+	for i := range ways {
+		ways[i], next[i] = new(big.Int), new(big.Int)
+	}
+	for m := 1; m <= d; m++ {
+		for i := range ways {
+			ways[i].SetInt64(0)
+		}
+		ways[0].SetInt64(1)
 		for range k {
-			next := make([]*big.Rat, min(len(poly)+m, d+1))
 			for i := range next {
-				next[i] = new(big.Rat)
+				next[i].SetInt64(0)
 			}
-			for i, a := range poly {
-				for j, b := range base {
-					if i+j <= d {
-						next[i+j].Add(next[i+j], new(big.Rat).Mul(a, b))
-					}
+			for n, w := range ways {
+				for j := 0; j < m && n+j <= d; j++ {
+					next[n+j].Add(next[n+j], prod.Mul(w, choose[n+j][j]))
 				}
 			}
-			poly = next
+			ways, next = next, ways
 		}
-		if len(poly) <= d {
-			return new(big.Rat)
-		}
-		r := new(big.Rat).Mul(poly[d], new(big.Rat).SetInt(new(big.Int).MulRange(1, int64(d))))
-		return r.Quo(r, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(int64(k)), big.NewInt(int64(d)), nil)))
+		sum.Add(sum, prod.Sub(total, ways[d]))
 	}
-	e := new(big.Rat)
-	for m := 1; m <= d; m++ {
-		e.Add(e, new(big.Rat).Sub(big.NewRat(1, 1), atMost(m-1)))
-	}
-	f, _ := e.Quo(e, big.NewRat(int64(d), 1)).Float64()
+	f, _ := new(big.Rat).SetFrac(sum, prod.Mul(total, big.NewInt(int64(d)))).Float64()
 	return f
 }
 

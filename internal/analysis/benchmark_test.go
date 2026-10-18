@@ -32,7 +32,13 @@ func entry(id string, tasks map[string][]any) Entry {
 
 func table(t *testing.T, m Metric, ref string, entries ...Entry) Table {
 	t.Helper()
-	tb, err := ComputeTable(TableInput{Parameters: Defaults(), Metric: m, Reference: ref, Entries: entries})
+	return tableAt(t, Defaults(), m, ref, entries...)
+}
+
+// tableAt computes a results table at the parameters p.
+func tableAt(t *testing.T, p Parameters, m Metric, ref string, entries ...Entry) Table {
+	t.Helper()
+	tb, err := ComputeTable(TableInput{Parameters: p, Metric: m, Reference: ref, Entries: entries})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +185,7 @@ func TestEntryPairs(t *testing.T) {
 			a = map[string][]any{"t1": nums(1, 2, 3, 4, 5, 6, 7, 8), "t2": nums(2, 3, 4, 5, 6, 7, 8, 9)}
 			b = map[string][]any{"t1": nums(11, 12, 13, 14, 15, 16, 17, 18), "t2": nums(12, 13, 14, 15, 16, 17, 18, 19)}
 		}
-		tb := table(t, m, "sbm_2", entry("sbm_1", a), entry("sbm_2", b))
+		tb := tableAt(t, smallParameters(), m, "sbm_2", entry("sbm_1", a), entry("sbm_2", b))
 		r, ok := tb.ComparePair("sbm_1", "sbm_2")
 		if !ok || r.Method != methodStratified || r.P == nil || r.H == nil || *r.H != *r.P || r.Q != nil {
 			t.Fatalf("%s: %+v", m.Name, r)
@@ -287,13 +293,13 @@ func TestTableResamples(t *testing.T) {
 	m := numericMetric("cost", TypeCost, AggMean, LowerIsBetter)
 	var es []Entry
 	for i := range 9 {
-		v := make([]float64, 4)
+		v := make([]float64, 3)
 		for j := range v {
 			v[j] = float64(i + j)
 		}
 		es = append(es, entry(fmt.Sprintf("sbm_%d", i), map[string][]any{"t1": nums(v...), "t2": nums(v...)}))
 	}
-	tb := table(t, m, "", es...)
+	tb := tableAt(t, smallParameters(), m, "", es...)
 	if tb.Method.Pairs != 36 || tb.Method.Resamples != resamples(36, 1-Defaults().ConfidenceLevel) || tb.Method.Resamples != 14400 {
 		t.Errorf("method %+v", tb.Method)
 	}
@@ -307,8 +313,8 @@ func TestRecomputeResultsTable(t *testing.T) {
 		entry("sbm_2", map[string][]any{"t1": nums(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12), "t2": nums(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13)}),
 		entry("sbm_1", map[string][]any{"t1": nums(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13), "t2": nums(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)}),
 	}
-	a := table(t, m, "sbm_1", es...)
-	b := table(t, m, "sbm_1", es[1], es[0])
+	a := tableAt(t, smallParameters(), m, "sbm_1", es...)
+	b := tableAt(t, smallParameters(), m, "sbm_1", es[1], es[0])
 	ja, err := json.Marshal(a)
 	if err != nil {
 		t.Fatal(err)
@@ -329,7 +335,7 @@ func TestRecomputeResultsTable(t *testing.T) {
 	}
 	// After a change, every pair is drawn again from the new root seed.
 	es[0].Values[0].Values[0] = 1.5
-	c := table(t, m, "sbm_1", es...)
+	c := tableAt(t, smallParameters(), m, "sbm_1", es...)
 	if c.Method.Seed == a.Method.Seed || c.Pairs[0].Seed == a.Pairs[0].Seed {
 		t.Error("a changed entry kept the seeds")
 	}

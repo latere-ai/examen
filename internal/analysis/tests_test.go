@@ -134,12 +134,14 @@ func TestBoschloo(t *testing.T) {
 		t.Errorf("mirrored tables: %v, %v, %v", b1, b2, b3)
 	}
 	// Boschloo's p-value is never above Fisher's for the same table, the
-	// extremes k = 0 and k = n included.
+	// extremes k = 0 and k = n included. The bound holds at every value of
+	// the shared rate, since Fisher's test keeps its level whatever the
+	// margins, so a grid of 20 checks it at 20 values for every table.
 	for nx := 1; nx <= 8; nx++ {
 		for ny := 1; ny <= 8; ny++ {
 			for a := 0; a <= nx; a++ {
 				for c := 0; c <= ny; c++ {
-					b, f := boschloo(a, nx, c, ny, 100, tol)
+					b, f := boschloo(a, nx, c, ny, 20, tol)
 					if b > f+1e-12 || b <= 0 || b > 1 {
 						t.Fatalf("%d/%d against %d/%d: Boschloo %v, Fisher %v", a, nx, c, ny, b, f)
 					}
