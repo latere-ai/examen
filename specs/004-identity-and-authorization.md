@@ -468,7 +468,7 @@ and decides itself. The rows, in the order they are tried:
 | `publication.list`, `publication.pause` | deny, `no_review`: the policy reviews no listing and has no administrators, so nothing is listed or paused under it |
 | `share.list` naming the subject as `grantee`, or naming none | allow |
 | any other list action | allow, with a filter that narrows the list to the subject's own |
-| `experiment.create` or `experiment.update` whose `suite_owner` or `baseline_owner` is present and is not the subject | deny, `not_owner`: an experiment runs only on its owner's suite and baseline (below) |
+| `experiment.create`, `experiment.update` or `baseline.pin` whose `suite_owner` or `baseline_owner` is present and is not the subject | deny, `not_owner`: an experiment runs only on its owner's suite and baseline, and a baseline is pinned only on its owner's suite (below) |
 | a stored object whose owner is the subject, any action | allow |
 | `submission.review` whose `benchmark_owner` is the subject | allow |
 | `suite.use`, `baseline.use` of another owner's object | deny, `not_owner`: a share grants reading, and a suite or a baseline is used only by its owner's side, whoever can see it by a share, a link or a listing, a benchmark's suite included (spec 013) |
@@ -921,7 +921,8 @@ object's content beyond the fields sent.
   `suite.use` and `baseline.use` of another owner's suite or baseline
   are denied whether `shared` is set or not; and an `experiment.create`
   or `experiment.update` whose `suite_owner` or `baseline_owner` is not
-  the subject is denied `not_owner`.
+  the subject is denied `not_owner`, and so is a `baseline.pin` whose
+  `suite_owner` is not the subject.
 - An experiment created in a context the authorizer's `owner` limit
   names records that owner as its `owner` and the caller as its
   `created_by`, answers both on every read, and its unattended work asks

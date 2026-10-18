@@ -33,9 +33,9 @@
 // trial.submit and experiment.run), is its creator's, its owner's and the
 // owner's members' alone: FieldShared is a reason to allow a read, never
 // one of these. An experiment also runs only on its owner's suite and
-// baseline: an endpoint refuses an experiment.create or experiment.update
-// whose FieldSuiteOwner or FieldBaselineOwner names another owner, shared
-// or not, since every share is a grant of reading.
+// baseline: an endpoint refuses an experiment.create, experiment.update or
+// baseline.pin whose FieldSuiteOwner or FieldBaselineOwner names another
+// owner, shared or not, since every share is a grant of reading.
 //
 // The resource carries its fields flat beside its kind and id, under the
 // names of the Field constants; Fields lists the fields each action may

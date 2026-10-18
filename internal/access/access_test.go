@@ -581,15 +581,19 @@ func TestAShareOpensReadsAlone(t *testing.T) {
 	}
 }
 
-// An experiment runs only on its owner's suite and baseline: a create or a
-// change whose suite_owner or baseline_owner names another owner is
-// denied, even of an experiment the subject owns, and one that names the
-// subject, or neither, is allowed.
+// An experiment runs only on its owner's suite and baseline, and a baseline
+// is pinned only on its owner's suite: a create, a change or a pin whose
+// suite_owner or baseline_owner names another owner is denied, even of an
+// experiment the subject owns, and one that names the subject, or
+// neither, is allowed.
 func TestAnExperimentRunsOnItsOwnersSuite(t *testing.T) {
 	ask := func(action string, fields map[string]any) authz.Decision {
 		t.Helper()
-		id := "exp_1"
-		d, err := access.OwnerPolicy{}.Authorize(t.Context(), authz.Request{Subject: bob, Action: action, Resource: authz.NewResource(authorizer.KindExperiment, id, fields)})
+		id := ""
+		if authorizer.SendsID(action) {
+			id = "exp_1"
+		}
+		d, err := access.OwnerPolicy{}.Authorize(t.Context(), authz.Request{Subject: bob, Action: action, Resource: authz.NewResource(authorizer.Kind(action), id, fields)})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -605,6 +609,8 @@ func TestAnExperimentRunsOnItsOwnersSuite(t *testing.T) {
 		{"a create in its own name on another's suite", authorizer.ActionExperimentCreate, map[string]any{authorizer.FieldOwner: bob, authorizer.FieldSuiteOwner: alice}, false},
 		{"a create naming another's baseline", authorizer.ActionExperimentCreate, map[string]any{authorizer.FieldSuiteOwner: bob, authorizer.FieldBaselineOwner: alice}, false},
 		{"a change of its own experiment to another's baseline", authorizer.ActionExperimentUpdate, map[string]any{authorizer.FieldOwner: bob, authorizer.FieldBaselineOwner: alice}, false},
+		{"a baseline pinned on another's suite", authorizer.ActionBaselinePin, map[string]any{authorizer.FieldSuiteOwner: alice}, false},
+		{"a baseline pinned on its own suite", authorizer.ActionBaselinePin, map[string]any{authorizer.FieldSuiteOwner: bob}, true},
 		{"a create on its own suite", authorizer.ActionExperimentCreate, map[string]any{authorizer.FieldSuiteOwner: bob}, true},
 		{"a create naming no suite owner", authorizer.ActionExperimentCreate, map[string]any{}, true},
 		{"a change of its own experiment to its own baseline", authorizer.ActionExperimentUpdate, map[string]any{authorizer.FieldOwner: bob, authorizer.FieldBaselineOwner: bob}, true},

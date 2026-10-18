@@ -42,8 +42,9 @@ var readsShared = []string{
 //   - an action outside the vocabulary, or asked about another kind: deny,
 //     unknown_action;
 //   - a list: allow, with a filter that narrows it to the subject's own;
-//   - experiment.create or experiment.update whose suite_owner or
-//     baseline_owner is present and is not the subject: deny, not_owner;
+//   - experiment.create, experiment.update or baseline.pin whose
+//     suite_owner or baseline_owner is present and is not the subject:
+//     deny, not_owner;
 //   - a stored object whose owner is the subject, any action: allow;
 //   - a read of a task, metric, grader, suite or taxonomy that is shared
 //     with the subject or pinned by an experiment of the subject's: allow;
@@ -112,7 +113,7 @@ func (OwnerPolicy) decide(req authz.Request) authz.Decision {
 	switch {
 	case authz.IsList(req.Action):
 		return authz.Decision{Allow: true, Filter: &authz.Filter{Owners: []string{req.Subject}}}
-	case runsOn(req.Action) && (foreign(req, authorizer.FieldSuiteOwner) || foreign(req, authorizer.FieldBaselineOwner)):
+	case usesSuite(req.Action) && (foreign(req, authorizer.FieldSuiteOwner) || foreign(req, authorizer.FieldBaselineOwner)):
 		// Asked before the row that allows the owner anything, since an
 		// experiment the subject owns may still name another's suite.
 		return authz.Decision{Reason: authz.ReasonNotOwner}
@@ -132,10 +133,15 @@ func (OwnerPolicy) decide(req authz.Request) authz.Decision {
 	return authz.Decision{Reason: authz.ReasonNotOwner}
 }
 
-// runsOn reports whether an action names the suite or the baseline an
-// experiment runs on: its create, and a change that names a reference.
-func runsOn(action string) bool {
-	return action == authorizer.ActionExperimentCreate || action == authorizer.ActionExperimentUpdate
+// usesSuite reports whether an action names a suite or a baseline it uses:
+// an experiment's create and a change that names a reference, which run
+// on them, and a baseline's pin, which is made on a suite.
+func usesSuite(action string) bool {
+	switch action {
+	case authorizer.ActionExperimentCreate, authorizer.ActionExperimentUpdate, authorizer.ActionBaselinePin:
+		return true
+	}
+	return false
 }
 
 // foreign reports whether a field naming an owner is present and names
