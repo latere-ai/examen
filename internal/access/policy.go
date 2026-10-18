@@ -54,6 +54,11 @@ var readsShared = []string{
 //
 // A subject therefore acts on what it owns and nothing else, so
 // organizations, and services acting for their users, need an authorizer.
+// No row allows an action that runs an experiment because a share names
+// the subject: a share is a grant of reading, and running stays with the
+// experiment's creator, its owner and the owner's members
+// (specs/004-identity-and-authorization.md), which under this policy are
+// one subject.
 // The policy has no administrators and names no limit of its own. Its
 // answer is narrowed by the grants of the caller's token, as an
 // authorizer's is.

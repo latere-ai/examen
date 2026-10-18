@@ -22,7 +22,17 @@
 // joins it in the release whose routes ask it, and the changelog names it.
 //
 // A subject is the issuer and the sub joined, "https://issuer.example.com|alice",
-// and the claims are the token's, verbatim. Examen reads none of them.
+// and the claims are the token's, verbatim. Examen reads none of them, so
+// telling a person's token from a service's, an agent's or a sandbox's,
+// and a member of an organization from anyone else, is the endpoint's.
+// People create: an endpoint refuses every apply, create, pin and import
+// to a token that is not a person's, and an owner the caller does not
+// belong to. Running an experiment, every action that starts, feeds or
+// changes its execution (experiment.create, experiment.update,
+// cell.retry, experiment.cancel, experiment.import, trial.lease,
+// trial.submit and experiment.run), is its creator's, its owner's and the
+// owner's members' alone: FieldShared is a reason to allow a read, never
+// one of these.
 //
 // The resource carries its fields flat beside its kind and id, under the
 // names of the Field constants; Fields lists the fields each action may

@@ -516,3 +516,36 @@ func TestADenyAlwaysHasAReason(t *testing.T) {
 		t.Fatal("the claims went as null")
 	}
 }
+
+// A share lets its grantee read an experiment and run nothing of it:
+// every action that starts, feeds or changes its execution is denied to
+// the grantee even when the question says the experiment is shared with
+// it, and allowed to the owner.
+func TestASharedExperimentDoesNotRun(t *testing.T) {
+	shared := authz.NewResource(authorizer.KindExperiment, "exp_1", map[string]any{
+		authorizer.FieldOwner: alice, authorizer.FieldShared: true, authorizer.FieldCreatedBy: alice,
+	})
+	ask := func(subject, action string) authz.Decision {
+		t.Helper()
+		d, err := access.OwnerPolicy{}.Authorize(t.Context(), authz.Request{Subject: subject, Action: action, Resource: shared})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	if d := ask(bob, authorizer.ActionExperimentRead); !d.Allow {
+		t.Fatalf("the grantee's read: %+v", d)
+	}
+	runs := []string{
+		authorizer.ActionExperimentUpdate, authorizer.ActionCellRetry, authorizer.ActionExperimentCancel,
+		authorizer.ActionExperimentImport, authorizer.ActionTrialLease, authorizer.ActionTrialSubmit, authorizer.ActionExperimentRun,
+	}
+	for _, action := range runs {
+		if d := ask(bob, action); d.Allow || d.Reason != authz.ReasonNotOwner {
+			t.Errorf("the grantee's %s: %+v, want not_owner", action, d)
+		}
+		if d := ask(alice, action); !d.Allow {
+			t.Errorf("the owner's %s: %+v", action, d)
+		}
+	}
+}
