@@ -67,13 +67,14 @@ type trial struct {
 	Values  map[string]any `json:"values"`
 }
 
-// checkOracle holds the import to the study's figures.
-func (a *api) checkOracle(o *oracle, exps []*experiment) {
+// checkOracle holds the import to the study's figures, and answers how
+// many cells it held.
+func (a *api) checkOracle(o *oracle, exps []*experiment) int {
 	a.t.Helper()
 	trials := map[string]trial{}
 	grids := map[string]map[string]map[[2]string]gridCell{}
 	for _, e := range exps {
-		for _, t := range all[trial](a, "/v1/experiments/"+e.id+"/trials") {
+		for _, t := range all[trial](a, "/experiments/"+e.id+"/trials") {
 			trials[t.Ref] = t
 		}
 		grids[e.id] = map[string]map[[2]string]gridCell{"loc": a.grid(e, "loc"), "loc_nonblank": a.grid(e, "loc_nonblank")}
@@ -151,7 +152,7 @@ func (a *api) checkOracle(o *oracle, exps []*experiment) {
 		a.checkRounded(where+" loc_nonblank", grids[exp.id]["loc_nonblank"][cell].Summary, c.NonblankAvg, c.NonblankMed)
 		matched++
 	}
-	a.t.Logf("held %d cells to the study's figures", matched)
+	return matched
 }
 
 // checkRounded holds a stored summary's mean and median, rounded to whole

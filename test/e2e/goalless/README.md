@@ -2,8 +2,8 @@
 
 This harness imports the goalless-agents study, a study of what coding
 agents build when nobody tells them what to build, into a local
-`examend`, and checks what Examen computes against what the study's own
-files say. It is the first release's end-to-end test of external
+`examend`, or in remote mode a deployed one, and checks what Examen
+computes against what the study's own files say. It is the first release's end-to-end test of external
 harnesses: every run of the study becomes a declared past trial, imported
 with `POST /experiments/{id}/imports` and `executor: external`
 ([`specs/003-api.md`](../../../specs/003-api.md), Imported trials), and
@@ -29,9 +29,103 @@ with the built-in owner policy and a test issuer, and stops the server
 when it ends. It calls no model. A later step that runs judges over the
 study uses `claude-haiku-5-5` for every model call a test makes.
 
-A full run imports every run of the study and waits for the server's
-work loop to compute every automatic comparison a last time, a few
-minutes in all.
+A full run imports every run of the study and waits for each experiment
+to complete and for the server's work loop to compute every automatic
+comparison a last time, some minutes in all.
+
+## Remote mode: importing into a deployed examend
+
+With `EXAMEN_E2E_URL` set to a server's base URL, its base path
+included, the same import runs against that server instead of a local
+one, and stores the study there:
+
+```sh
+GOALLESS_DIR=/path/to/goalless-agents \
+EXAMEN_E2E_URL=https://api.example.com/v1/evals \
+EXAMEN_E2E_TOKEN_FILE=/path/to/bearer \
+go test ./test/e2e/goalless -run TestGoallessStudy -v -count=1 -timeout 3h
+```
+
+The bearer is `EXAMEN_E2E_TOKEN`, or the file `EXAMEN_E2E_TOKEN_FILE`
+names, read again before every request, so a short-lived token another
+process renews is never stale. The test still reads the study from
+`GOALLESS_DIR` and sends only what the converter computed from it.
+
+A run can be repeated: it makes nothing twice.
+
+- Metrics, tasks, the suite and the candidates are applied under their
+  stable names; an apply of content already applied makes no new
+  version.
+- Each experiment carries `goalless.definition` in its metadata, a
+  digest of its suite, candidates, N and every import it holds. A run
+  finds an experiment of the same definition that is not canceled and
+  uses it; a study or converter that changed makes new experiments
+  beside the old ones.
+- A run imports only the runs an experiment does not hold yet, by their
+  `ref`. Creates and imports carry an `Idempotency-Key`, so one whose
+  answer was lost is answered again rather than made twice.
+- After each experiment's intake is closed, the run waits for it to
+  complete before making the next, so the import holds one active
+  experiment at a time. A create refused because the owner already holds
+  as many active experiments as allowed waits and is sent again.
+
+A remote-mode create gives a spending cap of one cent in place of a
+Budget's name, since an installation whose authorizer makes each
+experiment's Budget accepts no name. An import calls no model, so
+nothing is drawn on it.
+
+The run ends with a report: the experiments created or found, the trials
+imported and those already there, the cells held to their runs and, with
+`GOALLESS_ORACLE`, to the study's figures, and the comparisons read back.
+
+## The live smoke test
+
+`test/e2e/live` checks a deployed examend from outside with the same
+variables, and is skipped without them. It reads the probes and the
+contract, refuses a missing and a bad bearer, and refuses an experiment
+of a `topos` candidate: `422 executor_unavailable` from examend, or
+`403 sign_in_not_kept` from an authorizer that keeps no sign-in for
+unattended work. It then applies a metric, a task, a suite and two
+`external` candidates named `smoke-<time>-<random>`, runs an experiment
+of 5 trials each through the lease, renewal and submit an external
+harness uses, lets one lease lapse, and holds the grid and the automatic
+comparison to the values it submitted. It calls no model, leaves its
+objects in place and its experiment complete, and takes a little longer
+than `EXTERNAL_LEASE`, 10 minutes:
+
+```sh
+EXAMEN_E2E_URL=https://api.example.com/v1/evals EXAMEN_E2E_TOKEN_FILE=/path/to/bearer \
+go test ./test/e2e/live -v -count=1 -timeout 40m
+```
+
+The probes sit at the root of examend's listener. When the API is served
+under a base path of its own, the URL's origin may route its root to
+another service, so the test checks the probes only at
+`EXAMEN_E2E_PROBES_URL`, examend's own address, such as a port forward
+to its service, and otherwise says they were not checked.
+
+## Rehearsing against a local examend
+
+`TestLocalTarget` serves a local examend as a hosted installation is set
+up: under the base path `/v1/evals`, asking an authorizer that creates
+an experiment only when every candidate is external and no check or
+judge grades it, makes its Budget from the spending cap, and holds it to
+at most 4 active experiments. It writes the variables of a remote-mode
+run to the file `EXAMEN_E2E_SERVE` names and serves until that file is
+removed:
+
+```sh
+EXAMEN_E2E_SERVE=$PWD/e2e.env go test ./test/e2e/goalless -run TestLocalTarget -v -timeout 4h &
+# once e2e.env exists:
+set -a; . ./e2e.env; set +a
+go test ./test/e2e/live -v -count=1 -timeout 40m
+GOALLESS_DIR=/path/to/goalless-agents go test ./test/e2e/goalless -run TestGoallessStudy -v -count=1 -timeout 3h
+rm e2e.env
+```
+
+`TestRemoteMode` runs the remote path the same way on a study the test
+writes itself, twice, and holds the second run to finding every
+experiment and importing nothing.
 
 ## What a run directory becomes
 
