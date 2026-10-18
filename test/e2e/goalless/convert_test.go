@@ -198,11 +198,16 @@ func readStudy(dir string) (*study, error) {
 	return s, nil
 }
 
-// meta is what a run's meta.md records.
+// meta is what a run's meta.md records: its fields, its prompt, and the
+// exit code, duration and end its fields give; ok is false when one of
+// them is missing or does not parse.
 type meta struct {
-	fields map[string]string
-	prompt string
-	ok     bool
+	fields   map[string]string
+	prompt   string
+	exit     int
+	duration time.Duration
+	ended    time.Time
+	ok       bool
 }
 
 // readMeta reads meta.md's table of fields and its ## Prompt section.
@@ -227,6 +232,11 @@ func readMeta(b []byte) meta {
 			m.ok = false
 		}
 	}
+	exit, errExit := strconv.Atoi(m.fields["Exit Code"])
+	seconds, errDur := strconv.Atoi(strings.TrimSuffix(m.fields["Duration"], "s"))
+	ended, errAt := time.Parse(time.RFC3339, m.fields["Timestamp"])
+	m.exit, m.duration, m.ended = exit, time.Duration(seconds)*time.Second, ended.UTC()
+	m.ok = m.ok && errExit == nil && errDur == nil && errAt == nil
 	return m
 }
 
@@ -328,25 +338,16 @@ func (s *study) readRun(dir, ref string, number int) (studyRun, string, error) {
 	if !m.ok {
 		return studyRun{}, skipUnreadableMeta, nil
 	}
-	exit, errExit := strconv.Atoi(m.fields["Exit Code"])
-	seconds, errDur := strconv.Atoi(strings.TrimSuffix(m.fields["Duration"], "s"))
-	ended, errAt := time.Parse(time.RFC3339, m.fields["Timestamp"])
-	if errExit != nil || errDur != nil || errAt != nil {
-		return studyRun{}, skipUnreadableMeta, nil
-	}
-	r := studyRun{Ref: ref, Study: number, Experiment: number, EndedAt: ended.UTC(), StartedAt: ended.UTC().Add(-time.Duration(seconds) * time.Second)}
+	r := studyRun{Ref: ref, Study: number, Experiment: number, EndedAt: m.ended, StartedAt: m.ended.Add(-m.duration)}
 	if first, ok := merged[number]; ok {
 		r.Experiment = first
 	}
-	switch {
-	case number == 1:
+	if number == 1 {
 		r.Task = "prompt1-rtk"
-	default:
-		for _, t := range tasks {
-			if t.name != "prompt1-rtk" && s.instructions[t.name] == m.prompt {
-				r.Task = t.name
-				break
-			}
+	}
+	for _, t := range tasks {
+		if r.Task == "" && t.name != "prompt1-rtk" && s.instructions[t.name] == m.prompt {
+			r.Task = t.name
 		}
 	}
 	if r.Task == "" {
@@ -386,7 +387,7 @@ func (s *study) readRun(dir, ref string, number int) (studyRun, string, error) {
 	if endpoint != "" {
 		r.Config.Flags["gateway"] = gateway(endpoint)
 	}
-	r.Outcome, r.Failure = classify(exit, backend, filepath.Join(dir, "output.json"), filepath.Join(dir, "log.txt"))
+	r.Outcome, r.Failure = classify(m.exit, backend, filepath.Join(dir, "output.json"), filepath.Join(dir, "log.txt"))
 	if err := measure(&r, filepath.Join(dir, "workspace")); err != nil {
 		return studyRun{}, "", err
 	}

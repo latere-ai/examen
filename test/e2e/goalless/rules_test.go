@@ -72,10 +72,12 @@ func synthetic(t *testing.T) string {
 	write(t, filepath.Join(r, "output.json"), "{\"type\":\"turn.failed\",\"error\":{\"message\":\"This model does not support assistant message prefill.\"}}\n")
 	r = filepath.Join(dir, "results18", "claude", "claude-opus-5", "run-01")
 	write(t, filepath.Join(r, "meta.md"), metaFile("claude", "claude-opus-5", 137, "| Fast mode | off |\n", "Five."))
-	// A run whose meta.md lacks a field, and one whose prompt is no task's.
+	// A run whose meta.md lacks a field, one whose prompt is no task's, and
+	// one whose duration does not parse.
 	write(t, filepath.Join(dir, "results21", "claude-fast", "m", "run-01", "meta.md"), "# Run Metadata\n\n| Backend | claude |\n\n## Prompt\n\nFive.\n")
 	write(t, filepath.Join(dir, "results21", "claude-fast", "m", "run-02", "meta.md"), metaFile("claude", "m", 0, "", "Something else."))
 	write(t, filepath.Join(dir, "results21", "claude-fast", "m", "run-03", "meta.md"), metaFile("claude", "m", 0, "", "Five."))
+	write(t, filepath.Join(dir, "results21", "claude-fast", "m", "run-04", "meta.md"), strings.Replace(metaFile("claude", "m", 0, "", "Five."), "| 100s |", "| soon |", 1))
 	return dir
 }
 
@@ -98,14 +100,15 @@ func TestConverterRules(t *testing.T) {
 	if s.instructions["prompt1"] != "First line.\nSecond line." || s.instructions["prompt1-rtk"] != s.instructions["prompt1"] {
 		t.Fatalf("instructions %q", s.instructions)
 	}
-	if len(s.runs) != 7 || len(s.skipped) != 2 || s.dirs[21] != 3 || s.dirs[2] != 1 {
+	if len(s.runs) != 7 || len(s.skipped) != 3 || s.dirs[21] != 4 || s.dirs[2] != 1 {
 		t.Fatalf("%d runs, skipped %v, dirs %v", len(s.runs), s.skipped, s.dirs)
 	}
 	reasons := map[string]string{}
 	for _, sk := range s.skipped {
 		reasons[sk.Ref] = sk.Reason
 	}
-	if reasons["results21/claude-fast/m/run-01"] != skipUnreadableMeta || reasons["results21/claude-fast/m/run-02"] != skipUnknownPrompt {
+	if reasons["results21/claude-fast/m/run-01"] != skipUnreadableMeta || reasons["results21/claude-fast/m/run-02"] != skipUnknownPrompt ||
+		reasons["results21/claude-fast/m/run-04"] != skipUnreadableMeta {
 		t.Fatalf("skipped %v", reasons)
 	}
 
