@@ -37,6 +37,16 @@ security:
 tags:
   - name: contract
     description: This document.
+  - name: metrics
+  - name: graders
+  - name: tasks
+  - name: suites
+  - name: candidates
+  - name: baselines
+  - name: taxonomies
+  - name: experiments
+  - name: trials
+  - name: comparisons
 paths:
   /openapi.yaml:
     get:
@@ -53,6 +63,2400 @@ paths:
           content:
             application/yaml:
               schema: {type: string}
+  "/metrics/{ref}":
+    put:
+      tags:
+        - "metrics"
+      operationId: "applyMetric"
+      summary: "Apply a metric version"
+      description: "Applies the body as a version of the name in the path. A digest that is not yet a version of the name is stored and made current, `201`; one that already is makes that version current again and stores nothing, `200`. `If-Match: \"<digest>\"` applies only while that digest is current, `If-None-Match: *` only while the name has no version. Asks `metric.apply`."
+      parameters:
+        - name: "ref"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "If-Match"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The quoted digest that must be current."
+        - name: "If-None-Match"
+          in: "header"
+          schema:
+            type: "string"
+            enum:
+              - "*"
+          description: "Applies only while the name has no version."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Metric"
+      responses:
+        "201":
+          description: "A new version."
+          headers:
+            ETag:
+              schema:
+                type: "string"
+              description: "The quoted digest."
+            Location:
+              schema:
+                type: "string"
+              description: "The version as name@digest."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "412":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "200":
+          description: "The version the digest already was, current again."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+    get:
+      tags:
+        - "metrics"
+      operationId: "getMetric"
+      summary: "Read one metric version"
+      description: "By a name (its current version), name@digest, a digest, or an id. Asks `metric.read`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The version."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "404":
+          "$ref": "#/components/responses/Error"
+    parameters:
+      - name: "ref"
+        in: "path"
+        required: true
+        description: "A name, name@digest, a digest, or an id."
+        schema:
+          type: "string"
+  "/metrics/{name}/versions":
+    get:
+      tags:
+        - "metrics"
+      operationId: "listMetricVersions"
+      summary: "List every version of one metric"
+      description: "Newest first. Asks `metric.read`."
+      parameters:
+        - name: "name"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/metrics":
+    get:
+      tags:
+        - "metrics"
+      operationId: "listMetrics"
+      summary: "List metrics"
+      description: "The current version of each name, newest first, or with `versions=all` every version. Asks `metric.list`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "versions"
+          in: "query"
+          description: "all, for every version."
+          schema:
+            type: "string"
+            enum:
+              - "all"
+        - name: "name"
+          in: "query"
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "type"
+          in: "query"
+          description: "The metric's type."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/graders/{ref}":
+    put:
+      tags:
+        - "graders"
+      operationId: "applyGrader"
+      summary: "Apply a grader version"
+      description: "Applies the body as a version of the name in the path. A digest that is not yet a version of the name is stored and made current, `201`; one that already is makes that version current again and stores nothing, `200`. `If-Match: \"<digest>\"` applies only while that digest is current, `If-None-Match: *` only while the name has no version. Asks `grader.apply`."
+      parameters:
+        - name: "ref"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "If-Match"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The quoted digest that must be current."
+        - name: "If-None-Match"
+          in: "header"
+          schema:
+            type: "string"
+            enum:
+              - "*"
+          description: "Applies only while the name has no version."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Grader"
+      responses:
+        "201":
+          description: "A new version."
+          headers:
+            ETag:
+              schema:
+                type: "string"
+              description: "The quoted digest."
+            Location:
+              schema:
+                type: "string"
+              description: "The version as name@digest."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "412":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "200":
+          description: "The version the digest already was, current again."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+    get:
+      tags:
+        - "graders"
+      operationId: "getGrader"
+      summary: "Read one grader version"
+      description: "By a name (its current version), name@digest, a digest, or an id. Asks `grader.read`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The version."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "404":
+          "$ref": "#/components/responses/Error"
+    parameters:
+      - name: "ref"
+        in: "path"
+        required: true
+        description: "A name, name@digest, a digest, or an id."
+        schema:
+          type: "string"
+  "/graders/{name}/versions":
+    get:
+      tags:
+        - "graders"
+      operationId: "listGraderVersions"
+      summary: "List every version of one grader"
+      description: "Newest first. Asks `grader.read`."
+      parameters:
+        - name: "name"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/graders":
+    get:
+      tags:
+        - "graders"
+      operationId: "listGraders"
+      summary: "List graders"
+      description: "The current version of each name, newest first, or with `versions=all` every version. Asks `grader.list`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "versions"
+          in: "query"
+          description: "all, for every version."
+          schema:
+            type: "string"
+            enum:
+              - "all"
+        - name: "name"
+          in: "query"
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "grader_kind"
+          in: "query"
+          description: "The grader's kind."
+          schema:
+            type: "string"
+        - name: "produces"
+          in: "query"
+          description: "A metric digest the grader produces."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/tasks/{ref}":
+    put:
+      tags:
+        - "tasks"
+      operationId: "applyTask"
+      summary: "Apply a task version"
+      description: "Applies the body as a version of the name in the path. A digest that is not yet a version of the name is stored and made current, `201`; one that already is makes that version current again and stores nothing, `200`. `If-Match: \"<digest>\"` applies only while that digest is current, `If-None-Match: *` only while the name has no version. Asks `task.apply`."
+      parameters:
+        - name: "ref"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "If-Match"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The quoted digest that must be current."
+        - name: "If-None-Match"
+          in: "header"
+          schema:
+            type: "string"
+            enum:
+              - "*"
+          description: "Applies only while the name has no version."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Task"
+      responses:
+        "201":
+          description: "A new version."
+          headers:
+            ETag:
+              schema:
+                type: "string"
+              description: "The quoted digest."
+            Location:
+              schema:
+                type: "string"
+              description: "The version as name@digest."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "412":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "200":
+          description: "The version the digest already was, current again."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+    get:
+      tags:
+        - "tasks"
+      operationId: "getTask"
+      summary: "Read one task version"
+      description: "By a name (its current version), name@digest, a digest, or an id. Asks `task.read`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The version."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "404":
+          "$ref": "#/components/responses/Error"
+    parameters:
+      - name: "ref"
+        in: "path"
+        required: true
+        description: "A name, name@digest, a digest, or an id."
+        schema:
+          type: "string"
+  "/tasks/{name}/versions":
+    get:
+      tags:
+        - "tasks"
+      operationId: "listTaskVersions"
+      summary: "List every version of one task"
+      description: "Newest first. Asks `task.read`."
+      parameters:
+        - name: "name"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/tasks":
+    get:
+      tags:
+        - "tasks"
+      operationId: "listTasks"
+      summary: "List tasks"
+      description: "The current version of each name, newest first, or with `versions=all` every version. Asks `task.list`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "versions"
+          in: "query"
+          description: "all, for every version."
+          schema:
+            type: "string"
+            enum:
+              - "all"
+        - name: "name"
+          in: "query"
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "suite"
+          in: "query"
+          description: "A suite digest: the tasks that version pins."
+          schema:
+            type: "string"
+        - name: "metadata.<key>"
+          in: "query"
+          description: "One metadata pair."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/suites/{ref}":
+    put:
+      tags:
+        - "suites"
+      operationId: "applySuite"
+      summary: "Apply a suite version"
+      description: "Applies the body as a version of the name in the path. A digest that is not yet a version of the name is stored and made current, `201`; one that already is makes that version current again and stores nothing, `200`. `If-Match: \"<digest>\"` applies only while that digest is current, `If-None-Match: *` only while the name has no version. Asks `suite.apply`."
+      parameters:
+        - name: "ref"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "If-Match"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The quoted digest that must be current."
+        - name: "If-None-Match"
+          in: "header"
+          schema:
+            type: "string"
+            enum:
+              - "*"
+          description: "Applies only while the name has no version."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Suite"
+      responses:
+        "201":
+          description: "A new version."
+          headers:
+            ETag:
+              schema:
+                type: "string"
+              description: "The quoted digest."
+            Location:
+              schema:
+                type: "string"
+              description: "The version as name@digest."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "412":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "200":
+          description: "The version the digest already was, current again."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+    get:
+      tags:
+        - "suites"
+      operationId: "getSuite"
+      summary: "Read one suite version"
+      description: "By a name (its current version), name@digest, a digest, or an id. Asks `suite.read`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The version."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "404":
+          "$ref": "#/components/responses/Error"
+    parameters:
+      - name: "ref"
+        in: "path"
+        required: true
+        description: "A name, name@digest, a digest, or an id."
+        schema:
+          type: "string"
+  "/suites/{name}/versions":
+    get:
+      tags:
+        - "suites"
+      operationId: "listSuiteVersions"
+      summary: "List every version of one suite"
+      description: "Newest first. Asks `suite.read`."
+      parameters:
+        - name: "name"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/suites":
+    get:
+      tags:
+        - "suites"
+      operationId: "listSuites"
+      summary: "List suites"
+      description: "The current version of each name, newest first, or with `versions=all` every version. Asks `suite.list`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "versions"
+          in: "query"
+          description: "all, for every version."
+          schema:
+            type: "string"
+            enum:
+              - "all"
+        - name: "name"
+          in: "query"
+          description: "The name."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/candidates/{ref}":
+    put:
+      tags:
+        - "candidates"
+      operationId: "applyCandidate"
+      summary: "Apply a candidate version"
+      description: "Applies the body as a version of the name in the path. A digest that is not yet a version of the name is stored and made current, `201`; one that already is makes that version current again and stores nothing, `200`. `If-Match: \"<digest>\"` applies only while that digest is current, `If-None-Match: *` only while the name has no version. Asks `candidate.apply`."
+      parameters:
+        - name: "ref"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "If-Match"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The quoted digest that must be current."
+        - name: "If-None-Match"
+          in: "header"
+          schema:
+            type: "string"
+            enum:
+              - "*"
+          description: "Applies only while the name has no version."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Candidate"
+      responses:
+        "201":
+          description: "A new version."
+          headers:
+            ETag:
+              schema:
+                type: "string"
+              description: "The quoted digest."
+            Location:
+              schema:
+                type: "string"
+              description: "The version as name@digest."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "412":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "200":
+          description: "The version the digest already was, current again."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+    get:
+      tags:
+        - "candidates"
+      operationId: "getCandidate"
+      summary: "Read one candidate version"
+      description: "By a name (its current version), name@digest, a digest, or an id. Asks `candidate.read`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The version."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Version"
+        "404":
+          "$ref": "#/components/responses/Error"
+    parameters:
+      - name: "ref"
+        in: "path"
+        required: true
+        description: "A name, name@digest, a digest, or an id."
+        schema:
+          type: "string"
+  "/candidates/{name}/versions":
+    get:
+      tags:
+        - "candidates"
+      operationId: "listCandidateVersions"
+      summary: "List every version of one candidate"
+      description: "Newest first. Asks `candidate.read`."
+      parameters:
+        - name: "name"
+          in: "path"
+          required: true
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/candidates":
+    get:
+      tags:
+        - "candidates"
+      operationId: "listCandidates"
+      summary: "List candidates"
+      description: "The current version of each name, newest first, or with `versions=all` every version. Asks `candidate.list`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "versions"
+          in: "query"
+          description: "all, for every version."
+          schema:
+            type: "string"
+            enum:
+              - "all"
+        - name: "name"
+          in: "query"
+          description: "The name."
+          schema:
+            type: "string"
+        - name: "candidate_kind"
+          in: "query"
+          description: "The candidate's kind."
+          schema:
+            type: "string"
+        - name: "agent"
+          in: "query"
+          description: "An agent version digest."
+          schema:
+            type: "string"
+        - name: "model"
+          in: "query"
+          description: "A model id."
+          schema:
+            type: "string"
+        - name: "metadata.<key>"
+          in: "query"
+          description: "One metadata pair."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of versions."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Version"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/suites/{suite}/baselines/{name}":
+    put:
+      tags:
+        - "baselines"
+      operationId: "pinBaseline"
+      summary: "Pin a baseline"
+      description: "Appends a record naming a candidate of a complete experiment that ran a version of the suite, `201`, or answers the current record when it names the same experiment and candidate, `200`. Asks `baseline.pin`, and `experiment.read` of the experiment."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "If-Match"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The quoted id of the record that must be current."
+        - name: "If-None-Match"
+          in: "header"
+          schema:
+            type: "string"
+            enum:
+              - "*"
+          description: "Pins only while the name has no record."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/BaselinePin"
+      responses:
+        "201":
+          description: "A new record."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Baseline"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+        "412":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "200":
+          description: "The current record, unchanged."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Baseline"
+    get:
+      tags:
+        - "baselines"
+      operationId: "getBaseline"
+      summary: "Read a baseline's current record"
+      description: "Asks `baseline.read`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The record."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Baseline"
+        "404":
+          "$ref": "#/components/responses/Error"
+    parameters:
+      - name: "suite"
+        in: "path"
+        required: true
+        description: "A suite's name, of the context owner."
+        schema:
+          type: "string"
+      - name: "name"
+        in: "path"
+        required: true
+        description: "The baseline's name."
+        schema:
+          type: "string"
+  "/suites/{suite}/baselines/{name}/history":
+    get:
+      tags:
+        - "baselines"
+      operationId: "getBaselineHistory"
+      summary: "List a baseline's records"
+      description: "Newest first. Asks `baseline.read`."
+      parameters:
+        - name: "suite"
+          in: "path"
+          required: true
+          description: "A suite's name, of the context owner."
+          schema:
+            type: "string"
+        - name: "name"
+          in: "path"
+          required: true
+          description: "The baseline's name."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of records."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Baseline"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/suites/{suite}/baselines":
+    get:
+      tags:
+        - "baselines"
+      operationId: "listBaselines"
+      summary: "List a suite's baselines"
+      description: "The current record of each baseline. Asks `baseline.list`."
+      parameters:
+        - name: "suite"
+          in: "path"
+          required: true
+          description: "A suite's name, of the context owner."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of records."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Baseline"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/baselines/{id}":
+    get:
+      tags:
+        - "baselines"
+      operationId: "getBaselineRecord"
+      summary: "Read one baseline record"
+      description: "Asks `baseline.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The record's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The record."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Baseline"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/suites/{suite}/taxonomies/{metric}":
+    put:
+      tags:
+        - "taxonomies"
+      operationId: "appendTaxonomy"
+      summary: "Append a taxonomy version"
+      description: "Stores the body as the lineage's next record, `201`, or answers the current record when its labels and map are the same, `200`. A raw label the current record maps cannot be left out. Asks `taxonomy.apply`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "If-Match"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The quoted id of the record that must be current."
+        - name: "If-None-Match"
+          in: "header"
+          schema:
+            type: "string"
+            enum:
+              - "*"
+          description: "Appends only while the lineage has none."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/TaxonomyBody"
+      responses:
+        "201":
+          description: "A new record."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Taxonomy"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "412":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "200":
+          description: "The current record, unchanged."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Taxonomy"
+    get:
+      tags:
+        - "taxonomies"
+      operationId: "getTaxonomy"
+      summary: "Read a taxonomy's current record"
+      description: "Asks `taxonomy.read`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The record."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Taxonomy"
+        "404":
+          "$ref": "#/components/responses/Error"
+    parameters:
+      - name: "suite"
+        in: "path"
+        required: true
+        description: "A suite's name, of the context owner."
+        schema:
+          type: "string"
+      - name: "metric"
+        in: "path"
+        required: true
+        description: "The name or digest of an open-vocabulary metric some version of the suite lists."
+        schema:
+          type: "string"
+  "/suites/{suite}/taxonomies/{metric}/history":
+    get:
+      tags:
+        - "taxonomies"
+      operationId: "getTaxonomyHistory"
+      summary: "List a taxonomy's records"
+      description: "Newest first. Asks `taxonomy.read`."
+      parameters:
+        - name: "suite"
+          in: "path"
+          required: true
+          description: "A suite's name, of the context owner."
+          schema:
+            type: "string"
+        - name: "metric"
+          in: "path"
+          required: true
+          description: "The name or digest of an open-vocabulary metric some version of the suite lists."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of records."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Taxonomy"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/suites/{suite}/taxonomies/{metric}/unmapped":
+    get:
+      tags:
+        - "taxonomies"
+      operationId: "getUnmappedLabels"
+      summary: "List the raw labels the current record does not map"
+      description: "Over the suite owner's trials, each with its count, most frequent first. Asks `taxonomy.read`."
+      parameters:
+        - name: "suite"
+          in: "path"
+          required: true
+          description: "A suite's name, of the context owner."
+          schema:
+            type: "string"
+        - name: "metric"
+          in: "path"
+          required: true
+          description: "The name or digest of an open-vocabulary metric some version of the suite lists."
+          schema:
+            type: "string"
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The unmapped raw labels."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/LabelCount"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/taxonomies/{id}":
+    get:
+      tags:
+        - "taxonomies"
+      operationId: "getTaxonomyRecord"
+      summary: "Read one taxonomy record"
+      description: "Asks `taxonomy.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The record's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The record."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Taxonomy"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/experiments":
+    post:
+      tags:
+        - "experiments"
+      operationId: "createExperiment"
+      summary: "Create an experiment"
+      description: "Resolves the suite and the candidates in the owner context and stores the experiment `pending`, with every cell in mode `execute`. This release runs candidates of kind `external` alone: `topos` and `program` are `422 executor_unavailable`. A suite whose tasks have checks, or whose graders, decline judge or canonicalizers are model or agent judges, is `422 core_not_configured`, as is an `execute` task with inputs and a cap no authorizer answered with a Budget. Asks `experiment.create`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ExperimentCreate"
+      responses:
+        "201":
+          description: "The experiment."
+          headers:
+            Location:
+              schema:
+                type: "string"
+              description: "The experiment's address."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Experiment"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+    get:
+      tags:
+        - "experiments"
+      operationId: "listExperiments"
+      summary: "List experiments"
+      description: "Newest first. Asks `experiment.list`."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "suite"
+          in: "query"
+          description: "A suite digest, or a name for every version of it."
+          schema:
+            type: "string"
+        - name: "candidate"
+          in: "query"
+          description: "A candidate digest."
+          schema:
+            type: "string"
+        - name: "state"
+          in: "query"
+          description: "A state."
+          schema:
+            type: "string"
+        - name: "mode"
+          in: "query"
+          description: "execute or import."
+          schema:
+            type: "string"
+        - name: "baseline"
+          in: "query"
+          description: "A baseline record id the reference names."
+          schema:
+            type: "string"
+        - name: "metadata.<key>"
+          in: "query"
+          description: "One metadata pair."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of experiments."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Experiment"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}":
+    get:
+      tags:
+        - "experiments"
+      operationId: "getExperiment"
+      summary: "Read an experiment with its progress"
+      description: "Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The experiment."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Experiment"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/grid":
+    get:
+      tags:
+        - "experiments"
+      operationId: "getGrid"
+      summary: "Read the candidate \u00d7 task grid"
+      description: "One row per task in the suite's order, one entry per candidate in the experiment's order, paged by rows. Each entry's summary, verdict and reason are the analysis's; until it has computed them they are absent. Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - name: "metric"
+          in: "query"
+          description: "A metric of the suite, by name or digest; the primary metric when absent."
+          schema:
+            type: "string"
+        - name: "comparison"
+          in: "query"
+          description: "A comparison of this experiment a candidate's column reads; once per candidate."
+          schema:
+            type: "string"
+        - name: "candidate"
+          in: "query"
+          description: "Keeps the columns of the candidates named."
+          schema:
+            type: "string"
+        - name: "task"
+          in: "query"
+          description: "Keeps the rows of the tasks named."
+          schema:
+            type: "string"
+        - name: "state"
+          in: "query"
+          description: "Keeps the rows that hold a cell in this state."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of the grid."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Grid"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/cancel":
+    post:
+      tags:
+        - "experiments"
+      operationId: "cancelExperiment"
+      summary: "Cancel an experiment"
+      description: "Parks every cell not complete as canceled and ends its open trials canceled; a repeat answers `200`. Asks `experiment.cancel`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The experiment."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Experiment"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/close":
+    post:
+      tags:
+        - "experiments"
+      operationId: "closeExperiment"
+      summary: "End an import experiment's intake"
+      description: "Every cell moves on to grading with the trials it holds and the experiment completes; a repeat answers `200`. Asks `experiment.update`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The experiment."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Experiment"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/events":
+    get:
+      tags:
+        - "experiments"
+      operationId: "listEvents"
+      summary: "Read the event log"
+      description: "Oldest first; `next_cursor` is the last sequence of the page. Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - name: "after"
+          in: "query"
+          description: "The sequence after which to read."
+          schema:
+            type: "integer"
+            minimum: 0
+        - "$ref": "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: "A page of events."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Event"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/stream":
+    get:
+      tags:
+        - "experiments"
+      operationId: "streamEvents"
+      summary: "Follow the event log as server-sent events"
+      description: "A `snapshot` frame first unless `Last-Event-ID` resumes, every event in sequence order, a `: keepalive` comment after silence, and `end` once the experiment is complete or canceled. It closes at the bearer's expiry, and with an `error` frame after a deny. Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - name: "Last-Event-ID"
+          in: "header"
+          schema:
+            type: "string"
+          description: "The sequence to resume after."
+      responses:
+        "200":
+          description: "The stream."
+          content:
+            text/event-stream:
+              schema:
+                type: "string"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "429":
+          "$ref": "#/components/responses/TooManyRequests"
+  "/experiments/{id}/cells":
+    get:
+      tags:
+        - "experiments"
+      operationId: "listCells"
+      summary: "List an experiment's cells"
+      description: "Newest first. Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - name: "state"
+          in: "query"
+          description: "A cell state."
+          schema:
+            type: "string"
+        - name: "task"
+          in: "query"
+          description: "A task, by digest or name."
+          schema:
+            type: "string"
+        - name: "candidate"
+          in: "query"
+          description: "A candidate digest."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of cells."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Cell"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/cells/{id}":
+    get:
+      tags:
+        - "experiments"
+      operationId: "getCell"
+      summary: "Read a cell"
+      description: "Asks `experiment.read` of its experiment."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The cell's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The cell."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Cell"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/cells/{id}/retry":
+    post:
+      tags:
+        - "experiments"
+      operationId: "retryCell"
+      summary: "Resume a parked cell"
+      description: "A cell blocked by its smoke trials runs them again; any other parked cell runs again every index without a finished trial. Any other state is `409 cell_not_parked`. Asks `cell.retry`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The cell's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The cell."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Cell"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/trials":
+    get:
+      tags:
+        - "trials"
+      operationId: "listTrials"
+      summary: "List trials with their current values"
+      description: "Newest first. `metric` with `value` keeps the trials whose current value equals it, `value=missing` those without one. Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - name: "cell"
+          in: "query"
+          description: "A cell id."
+          schema:
+            type: "string"
+        - name: "task"
+          in: "query"
+          description: "A task, by digest or name."
+          schema:
+            type: "string"
+        - name: "candidate"
+          in: "query"
+          description: "A candidate digest."
+          schema:
+            type: "string"
+        - name: "state"
+          in: "query"
+          description: "A trial state."
+          schema:
+            type: "string"
+        - name: "outcome"
+          in: "query"
+          description: "An outcome."
+          schema:
+            type: "string"
+        - name: "imported"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - name: "retried"
+          in: "query"
+          description: "true for the trials a retry replaced."
+          schema:
+            type: "boolean"
+        - name: "metric"
+          in: "query"
+          description: "A trial-level metric, by name or digest."
+          schema:
+            type: "string"
+        - name: "value"
+          in: "query"
+          description: "true, false, a number, a label, or missing."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of trials."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Trial"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/trials/{id}":
+    get:
+      tags:
+        - "trials"
+      operationId: "getTrial"
+      summary: "Read a trial"
+      description: "Asks `experiment.read` of its experiment."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The trial's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The trial."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Trial"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/imports":
+    post:
+      tags:
+        - "trials"
+      operationId: "importTrial"
+      summary: "Import an external harness's past run"
+      description: "Joins the run to the cell of its task and candidate in an experiment in mode `import`, with its past times and declared harness version, which equals the candidate's. Outputs are Arca references with digests, recorded as declared. A `topos` or `cella` import is `422 core_not_configured` in this release. Asks `experiment.import`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Import"
+      responses:
+        "201":
+          description: "The trial."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Trial"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/work/lease":
+    post:
+      tags:
+        - "trials"
+      operationId: "leaseTrials"
+      summary: "Lease pending trials of an external candidate, or renew a lease"
+      description: "Hands out the candidate's pending trials within each cell's share of the parallelism, smoke trials first and main trials only after a cell's smoke passes, for EXTERNAL_LEASE. `204` when nothing may be leased now. No answer carries a reference. Asks `trial.lease`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/LeaseRequest"
+      responses:
+        "200":
+          description: "The lease."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Lease"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+        "204":
+          description: "Nothing may be leased now."
+  "/trials/{id}/submit":
+    post:
+      tags:
+        - "trials"
+      operationId: "submitTrial"
+      summary: "Submit a leased external trial"
+      description: "Records the run's outcome, times, declared provenance, outputs as Arca references with digests, the Lux request ids as given, and self-reported values under `self:<harness>`. A repeat of the same lease and body answers `200` and changes nothing. Asks `trial.submit`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The trial's id."
+          schema:
+            type: "string"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/Submit"
+      responses:
+        "200":
+          description: "The trial."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Trial"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+        "413":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+  "/trials/{id}/measurements":
+    get:
+      tags:
+        - "trials"
+      operationId: "listTrialMeasurements"
+      summary: "List a trial's measurements"
+      description: "Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The trial's id."
+          schema:
+            type: "string"
+        - name: "metric"
+          in: "query"
+          description: "A metric, by name or digest."
+          schema:
+            type: "string"
+        - name: "grader"
+          in: "query"
+          description: "A grader digest, builtin, builtin:decline or self:<harness>."
+          schema:
+            type: "string"
+        - name: "generation"
+          in: "query"
+          description: "current (the default), all, or a number."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of measurements."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Measurement"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/measurements":
+    get:
+      tags:
+        - "trials"
+      operationId: "listExperimentMeasurements"
+      summary: "List an experiment's measurements"
+      description: "Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - name: "cell"
+          in: "query"
+          description: "A cell id."
+          schema:
+            type: "string"
+        - name: "candidate"
+          in: "query"
+          description: "A candidate digest."
+          schema:
+            type: "string"
+        - name: "metric"
+          in: "query"
+          description: "A metric, by name or digest."
+          schema:
+            type: "string"
+        - name: "grader"
+          in: "query"
+          description: "A grader digest, builtin, builtin:decline or self:<harness>."
+          schema:
+            type: "string"
+        - name: "generation"
+          in: "query"
+          description: "current (the default), all, or a number."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of measurements."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Measurement"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/measurements/{id}":
+    get:
+      tags:
+        - "trials"
+      operationId: "getMeasurement"
+      summary: "Read a measurement"
+      description: "Asks `experiment.read` of its experiment."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The measurement's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The measurement."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Measurement"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/experiments/{id}/comparisons":
+    get:
+      tags:
+        - "comparisons"
+      operationId: "listExperimentComparisons"
+      summary: "List an experiment's comparisons"
+      description: "Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The experiment's id."
+          schema:
+            type: "string"
+        - name: "candidate"
+          in: "query"
+          description: "A candidate digest."
+          schema:
+            type: "string"
+        - name: "baseline"
+          in: "query"
+          description: "A baseline record id."
+          schema:
+            type: "string"
+        - name: "reference_candidate"
+          in: "query"
+          description: "A candidate digest."
+          schema:
+            type: "string"
+        - name: "automatic"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - name: "exploratory"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - name: "final"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of comparisons."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Comparison"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/comparisons":
+    post:
+      tags:
+        - "comparisons"
+      operationId: "requestComparison"
+      summary: "Request a comparison"
+      description: "A candidate against a baseline, another candidate of the experiment, or for the variable `task` its own cell of another task: exploratory, computed once from what both sides hold. Until the analysis computes it, it reads `computing` with no results. Asks `experiment.read`."
+      parameters:
+        - "$ref": "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "#/components/schemas/ComparisonRequest"
+      responses:
+        "201":
+          description: "The comparison."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Comparison"
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
+        "409":
+          "$ref": "#/components/responses/Error"
+        "422":
+          "$ref": "#/components/responses/Error"
+    get:
+      tags:
+        - "comparisons"
+      operationId: "listComparisons"
+      summary: "List comparisons across experiments"
+      description: "Of the experiments `experiment.list` admits."
+      parameters:
+        - name: "owner"
+          in: "query"
+          description: "The owner context, a rendered subject percent-encoded as one segment."
+          schema:
+            type: "string"
+        - name: "suite"
+          in: "query"
+          description: "A suite digest, or a name."
+          schema:
+            type: "string"
+        - name: "candidate"
+          in: "query"
+          description: "A candidate digest."
+          schema:
+            type: "string"
+        - name: "experiment"
+          in: "query"
+          description: "An experiment id."
+          schema:
+            type: "string"
+        - name: "baseline"
+          in: "query"
+          description: "A baseline record id."
+          schema:
+            type: "string"
+        - name: "single_variable"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - name: "automatic"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - name: "exploratory"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - name: "final"
+          in: "query"
+          description: "true or false."
+          schema:
+            type: "boolean"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of comparisons."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Comparison"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
+  "/comparisons/{id}":
+    get:
+      tags:
+        - "comparisons"
+      operationId: "getComparison"
+      summary: "Read a comparison with its suite-level results"
+      description: "Asks `experiment.read` of its experiment."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The comparison's id."
+          schema:
+            type: "string"
+      responses:
+        "200":
+          description: "The comparison."
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/Comparison"
+        "404":
+          "$ref": "#/components/responses/Error"
+  "/comparisons/{id}/rows":
+    get:
+      tags:
+        - "comparisons"
+      operationId: "getComparisonRows"
+      summary: "Page a comparison's task-level results"
+      description: "By metric in the suite's order, then task. Asks `experiment.read`."
+      parameters:
+        - name: "id"
+          in: "path"
+          required: true
+          description: "The comparison's id."
+          schema:
+            type: "string"
+        - name: "metric"
+          in: "query"
+          description: "A metric, by name or digest."
+          schema:
+            type: "string"
+        - name: "task"
+          in: "query"
+          description: "A task name."
+          schema:
+            type: "string"
+        - name: "verdict"
+          in: "query"
+          description: "A verdict."
+          schema:
+            type: "string"
+        - "$ref": "#/components/parameters/Limit"
+        - "$ref": "#/components/parameters/Cursor"
+      responses:
+        "200":
+          description: "A page of results."
+          content:
+            application/json:
+              schema:
+                type: "object"
+                required:
+                  - "items"
+                properties:
+                  items:
+                    type: "array"
+                    items:
+                      "$ref": "#/components/schemas/Result"
+                  next_cursor:
+                    type: "string"
+                    description: "Absent on the last page."
+        "400":
+          "$ref": "#/components/responses/Error"
+        "404":
+          "$ref": "#/components/responses/Error"
 components:
   securitySchemes:
     bearer:
@@ -105,6 +2509,1411 @@ components:
         application/json:
           schema: {$ref: "#/components/schemas/ErrorEnvelope"}
   schemas:
+    Version:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        name:
+          type: "string"
+        digest:
+          type: "string"
+        current:
+          type: "boolean"
+        created_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "owner"
+        - "name"
+        - "digest"
+        - "current"
+        - "created_at"
+      description: "A version: its kind's fields as applied, beside its record."
+    Metric:
+      type: "object"
+      properties:
+        name:
+          type: "string"
+        type:
+          type: "string"
+          enum:
+            - "binary"
+            - "score"
+            - "count"
+            - "duration"
+            - "cost"
+            - "label"
+        range:
+          type: "array"
+          items:
+            type: "number"
+        vocabulary:
+          type: "string"
+          enum:
+            - "closed"
+            - "open"
+        labels:
+          type: "array"
+          items:
+            type: "string"
+        direction:
+          type: "string"
+          enum:
+            - "higher_is_better"
+            - "lower_is_better"
+            - "none"
+        level:
+          type: "string"
+          enum:
+            - "trial"
+            - "cell"
+            - "candidate"
+        applies_to:
+          type: "array"
+          items:
+            type: "string"
+        of:
+          type: "string"
+        exclude_labels:
+          type: "array"
+          items:
+            type: "string"
+        aggregate:
+          type: "string"
+        unit:
+          type: "string"
+        description:
+          type: "string"
+      required:
+        - "type"
+        - "direction"
+      additionalProperties: false
+    Grader:
+      type: "object"
+      properties:
+        name:
+          type: "string"
+        kind:
+          type: "string"
+          enum:
+            - "check"
+            - "model_judge"
+            - "agent_judge"
+            - "annotation"
+        level:
+          type: "string"
+          enum:
+            - "trial"
+            - "candidate"
+        produces:
+          type: "array"
+          items:
+            type: "string"
+        check:
+          type: "object"
+          properties:
+            command:
+              type: "array"
+              items:
+                type: "string"
+            workdir:
+              type: "string"
+            env:
+              type: "object"
+              additionalProperties:
+                type: "string"
+            files:
+              type: "object"
+              properties:
+                path:
+                  type: "string"
+                digest:
+                  type: "string"
+              required:
+                - "path"
+                - "digest"
+              additionalProperties: false
+            image:
+              type: "string"
+          required:
+            - "command"
+          additionalProperties: false
+        model_judge:
+          type: "object"
+          properties:
+            model:
+              type: "string"
+            prompt:
+              type: "string"
+            rubric:
+              type: "string"
+            inputs:
+              "$ref": "#/components/schemas/JudgeInputs"
+            temperature:
+              type: "number"
+            reasoning:
+              type: "string"
+            role:
+              type: "string"
+              enum:
+                - "grade"
+                - "canonicalize"
+          required:
+            - "model"
+          additionalProperties: false
+        agent_judge:
+          type: "object"
+          properties:
+            agent:
+              type: "string"
+            inputs:
+              "$ref": "#/components/schemas/JudgeInputs"
+            instructions:
+              type: "string"
+          required:
+            - "agent"
+            - "instructions"
+          additionalProperties: false
+        annotation:
+          type: "object"
+          properties:
+            instructions:
+              type: "string"
+            sample:
+              type: "number"
+          required:
+            - "instructions"
+            - "sample"
+          additionalProperties: false
+      required:
+        - "kind"
+      additionalProperties: false
+    JudgeInputs:
+      type: "object"
+      properties:
+        transcript:
+          type: "boolean"
+        final_message:
+          type: "boolean"
+        files:
+          type: "array"
+          items:
+            type: "string"
+        outputs:
+          type: "array"
+          items:
+            type: "string"
+      additionalProperties: false
+    FileSource:
+      type: "object"
+      properties:
+        name:
+          type: "string"
+        arca:
+          type: "object"
+          properties:
+            path:
+              type: "string"
+            digest:
+              type: "string"
+          required:
+            - "path"
+            - "digest"
+          additionalProperties: false
+        origo:
+          type: "object"
+          properties:
+            repository:
+              type: "string"
+            commit:
+              type: "string"
+            path:
+              type: "string"
+          required:
+            - "repository"
+            - "commit"
+            - "path"
+          additionalProperties: false
+        text:
+          type: "string"
+      required:
+        - "name"
+      additionalProperties: false
+    Task:
+      type: "object"
+      properties:
+        name:
+          type: "string"
+        instruction:
+          type: "string"
+        inputs:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/FileSource"
+        reference:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/FileSource"
+        outputs:
+          type: "array"
+          items:
+            type: "string"
+        workspace:
+          type: "object"
+          properties:
+            kind:
+              type: "string"
+              enum:
+                - "none"
+                - "origo"
+                - "arca"
+            repository:
+              type: "string"
+            commit:
+              type: "string"
+            path:
+              type: "string"
+            digest:
+              type: "string"
+          required:
+            - "kind"
+          additionalProperties: false
+        environment:
+          type: "object"
+          properties:
+            image:
+              type: "string"
+            resources:
+              type: "object"
+            network: {}
+          required:
+            - "image"
+          additionalProperties: false
+        checks:
+          type: "array"
+          items:
+            type: "string"
+        timeout:
+          type: "string"
+        max_turns:
+          type: "integer"
+        evidence:
+          type: "array"
+          items:
+            type: "string"
+        metadata:
+          type: "object"
+          additionalProperties:
+            type: "string"
+      additionalProperties: false
+    Suite:
+      type: "object"
+      properties:
+        name:
+          type: "string"
+        tasks:
+          type: "array"
+          items:
+            type: "string"
+        metrics:
+          type: "array"
+          items:
+            type: "string"
+        graders:
+          type: "array"
+          items:
+            type: "string"
+        canonicalizers:
+          type: "array"
+          items:
+            type: "string"
+        primary_metric:
+          type: "string"
+        weights:
+          type: "object"
+          additionalProperties:
+            type: "number"
+        decline_judge:
+          type: "string"
+      required:
+        - "tasks"
+        - "metrics"
+        - "primary_metric"
+      additionalProperties: false
+    Candidate:
+      type: "object"
+      properties:
+        name:
+          type: "string"
+        kind:
+          type: "string"
+          enum:
+            - "topos"
+            - "program"
+            - "external"
+        topos:
+          type: "object"
+          properties:
+            agent:
+              type: "string"
+            model:
+              type: "string"
+            reasoning:
+              type: "string"
+            tools:
+              type: "array"
+              items:
+                type: "string"
+          required:
+            - "agent"
+            - "model"
+          additionalProperties: false
+        program:
+          type: "object"
+          properties:
+            image:
+              type: "string"
+            command:
+              type: "array"
+              items:
+                type: "string"
+            env:
+              type: "object"
+              additionalProperties:
+                type: "string"
+            config: {}
+            model:
+              type: "string"
+            reasoning:
+              type: "string"
+            credentials:
+              type: "array"
+              items:
+                type: "object"
+                properties:
+                  audience:
+                    type: "string"
+                  host:
+                    type: "string"
+                  env:
+                    type: "string"
+                  file:
+                    type: "string"
+                required:
+                  - "audience"
+                  - "host"
+                additionalProperties: false
+            lux:
+              type: "object"
+              properties:
+                surface:
+                  type: "string"
+                key_env:
+                  type: "string"
+                url_env:
+                  type: "string"
+              additionalProperties: false
+          required:
+            - "image"
+          additionalProperties: false
+        external:
+          type: "object"
+          properties:
+            harness:
+              type: "string"
+            version:
+              type: "string"
+            digest:
+              type: "string"
+            model:
+              type: "string"
+            reasoning:
+              type: "string"
+            flags:
+              type: "object"
+              additionalProperties:
+                type: "string"
+          required:
+            - "harness"
+            - "version"
+          additionalProperties: false
+        metadata:
+          type: "object"
+          additionalProperties:
+            type: "string"
+      required:
+        - "kind"
+      additionalProperties: false
+    BaselinePin:
+      type: "object"
+      properties:
+        experiment:
+          type: "string"
+        candidate:
+          type: "string"
+      required:
+        - "experiment"
+        - "candidate"
+      additionalProperties: false
+    SuiteName:
+      type: "object"
+      properties:
+        owner:
+          type: "string"
+        name:
+          type: "string"
+      required:
+        - "owner"
+        - "name"
+      additionalProperties: false
+    Baseline:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        name:
+          type: "string"
+        suite:
+          "$ref": "#/components/schemas/SuiteName"
+        experiment:
+          type: "string"
+        candidate:
+          type: "string"
+        previous:
+          type: "string"
+        created_by:
+          type: "string"
+        pinned_at:
+          type: "string"
+          format: "date-time"
+        created_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "owner"
+        - "name"
+        - "suite"
+        - "experiment"
+        - "candidate"
+        - "created_by"
+        - "pinned_at"
+      additionalProperties: false
+    TaxonomyBody:
+      type: "object"
+      properties:
+        canonical:
+          type: "array"
+          items:
+            type: "string"
+        map:
+          type: "object"
+          additionalProperties:
+            type: "string"
+      required:
+        - "canonical"
+        - "map"
+      additionalProperties: false
+    Taxonomy:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        suite:
+          "$ref": "#/components/schemas/SuiteName"
+        metric:
+          type: "string"
+        version:
+          type: "integer"
+        canonical:
+          type: "array"
+          items:
+            type: "string"
+        map:
+          type: "object"
+          additionalProperties:
+            type: "string"
+        source:
+          type: "object"
+          properties:
+            owner:
+              type: "string"
+            canonicalizer:
+              type: "string"
+            experiment:
+              type: "string"
+            generation:
+              type: "integer"
+          additionalProperties: false
+        previous:
+          type: "string"
+        digest:
+          type: "string"
+        created_by:
+          type: "string"
+        created_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "owner"
+        - "suite"
+        - "metric"
+        - "version"
+        - "canonical"
+        - "map"
+        - "source"
+        - "digest"
+      additionalProperties: false
+    LabelCount:
+      type: "object"
+      properties:
+        label:
+          type: "string"
+        count:
+          type: "integer"
+      required:
+        - "label"
+        - "count"
+      additionalProperties: false
+    ExperimentCreate:
+      type: "object"
+      properties:
+        suite:
+          type: "string"
+        candidates:
+          type: "array"
+          items:
+            type: "string"
+        trials:
+          type: "integer"
+        budget:
+          type: "object"
+          properties:
+            name:
+              type: "string"
+            cap_usd_micro:
+              type: "integer"
+          additionalProperties: false
+        parallelism:
+          type: "integer"
+        reference:
+          type: "object"
+          properties:
+            baseline:
+              type: "string"
+            candidate:
+              type: "string"
+          additionalProperties: false
+        mode:
+          type: "string"
+          enum:
+            - "execute"
+            - "import"
+        metadata:
+          type: "object"
+          additionalProperties:
+            type: "string"
+      required:
+        - "suite"
+        - "candidates"
+        - "budget"
+      additionalProperties: false
+    Experiment:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        suite:
+          type: "string"
+        candidates:
+          type: "array"
+          items:
+            type: "string"
+        trials:
+          type: "integer"
+        budget:
+          type: "object"
+          properties:
+            name:
+              type: "string"
+        parallelism:
+          type: "integer"
+        reference:
+          type: "object"
+          properties:
+            baseline:
+              type: "string"
+            candidate:
+              type: "string"
+          additionalProperties: false
+        mode:
+          type: "string"
+        state:
+          type: "string"
+          enum:
+            - "pending"
+            - "running"
+            - "grading"
+            - "complete"
+            - "canceled"
+        created_by:
+          type: "string"
+        judgments:
+          type: "array"
+          items:
+            type: "object"
+        progress:
+          type: "object"
+          properties:
+            cells:
+              type: "object"
+              additionalProperties:
+                type: "integer"
+            trials:
+              type: "object"
+              additionalProperties:
+                type: "integer"
+            outcomes:
+              type: "object"
+              additionalProperties:
+                type: "integer"
+          additionalProperties: false
+        metadata:
+          type: "object"
+          additionalProperties:
+            type: "string"
+        created_at:
+          type: "string"
+          format: "date-time"
+        updated_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "owner"
+        - "suite"
+        - "candidates"
+        - "trials"
+        - "budget"
+        - "parallelism"
+        - "reference"
+        - "mode"
+        - "state"
+      additionalProperties: false
+    Rollout:
+      type: "object"
+      properties:
+        key:
+          type: "string"
+        kind:
+          type: "string"
+        executor:
+          type: "string"
+        handle:
+          type: "string"
+        parallelism:
+          type: "integer"
+        key_id:
+          type: "string"
+        state:
+          type: "string"
+      additionalProperties: false
+    Cell:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        experiment:
+          type: "string"
+        task:
+          type: "string"
+        candidate:
+          type: "string"
+        tuple:
+          type: "object"
+        rollouts:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Rollout"
+        adopted:
+          type: "array"
+          items:
+            type: "string"
+        state:
+          type: "string"
+        parked_reason:
+          type: "string"
+        created_at:
+          type: "string"
+          format: "date-time"
+        updated_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "experiment"
+        - "task"
+        - "candidate"
+        - "state"
+      additionalProperties: false
+    Trial:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        experiment:
+          type: "string"
+        cell:
+          type: "string"
+        index:
+          type: "integer"
+        executor_ref:
+          type: "string"
+        lease:
+          type: "object"
+          properties:
+            id:
+              type: "string"
+            subject:
+              type: "string"
+            expires_at:
+              type: "string"
+              format: "date-time"
+          additionalProperties: false
+        state:
+          type: "string"
+        outcome:
+          type: "string"
+        failure:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+            detail:
+              type: "string"
+          additionalProperties: false
+        retry_of:
+          type: "string"
+        observed:
+          type: "object"
+        declared:
+          type: "object"
+          properties:
+            harness_version:
+              type: "string"
+            image:
+              type: "string"
+          additionalProperties: false
+        checks:
+          type: "array"
+          items:
+            type: "object"
+        judgments:
+          type: "array"
+          items:
+            type: "object"
+        evidence:
+          type: "array"
+          items:
+            type: "object"
+        outputs:
+          type: "object"
+        imported:
+          type: "boolean"
+        started_at:
+          type: "string"
+          format: "date-time"
+        agent_ended_at:
+          type: "string"
+          format: "date-time"
+        ended_at:
+          type: "string"
+          format: "date-time"
+        created_at:
+          type: "string"
+          format: "date-time"
+        values:
+          type: "object"
+          description: "On a list's items: each trial-level metric's current value by name, null for none."
+      required:
+        - "id"
+        - "experiment"
+        - "cell"
+        - "index"
+        - "state"
+      additionalProperties: false
+    Measurement:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        experiment:
+          type: "string"
+        trial:
+          type: "string"
+        candidate:
+          type: "string"
+        metric:
+          type: "string"
+        grader:
+          type: "string"
+        self_reported:
+          type: "boolean"
+        generation:
+          type: "integer"
+        value: {}
+        rationale:
+          type: "string"
+        annotator:
+          type: "string"
+        created_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "experiment"
+        - "metric"
+        - "grader"
+        - "self_reported"
+        - "generation"
+        - "value"
+      additionalProperties: false
+    Event:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        seq:
+          type: "integer"
+        type:
+          type: "string"
+        data:
+          type: "object"
+        at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "seq"
+        - "type"
+        - "data"
+        - "at"
+      additionalProperties: false
+    LeaseRequest:
+      type: "object"
+      properties:
+        candidate:
+          type: "string"
+        max:
+          type: "integer"
+        renew:
+          type: "string"
+      additionalProperties: false
+    Lease:
+      type: "object"
+      properties:
+        lease:
+          type: "string"
+        expires_at:
+          type: "string"
+          format: "date-time"
+        trials:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              id:
+                type: "string"
+              cell:
+                type: "string"
+              index:
+                type: "integer"
+              task:
+                type: "object"
+                properties:
+                  name:
+                    type: "string"
+                  digest:
+                    type: "string"
+                additionalProperties: false
+              instruction:
+                type: "string"
+              inputs:
+                type: "array"
+                items:
+                  type: "object"
+              outputs:
+                type: "array"
+                items:
+                  type: "string"
+              timeout:
+                type: "string"
+              max_turns:
+                type: "integer"
+            additionalProperties: false
+      required:
+        - "lease"
+        - "expires_at"
+        - "trials"
+      additionalProperties: false
+    Submit:
+      type: "object"
+      properties:
+        lease:
+          type: "string"
+        outcome:
+          type: "string"
+          enum:
+            - "completed"
+            - "declined"
+            - "timed_out"
+            - "turn_limit"
+            - "over_budget"
+            - "infra_failed"
+        failure:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+            detail:
+              type: "string"
+          required:
+            - "code"
+          additionalProperties: false
+        started_at:
+          type: "string"
+          format: "date-time"
+        agent_ended_at:
+          type: "string"
+          format: "date-time"
+        outputs:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              path:
+                type: "string"
+              arca:
+                type: "object"
+                properties:
+                  path:
+                    type: "string"
+                  digest:
+                    type: "string"
+                required:
+                  - "path"
+                  - "digest"
+                additionalProperties: false
+            required:
+              - "path"
+              - "arca"
+            additionalProperties: false
+        lux_requests:
+          type: "array"
+          items:
+            type: "string"
+        service_versions:
+          type: "object"
+          additionalProperties:
+            type: "string"
+        service_usage:
+          type: "object"
+          additionalProperties:
+            type: "object"
+            properties:
+              cost_usd_micro:
+                type: "integer"
+              units:
+                type: "object"
+                additionalProperties:
+                  type: "number"
+            required:
+              - "cost_usd_micro"
+            additionalProperties: false
+        declared:
+          type: "object"
+          properties:
+            harness_version:
+              type: "string"
+            image:
+              type: "string"
+          additionalProperties: false
+        measurements:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              metric:
+                type: "string"
+              value: {}
+              rationale:
+                type: "string"
+            required:
+              - "metric"
+              - "value"
+            additionalProperties: false
+        ref:
+          type: "string"
+      required:
+        - "lease"
+        - "outcome"
+        - "started_at"
+        - "agent_ended_at"
+      additionalProperties: false
+    Import:
+      type: "object"
+      properties:
+        executor:
+          type: "string"
+          enum:
+            - "external"
+            - "topos"
+            - "cella"
+        task:
+          type: "string"
+        candidate:
+          type: "string"
+        executor_ref:
+          type: "string"
+        ended_at:
+          type: "string"
+          format: "date-time"
+        outcome:
+          type: "string"
+          enum:
+            - "completed"
+            - "declined"
+            - "timed_out"
+            - "turn_limit"
+            - "over_budget"
+            - "infra_failed"
+        failure:
+          type: "object"
+          properties:
+            code:
+              type: "string"
+            detail:
+              type: "string"
+          required:
+            - "code"
+          additionalProperties: false
+        started_at:
+          type: "string"
+          format: "date-time"
+        agent_ended_at:
+          type: "string"
+          format: "date-time"
+        outputs:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              path:
+                type: "string"
+              arca:
+                type: "object"
+                properties:
+                  path:
+                    type: "string"
+                  digest:
+                    type: "string"
+                required:
+                  - "path"
+                  - "digest"
+                additionalProperties: false
+            required:
+              - "path"
+              - "arca"
+            additionalProperties: false
+        lux_requests:
+          type: "array"
+          items:
+            type: "string"
+        service_versions:
+          type: "object"
+          additionalProperties:
+            type: "string"
+        service_usage:
+          type: "object"
+          additionalProperties:
+            type: "object"
+            properties:
+              cost_usd_micro:
+                type: "integer"
+              units:
+                type: "object"
+                additionalProperties:
+                  type: "number"
+            required:
+              - "cost_usd_micro"
+            additionalProperties: false
+        declared:
+          type: "object"
+          properties:
+            harness_version:
+              type: "string"
+            image:
+              type: "string"
+          additionalProperties: false
+        measurements:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              metric:
+                type: "string"
+              value: {}
+              rationale:
+                type: "string"
+            required:
+              - "metric"
+              - "value"
+            additionalProperties: false
+        ref:
+          type: "string"
+      required:
+        - "executor"
+        - "task"
+        - "candidate"
+        - "outcome"
+        - "started_at"
+        - "agent_ended_at"
+        - "ended_at"
+        - "declared"
+      additionalProperties: false
+    ComparisonRequest:
+      type: "object"
+      properties:
+        experiment:
+          type: "string"
+        candidate:
+          type: "string"
+        baseline:
+          type: "string"
+        reference_candidate:
+          type: "string"
+        variable:
+          type: "string"
+          enum:
+            - "agent"
+            - "model"
+            - "reasoning"
+            - "tools"
+            - "environment"
+            - "workspace"
+            - "task"
+        task:
+          type: "string"
+        reference_task:
+          type: "string"
+      required:
+        - "experiment"
+        - "candidate"
+      additionalProperties: false
+    Result:
+      type: "object"
+      properties:
+        level:
+          type: "string"
+        metric:
+          type: "string"
+        metric_name:
+          type: "string"
+        direction:
+          type: "string"
+        task:
+          type: "string"
+        verdict:
+          type: "string"
+        reason:
+          type: "string"
+      description: "One result of a comparison, as the analysis computed it."
+    Comparison:
+      type: "object"
+      properties:
+        id:
+          type: "string"
+        owner:
+          type: "string"
+        experiment:
+          type: "string"
+        candidate:
+          type: "string"
+        baseline:
+          type: "string"
+        reference_candidate:
+          type: "string"
+        task:
+          type: "string"
+        reference_task:
+          type: "string"
+        automatic:
+          type: "boolean"
+        exploratory:
+          type: "boolean"
+        state:
+          type: "string"
+          enum:
+            - "computing"
+            - "complete"
+            - "failed"
+        final:
+          type: "boolean"
+        variable:
+          type: "array"
+          items:
+            type: "string"
+        declared_provenance:
+          type: "array"
+          items:
+            type: "string"
+        single_variable:
+          type: "boolean"
+        confounds:
+          type: "array"
+          items:
+            type: "string"
+        results:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Result"
+        computed_at:
+          type: "string"
+          format: "date-time"
+        created_at:
+          type: "string"
+          format: "date-time"
+      required:
+        - "id"
+        - "experiment"
+        - "candidate"
+        - "automatic"
+        - "exploratory"
+        - "state"
+        - "final"
+    Grid:
+      type: "object"
+      properties:
+        experiment:
+          type: "string"
+        state:
+          type: "string"
+        reference:
+          type: "object"
+          properties:
+            baseline:
+              type: "string"
+            candidate:
+              type: "string"
+          additionalProperties: false
+        metric:
+          type: "object"
+          properties:
+            digest:
+              type: "string"
+            name:
+              type: "string"
+            type:
+              type: "string"
+            aggregate:
+              type: "string"
+            direction:
+              type: "string"
+          additionalProperties: false
+        candidates:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              digest:
+                type: "string"
+              name:
+                type: "string"
+            additionalProperties: false
+        items:
+          type: "array"
+          items:
+            type: "object"
+            properties:
+              task:
+                type: "object"
+                properties:
+                  name:
+                    type: "string"
+                  digest:
+                    type: "string"
+                additionalProperties: false
+              reference_summary:
+                type: "object"
+              cells:
+                type: "array"
+                items:
+                  type: "object"
+                  properties:
+                    cell:
+                      type: "string"
+                    candidate:
+                      type: "string"
+                    state:
+                      type: "string"
+                    parked_reason:
+                      type: "string"
+                    trials:
+                      type: "object"
+                      properties:
+                        declared:
+                          type: "integer"
+                        pending:
+                          type: "integer"
+                        running:
+                          type: "integer"
+                        checking:
+                          type: "integer"
+                        done:
+                          type: "integer"
+                        retried:
+                          type: "integer"
+                        outcomes:
+                          type: "object"
+                          additionalProperties:
+                            type: "integer"
+                      additionalProperties: false
+                    summary:
+                      type: "object"
+                    verdict:
+                      type: "string"
+                    reason:
+                      type: "string"
+                    comparison:
+                      type: "string"
+                  additionalProperties: false
+            additionalProperties: false
+        next_cursor:
+          type: "string"
+      required:
+        - "experiment"
+        - "state"
+        - "metric"
+        - "candidates"
+        - "items"
+      additionalProperties: false
     ErrorEnvelope:
       type: object
       required: [error]
