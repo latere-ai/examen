@@ -549,3 +549,73 @@ func TestASharedExperimentDoesNotRun(t *testing.T) {
 		}
 	}
 }
+
+// A share opens reads alone: for every action of the vocabulary, a
+// question about another owner's object that says it is shared with the
+// subject, and pinned by an experiment of the subject's, is allowed only
+// when the action is a read of what a share names. Lists are left out,
+// since their allow is a filter of the subject's own.
+func TestAShareOpensReadsAlone(t *testing.T) {
+	reads := []string{
+		authorizer.ActionTaskRead, authorizer.ActionMetricRead, authorizer.ActionGraderRead, authorizer.ActionSuiteRead,
+		authorizer.ActionTaxonomyRead, authorizer.ActionExperimentRead, authorizer.ActionBaselineRead,
+	}
+	for _, action := range authorizer.Actions() {
+		if authz.IsList(action) {
+			continue
+		}
+		res := authz.NewResource(authorizer.Kind(action), "obj_1", map[string]any{
+			authorizer.FieldOwner: alice, authorizer.FieldShared: true, authorizer.FieldPinned: true,
+			authorizer.FieldCreatedBy: alice, authorizer.FieldSuiteOwner: alice,
+		})
+		d, err := access.OwnerPolicy{}.Authorize(t.Context(), authz.Request{Subject: bob, Action: action, Resource: res})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := slices.Contains(reads, action); d.Allow != want {
+			t.Errorf("the grantee's %s: %+v, want allow %v", action, d, want)
+		}
+		if !d.Allow && d.Reason != authz.ReasonNotOwner {
+			t.Errorf("the grantee's %s: reason %q, want not_owner", action, d.Reason)
+		}
+	}
+}
+
+// An experiment runs only on its owner's suite and baseline: a create or a
+// change whose suite_owner or baseline_owner names another owner is
+// denied, even of an experiment the subject owns, and one that names the
+// subject, or neither, is allowed.
+func TestAnExperimentRunsOnItsOwnersSuite(t *testing.T) {
+	ask := func(action string, fields map[string]any) authz.Decision {
+		t.Helper()
+		id := "exp_1"
+		d, err := access.OwnerPolicy{}.Authorize(t.Context(), authz.Request{Subject: bob, Action: action, Resource: authz.NewResource(authorizer.KindExperiment, id, fields)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return d
+	}
+	cases := []struct {
+		name   string
+		action string
+		fields map[string]any
+		allow  bool
+	}{
+		{"a create on another's suite", authorizer.ActionExperimentCreate, map[string]any{authorizer.FieldSuiteOwner: alice}, false},
+		{"a create in its own name on another's suite", authorizer.ActionExperimentCreate, map[string]any{authorizer.FieldOwner: bob, authorizer.FieldSuiteOwner: alice}, false},
+		{"a create naming another's baseline", authorizer.ActionExperimentCreate, map[string]any{authorizer.FieldSuiteOwner: bob, authorizer.FieldBaselineOwner: alice}, false},
+		{"a change of its own experiment to another's baseline", authorizer.ActionExperimentUpdate, map[string]any{authorizer.FieldOwner: bob, authorizer.FieldBaselineOwner: alice}, false},
+		{"a create on its own suite", authorizer.ActionExperimentCreate, map[string]any{authorizer.FieldSuiteOwner: bob}, true},
+		{"a create naming no suite owner", authorizer.ActionExperimentCreate, map[string]any{}, true},
+		{"a change of its own experiment to its own baseline", authorizer.ActionExperimentUpdate, map[string]any{authorizer.FieldOwner: bob, authorizer.FieldBaselineOwner: bob}, true},
+	}
+	for _, tc := range cases {
+		d := ask(tc.action, tc.fields)
+		if d.Allow != tc.allow {
+			t.Errorf("%s: %+v, want allow %v", tc.name, d, tc.allow)
+		}
+		if !tc.allow && d.Reason != authz.ReasonNotOwner {
+			t.Errorf("%s: reason %q, want not_owner", tc.name, d.Reason)
+		}
+	}
+}

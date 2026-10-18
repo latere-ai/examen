@@ -42,6 +42,8 @@ var readsShared = []string{
 //   - an action outside the vocabulary, or asked about another kind: deny,
 //     unknown_action;
 //   - a list: allow, with a filter that narrows it to the subject's own;
+//   - experiment.create or experiment.update whose suite_owner or
+//     baseline_owner is present and is not the subject: deny, not_owner;
 //   - a stored object whose owner is the subject, any action: allow;
 //   - a read of a task, metric, grader, suite or taxonomy that is shared
 //     with the subject or pinned by an experiment of the subject's: allow;
@@ -54,11 +56,12 @@ var readsShared = []string{
 //
 // A subject therefore acts on what it owns and nothing else, so
 // organizations, and services acting for their users, need an authorizer.
-// No row allows an action that runs an experiment because a share names
-// the subject: a share is a grant of reading, and running stays with the
-// experiment's creator, its owner and the owner's members
+// No row allows anything but a read because a share names the subject: a
+// share is a grant of reading, running stays with the experiment's
+// creator, its owner and the owner's members
 // (specs/004-identity-and-authorization.md), which under this policy are
-// one subject.
+// one subject, and an experiment runs only on a suite and a baseline of
+// its own owner's, whoever shared one.
 // The policy has no administrators and names no limit of its own. Its
 // answer is narrowed by the grants of the caller's token, as an
 // authorizer's is.
@@ -109,6 +112,10 @@ func (OwnerPolicy) decide(req authz.Request) authz.Decision {
 	switch {
 	case authz.IsList(req.Action):
 		return authz.Decision{Allow: true, Filter: &authz.Filter{Owners: []string{req.Subject}}}
+	case runsOn(req.Action) && (foreign(req, authorizer.FieldSuiteOwner) || foreign(req, authorizer.FieldBaselineOwner)):
+		// Asked before the row that allows the owner anything, since an
+		// experiment the subject owns may still name another's suite.
+		return authz.Decision{Reason: authz.ReasonNotOwner}
 	case req.Resource.ID != "" && owner != "" && owner == req.Subject:
 		// A stored object always has an owner; one with none is a resource
 		// the handler did not finish, and is nobody's.
@@ -123,6 +130,19 @@ func (OwnerPolicy) decide(req authz.Request) authz.Decision {
 		return allow
 	}
 	return authz.Decision{Reason: authz.ReasonNotOwner}
+}
+
+// runsOn reports whether an action names the suite or the baseline an
+// experiment runs on: its create, and a change that names a reference.
+func runsOn(action string) bool {
+	return action == authorizer.ActionExperimentCreate || action == authorizer.ActionExperimentUpdate
+}
+
+// foreign reports whether a field naming an owner is present and names
+// another owner than the subject.
+func foreign(req authz.Request, field string) bool {
+	v := req.Resource.String(field)
+	return v != "" && v != req.Subject
 }
 
 // flag reads a field that is true or absent.
