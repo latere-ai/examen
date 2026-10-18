@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -611,4 +612,41 @@ func TestLapsesLeasesAndReopensFailWhole(t *testing.T) {
 		}
 		return func() error { _, err := x.RetryCell(ctx, cells[1]); return err }
 	})
+}
+
+// A computed comparison keeps the analysis's record with the time it was
+// computed, the variable and declared provenance the analysis resolved,
+// and the measurements it read; a record that resolves none keeps the
+// members the comparison was made with.
+func TestComputedKeepsTheRecord(t *testing.T) {
+	w := newWorld(t)
+	p := w.plan()
+	ctx := t.Context()
+	x := w.st.Experiments()
+	eid, _ := w.running(ctx, p, 2)
+	cs, err := x.Comparisons(ctx, store.ComparisonFilter{Experiment: eid}, store.Page{Limit: 1})
+	if err != nil || len(cs) != 1 {
+		t.Fatalf("comparisons %v %v", cs, err)
+	}
+	c := cs[0]
+	rec := objects.Computed{Confounds: []string{}, InputsDigest: "sha256:in", Seed: "ab", AnalysisVersion: "examen.analysis/v1",
+		VariableFields: []string{"model"}, Declared: []string{"candidate", "reference"}}
+	if err := x.Computed(ctx, c.ID, objects.ComparisonComplete, rec, []string{"msr_1"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := x.Comparison(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.State != objects.ComparisonComplete || got.ComputedAt == nil || got.InputsDigest != "sha256:in" || got.Seed != "ab" ||
+		!slices.Equal(got.Variable, []string{"model"}) || !slices.Equal(got.DeclaredProvenance, []string{"candidate", "reference"}) {
+		t.Fatalf("the record %+v", got)
+	}
+	// A failed computation keeps no time and leaves the members as made.
+	if err := x.Computed(ctx, c.ID, objects.ComparisonFailed, objects.Computed{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = x.Comparison(ctx, c.ID); err != nil || got.ComputedAt != nil || !slices.Equal(got.Variable, []string{"model"}) {
+		t.Fatalf("after a failure %+v %v", got, err)
+	}
 }

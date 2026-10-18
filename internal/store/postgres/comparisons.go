@@ -172,11 +172,31 @@ func (x experiments) Computed(ctx context.Context, cid, state string, computed o
 		return err
 	}
 	return x.begin(ctx, c.Experiment, func(ch *change) error {
+		if state == objects.ComparisonComplete {
+			at := ch.now
+			computed.ComputedAt = &at
+		}
 		raw, err := marshal(computed)
 		if err != nil {
 			return err
 		}
-		if _, err := ch.tx.Exec(ctx, `UPDATE comparisons SET state = $2, computed = $3, dirty = false, updated_at = $4 WHERE id = $1`, cid, state, raw, ch.now); err != nil {
+		variable, declared := c.Variable, c.DeclaredProvenance
+		if computed.VariableFields != nil {
+			variable = computed.VariableFields
+		}
+		if computed.Declared != nil {
+			declared = computed.Declared
+		}
+		rawVariable, err := marshal(variable)
+		if err != nil {
+			return err
+		}
+		rawDeclared, err := marshal(declared)
+		if err != nil {
+			return err
+		}
+		if _, err := ch.tx.Exec(ctx, `UPDATE comparisons SET state = $2, computed = $3, variable = $4, declared_provenance = $5, dirty = false, updated_at = $6 WHERE id = $1`,
+			cid, state, raw, rawVariable, rawDeclared, ch.now); err != nil {
 			return fmt.Errorf("postgres: storing a comparison's results: %w", err)
 		}
 		// A provisional comparison replaces what it read; a final one's

@@ -385,6 +385,12 @@ type Computed struct {
 	InputsDigest    string          `json:"inputs_digest,omitempty"`
 	Seed            string          `json:"seed,omitempty"`
 	ComputedAt      *time.Time      `json:"computed_at,omitempty"`
+
+	// VariableFields and Declared are the comparison's variable and
+	// declared_provenance as the analysis resolved them, which the store
+	// writes to the comparison's own members; nil leaves them as they are.
+	VariableFields []string `json:"-"`
+	Declared       []string `json:"-"`
 }
 
 // Comparison is the per-metric results of a candidate's cells against a
