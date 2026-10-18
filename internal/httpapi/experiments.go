@@ -358,12 +358,16 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	ask := func(p *plan) (access.Decision, error) {
 		return s.permitted(r, c, access.Ask(r, authorizer.ActionExperimentCreate, access.Resource(authorizer.ActionExperimentCreate, eid, createMembers(r, in, suiteDigest, candDigests, p))))
 	}
-	// The plan is resolved in the owner the request names, or the caller;
-	// a reference that resolves to nothing is answered only after the
-	// question, so it cannot probe what another owner holds.
-	provisional := r.URL.Query().Get("owner")
-	if provisional == "" {
-		provisional = c.Subject
+	// The plan is resolved in the context the request acts in: the owner
+	// it names, else the owner the allow of experiment.list names, else
+	// the caller. A member of an organization thus resolves the
+	// organization's suite and candidates before the create's question,
+	// which carries what the plan resolved. A reference that resolves to
+	// nothing is answered only after that question, so it cannot probe
+	// what another owner holds.
+	provisional, err := s.contextOwner(r, c, authorizer.ActionExperimentList)
+	if err != nil {
+		return err
 	}
 	p, perr := s.resolvePlan(r, provisional, in, suiteDigest, candDigests)
 	if perr != nil {

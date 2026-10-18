@@ -1455,7 +1455,7 @@ paths:
         - "experiments"
       operationId: "createExperiment"
       summary: "Create an experiment"
-      description: "Resolves the suite and the candidates in the owner context and stores the experiment `pending`, with every cell in mode `execute`. This release runs candidates of kind `external` alone: `topos` and `program` are `422 executor_unavailable`. A suite whose tasks have checks, or whose graders, decline judge or canonicalizers are model or agent judges, is `422 core_not_configured`, as is an `execute` task with inputs and a cap no authorizer answered with a Budget. Asks `experiment.create`."
+      description: "Resolves the suite and the candidates in the owner context and stores the experiment `pending`, with every cell in mode `execute`. This release runs candidates of kind `external` alone: `topos` and `program` are `422 executor_unavailable`. A suite whose tasks have checks, or whose graders, decline judge or canonicalizers are model or agent judges, is `422 core_not_configured`, as is an `execute` task with inputs and a cap no authorizer answered with a Budget. With no `owner` parameter, asks `experiment.list` for the owner context its allow names, then `experiment.create`."
       parameters:
         - name: "owner"
           in: "query"
@@ -3134,6 +3134,7 @@ components:
           type: "string"
         owner:
           type: "string"
+          description: "Whose the experiment is: the owner context its create resolved, a person or an organization, as the authorizer names it."
         suite:
           type: "string"
         candidates:
@@ -3169,6 +3170,7 @@ components:
             - "canceled"
         created_by:
           type: "string"
+          description: "The subject that created the experiment, set at create and never changed. It differs from `owner` for an experiment created in an organization's context, where the owner is the organization and this is the member."
         judgments:
           type: "array"
           items:

@@ -9,7 +9,10 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+
+	"latere.ai/x/pkg/authz"
 
 	"latere.ai/x/examen/authorizer"
 	"latere.ai/x/examen/internal/access"
@@ -328,4 +331,106 @@ func TestExperimentReads(t *testing.T) {
 	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/measurements?generation=0", "t-alice", nil)
 	x.refuse(404, apierr.CodeTrialNotFound, http.MethodGet, "/v1/trials/"+tr["id"].(string)+"/measurements", "t-bob", nil)
 	x.refuse(404, apierr.CodeMeasurementNotFound, http.MethodGet, "/v1/measurements/"+id.New(id.Measurement), "t-alice", nil)
+}
+
+// An experiment created in an organization's context is the
+// organization's and was created by the member who asked: both are
+// stored, never changed and answered on every read. Another member runs
+// it in the organization's context, the unattended work it starts asks
+// experiment.run on behalf of the creator, and a person outside the
+// organization reads nothing of it.
+func TestAnOrganizationsExperimentKeepsItsCreator(t *testing.T) {
+	const org = "https://issuer.example.com|org"
+	policy := &orgContext{org: org, members: map[string]bool{alice: true, bob: true}}
+	x := newAPI(t, func(s *Server) {
+		s.Authz = policy
+		s.Engine.Authz = policy
+	})
+	f := x.fixture()
+	created := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
+		"suite": f.suite, "candidates": []string{f.high}, "trials": 2, "budget": map[string]any{"name": "study"},
+	})
+	if created["owner"] != org || created["created_by"] != alice {
+		t.Fatalf("the create answered owner %v and created_by %v", created["owner"], created["created_by"])
+	}
+	eid := created["id"].(string)
+	read := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid, "t-bob", nil)
+	if read["owner"] != org || read["created_by"] != alice {
+		t.Fatalf("a member reads owner %v and created_by %v", read["owner"], read["created_by"])
+	}
+	stored, err := x.st.Experiments().Get(t.Context(), eid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Owner != org || stored.CreatedBy != alice {
+		t.Fatalf("stored owner %q and created_by %q", stored.Owner, stored.CreatedBy)
+	}
+	x.must(http.StatusOK, http.MethodPost, "/v1/experiments/"+eid+"/work/lease", "t-bob", map[string]any{"candidate": f.high, "max": 1})
+	runs := policy.unattended()
+	if len(runs) == 0 {
+		t.Fatal("the lease asked no experiment.run")
+	}
+	for _, r := range runs {
+		if r.subject != alice || r.createdBy != alice || r.owner != org {
+			t.Fatalf("experiment.run asked as %+v, want the creator in the organization", r)
+		}
+	}
+	x.refuse(404, apierr.CodeExperimentNotFound, http.MethodGet, "/v1/experiments/"+eid, "t-carol", nil)
+	x.refuse(404, apierr.CodeExperimentNotFound, http.MethodPost, "/v1/experiments/"+eid+"/cancel", "t-carol", nil)
+	if e := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid, "t-alice", nil); e["created_by"] != alice || e["owner"] != org {
+		t.Fatalf("after the run the experiment reads %v", e)
+	}
+}
+
+// orgContext is an authorizer of one organization: a member's apply,
+// create and list act in the organization, named by the allow's owner
+// and filter, a member acts on the organization's stored objects, and
+// experiment.run is allowed while its created_by is a member. Anyone
+// else is denied. It records every experiment.run it is asked.
+type orgContext struct {
+	org     string
+	members map[string]bool
+
+	mu   sync.Mutex
+	runs []runAsked
+}
+
+// runAsked is one experiment.run question: its subject, and the owner
+// and created_by its resource carried.
+type runAsked struct{ subject, owner, createdBy string }
+
+func (o *orgContext) unattended() []runAsked {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return slices.Clone(o.runs)
+}
+
+func (o *orgContext) Authorize(_ context.Context, c access.Caller, q access.Question) (access.Decision, error) {
+	owner := q.Resource.String(authorizer.FieldOwner)
+	if q.Action == authorizer.ActionExperimentRun {
+		createdBy := q.Resource.String(authorizer.FieldCreatedBy)
+		o.mu.Lock()
+		o.runs = append(o.runs, runAsked{subject: c.Subject, owner: owner, createdBy: createdBy})
+		o.mu.Unlock()
+		if owner == o.org && o.members[createdBy] && createdBy == c.Subject {
+			return access.Decision{Allow: true}, nil
+		}
+		return access.Decision{Reason: authz.ReasonNotOwner}, nil
+	}
+	if !o.members[c.Subject] {
+		return access.Decision{Reason: authz.ReasonNotOwner}, nil
+	}
+	switch {
+	case authz.IsList(q.Action):
+		d := access.Decision{Allow: true, Filter: &authz.Filter{Owners: []string{o.org}}}
+		d.Limits.Owner = o.org
+		return d, nil
+	case owner == "":
+		d := access.Decision{Allow: true}
+		d.Limits.Owner = o.org
+		return d, nil
+	case owner == o.org:
+		return access.Decision{Allow: true}, nil
+	}
+	return access.Decision{Reason: authz.ReasonNotOwner}, nil
 }
