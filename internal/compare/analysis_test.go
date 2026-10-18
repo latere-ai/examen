@@ -454,3 +454,89 @@ func TestMetricOf(t *testing.T) {
 		t.Fatalf("%+v", cell)
 	}
 }
+
+// Each read the analyzer cannot make, of a suite, its pins, a baseline's
+// experiment or a taxonomy, is its error, and a computation of an input
+// the analysis refuses is the analysis's error.
+func TestReadErrors(t *testing.T) {
+	ctx := t.Context()
+	base := objects.Comparison{ID: "c", Experiment: "exp_new", Candidate: candNew, ReferenceCandidate: candOld}
+	for name, break_ := range map[string]func(w *world){
+		"no suite":           func(w *world) { delete(w.v.byID, "sui_new") },
+		"a suite of no JSON": func(w *world) { ver := w.v.byID["sui_new"]; ver.Body = json.RawMessage(`[`); w.v.byID["sui_new"] = ver },
+		"no metric":          func(w *world) { delete(w.v.byDigest, objects.KindMetric+" "+topic) },
+		"a metric of no JSON": func(w *world) {
+			ver := w.v.byDigest[objects.KindMetric+" "+topic]
+			ver.Body = json.RawMessage(`[`)
+			w.v.byDigest[objects.KindMetric+" "+topic] = ver
+		},
+		"no suite grader": func(w *world) {
+			w.v.put(t, objects.KindSuite, "sui_new", "sha256:suite-new", objects.Suite{Name: "s", Tasks: []string{taskA}, Metrics: []string{score}, PrimaryMetric: score, Graders: []string{"sha256:gone"}})
+		},
+		"no decline judge": func(w *world) {
+			w.v.put(t, objects.KindSuite, "sui_new", "sha256:suite-new", objects.Suite{Name: "s", Tasks: []string{taskA}, Metrics: []string{score}, PrimaryMetric: score, DeclineJudge: "sha256:gone"})
+		},
+		"a cell of no task of the suite": func(w *world) {
+			w.v.put(t, objects.KindSuite, "sui_new", "sha256:suite-new", objects.Suite{Name: "s", Tasks: []string{taskA}, Metrics: []string{score}, PrimaryMetric: score})
+		},
+		"a taxonomy that does not answer":    func(w *world) { w.src.Taxonomies = failingTaxonomies{} },
+		"an experiment that does not answer": func(w *world) { w.x.fail = "Get" },
+	} {
+		w := newWorld(t)
+		break_(w)
+		if _, err := Input(ctx, base, w.src); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+		if _, err := (Analysis{}).Summaries(ctx, w.x.exps["exp_new"], w.x.cells["exp_new"], score, w.src); err == nil && name != "an experiment that does not answer" {
+			t.Errorf("%s: summaries without an error", name)
+		}
+	}
+	// The baseline's side: its experiment and its suite.
+	w := newWorld(t)
+	w.src.Baselines.(*baselines).b["bas_gone"] = objects.Baseline{ID: "bas_gone", Experiment: "exp_gone", Candidate: candOld}
+	pinned := base
+	pinned.ReferenceCandidate, pinned.Baseline = "", "bas_gone"
+	if _, err := Input(ctx, pinned, w.src); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a baseline of no experiment: %v", err)
+	}
+	delete(w.v.byID, "sui_old")
+	pinned.Baseline = "bas_1"
+	if _, err := Input(ctx, pinned, w.src); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("a baseline of no suite: %v", err)
+	}
+	// A metric no suite could be applied with is refused by the analysis.
+	w = newWorld(t)
+	w.v.put(t, objects.KindMetric, "met_score", score, objects.Metric{Name: "quality", Type: objects.TypeBinary, Direction: objects.HigherIsBetter, Aggregate: objects.AggregateMean})
+	if _, _, err := (Analysis{}).Compare(ctx, base, w.src); !errors.Is(err, analysis.ErrInput) {
+		t.Errorf("an aggregate that does not fit its type: %v", err)
+	}
+	if _, err := (Analysis{}).Summaries(ctx, w.x.exps["exp_new"], w.x.cells["exp_new"], score, w.src); !errors.Is(err, analysis.ErrInput) {
+		t.Errorf("summaries of an aggregate that does not fit its type: %v", err)
+	}
+}
+
+type failingTaxonomies struct{ store.Taxonomies }
+
+func (failingTaxonomies) Current(context.Context, objects.SuiteName, string) (objects.Taxonomy, error) {
+	return objects.Taxonomy{}, errBroken
+}
+
+// A candidate-level metric has no cell summary; a trial's declared image
+// and an absent tool set read as the analysis reads them.
+func TestCellReads(t *testing.T) {
+	w := newWorld(t)
+	w.v.put(t, objects.KindMetric, "met_rank", "sha256:rank", objects.Metric{Name: "rank", Type: objects.TypeScore, Range: []float64{0, 1}, Direction: objects.HigherIsBetter, Level: objects.LevelCandidate})
+	w.v.put(t, objects.KindSuite, "sui_new", "sha256:suite-new", objects.Suite{Name: "s", Tasks: []string{taskA, taskB}, Metrics: []string{score, "sha256:rank"}, PrimaryMetric: score})
+	sums, err := (Analysis{}).Summaries(t.Context(), w.x.exps["exp_new"], w.x.cells["exp_new"], "sha256:rank", w.src)
+	if err != nil || len(sums) != 0 {
+		t.Fatalf("a candidate-level metric's cell summaries %v %v", sums, err)
+	}
+	if tu := tupleOf(objects.Tuple{}); tu.Tools == nil || len(tu.Tools) != 0 {
+		t.Fatalf("an absent tool set %+v", tu)
+	}
+	at := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
+	tr := trialOf(objects.Trial{ID: "t", State: objects.StateRunning, Outcome: "", StartedAt: &at, Declared: &objects.Declared{Image: "img:1"}}, nil)
+	if tr.DeclaredImage != "img:1" || tr.Outcome != "" || !tr.EndedAt.IsZero() {
+		t.Fatalf("a running trial %+v", tr)
+	}
+}
