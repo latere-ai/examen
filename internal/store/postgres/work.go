@@ -865,11 +865,12 @@ func (x experiments) ExpireLeases(ctx context.Context) (int, error) {
 	return total, nil
 }
 
-func (x experiments) Queued(ctx context.Context, limit int) ([]store.QueuedRollout, error) {
+func (x experiments) Queued(ctx context.Context, experiment string, limit int) ([]store.QueuedRollout, error) {
 	rows, err := x.s.pool.Query(ctx, `SELECT e.id, e.owner, e.created_by, e.state, e.budget, c.id, r->>'key'
 		FROM cells c JOIN experiments e ON e.id = c.experiment, jsonb_array_elements(c.rollouts) r
 		WHERE r->>'state' = 'queued' AND e.state NOT IN ('complete', 'canceled') AND c.state NOT IN ('blocked', 'over_budget', 'canceled')
-		ORDER BY e.id, c.task_pos, c.candidate_pos LIMIT $1`, limit)
+			AND ($2 = '' OR e.id = $2)
+		ORDER BY c.updated_at, c.task_pos, c.candidate_pos LIMIT $1`, limit, experiment)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: reading queued rollouts: %w", err)
 	}

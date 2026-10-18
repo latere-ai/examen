@@ -67,15 +67,12 @@ func (e *Engine) run(ctx context.Context, exp, owner, createdBy, state, budget, 
 // deny parks the cell canceled with run_denied; an outage leaves the
 // rollout queued for the next tick.
 func (e *Engine) Advance(ctx context.Context, experiment string) error {
-	queued, err := e.Store.Experiments().Queued(ctx, batch)
+	queued, err := e.Store.Experiments().Queued(ctx, experiment, batch)
 	if err != nil {
 		return err
 	}
 	var errs []error
 	for _, q := range queued {
-		if experiment != "" && q.Experiment != experiment {
-			continue
-		}
 		allow, err := e.run(ctx, q.Experiment, q.Owner, q.CreatedBy, q.State, q.Budget, q.Cell)
 		switch {
 		case errors.Is(err, access.ErrUnavailable):

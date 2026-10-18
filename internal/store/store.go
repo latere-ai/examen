@@ -402,7 +402,9 @@ type Experiments interface {
 	Renew(ctx context.Context, experiment, lease, subject string) (Leased, error)
 	Submit(ctx context.Context, s Submission) (objects.Trial, error)
 	ExpireLeases(ctx context.Context) (int, error)
-	Queued(ctx context.Context, limit int) ([]QueuedRollout, error)
+	// Queued are the rollouts waiting to be submitted, of one experiment,
+	// or of every one when it names none.
+	Queued(ctx context.Context, experiment string, limit int) ([]QueuedRollout, error)
 	SubmitRollout(ctx context.Context, cell, key string) error
 	Park(ctx context.Context, cell, state, reason string) error
 	// Leasable are the cells of a candidate with pending trials in

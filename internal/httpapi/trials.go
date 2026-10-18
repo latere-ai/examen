@@ -95,30 +95,31 @@ func (v trialView) named(cur map[string]objects.Measurement) map[string]any {
 	return out
 }
 
-// valueMatch reads the value filter of a trial list: the metric's digest,
-// and the value it keeps, or missing.
-func valueMatch(raw string, m objects.Metric) (any, bool) {
+// valueMatch reads the value filter of a trial list: the value it keeps,
+// typed by the metric, or missing. A value its metric cannot hold is
+// invalid_field.
+func valueMatch(raw string, m objects.Metric) (any, bool, error) {
 	if raw == "missing" {
-		return nil, true
+		return nil, true, nil
 	}
+	refused := apierr.OnField(apierr.CodeInvalidField, "value", "value is true, false, a number, a label or missing, as the metric's type holds")
 	switch m.Type {
 	case objects.TypeBinary:
-		b, err := strconv.ParseBool(raw)
-		if err != nil {
-			return raw, false
+		if raw != "true" && raw != "false" {
+			return nil, false, refused
 		}
-		return b, false
+		return raw == "true", false, nil
 	case objects.TypeLabel:
 		if m.Open() {
-			return objects.NormalizeLabel(raw), false
+			return objects.NormalizeLabel(raw), false, nil
 		}
-		return raw, false
+		return raw, false, nil
 	}
 	f, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
-		return raw, false
+		return nil, false, refused
 	}
-	return f, false
+	return f, false, nil
 }
 
 func (s *Server) listTrials(w http.ResponseWriter, r *http.Request, c access.Caller) error {
@@ -164,7 +165,9 @@ func (s *Server) listTrials(w http.ResponseWriter, r *http.Request, c access.Cal
 			return apierr.OnField(apierr.CodeInvalidField, "metric", "metric names a trial-level metric of the suite")
 		}
 		metric = d
-		want, missing = valueMatch(q.Get("value"), m)
+		if want, missing, err = valueMatch(q.Get("value"), m); err != nil {
+			return err
+		}
 	}
 	// A page without a value filter is one read; with one, trials are read
 	// a batch at a time until a page of matches is found.
