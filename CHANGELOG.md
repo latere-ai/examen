@@ -6,6 +6,15 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.1.0 - 2026-10-18
+
+The first release serves the v0.1 profile: suites, candidates of kind
+`external` and experiments whose trials your own harness runs or a study
+you already made imports, with every comparison and grid figure computed
+by Examen's analysis. It calls no core and mints no owner token. Agents
+and programs as candidates, checks and judges, publishing and the console
+are not part of it.
+
 ### Added
 
 - `examend serve`, `examend migrate` and `examend version`, configured by
@@ -82,12 +91,34 @@ here is refused before it is pushed.
   open-vocabulary metric: append a version, read, history, the raw
   labels the current version does not map, and by id.
 - Comparisons: one automatic comparison of every candidate against the
-  experiment's reference, made at create and final once the experiment
-  completes; `POST /comparisons` asks for one, exploratory; list, read
-  with suite-level results, and page task-level rows. The figures are
-  the analysis's, which this build does not compute yet: a comparison
-  reads `computing` with no results, and a grid cell carries no summary
-  or verdict, until the analysis is wired.
+  experiment's reference, made at create; `POST /comparisons` asks for
+  one, against another candidate, a baseline or, with `"variable":
+  "task"`, the candidate's cell of another task, exploratory; list, read
+  with suite-level results, and page task-level rows.
+- The analysis computes every comparison: per-task and suite-level
+  summaries with their intervals, the test each metric's type and
+  aggregate names, the Benjamini and Hochberg correction of a
+  comparison's family beside its primary metric tested alone, a verdict
+  and a plain reason for every result, and the confounds of the
+  provenance tuple, the declared images, the service versions, the
+  excluded trials and the time windows. An automatic comparison is
+  computed once its candidate's first trial finishes, recomputed in
+  place with `final` false as trials arrive, and computed a last time
+  with `final` true when the experiment completes; one on request is
+  computed once. Each records its `inputs_digest`, `seed`,
+  `analysis_version` and `parameters`, and the measurements it read, so
+  the same inputs give the same figures bit for bit on every machine. A
+  value an external harness reported for itself keeps its `p`, carries
+  the `self_reported` confound, and has no `q` and no verdict: it is
+  never a finding.
+- The candidate × task grid shows each cell's summary of the metric,
+  and the verdict and reason of its candidate's automatic comparison.
+- `experiment.create` sends your authorizer `grader_kinds`, the kinds of
+  every grader the suite pins, an empty list for a suite that pins none,
+  so it can tell work that needs no owner token.
+- A request with an `Idempotency-Key` is served for at most a minute;
+  a repeat while it is served is `409 request_in_progress` for up to
+  five minutes, after which a stopped replica's key lapses.
 - `422 executor_unavailable` refuses a candidate whose executor this
   release does not run.
 - `GET /openapi.yaml` names the server's own base path in `servers`.
@@ -111,9 +142,15 @@ here is refused before it is pushed.
   message are not accepted; imports of Topos sessions and Cella
   sandboxes are `422 core_not_configured`. No pin is resolved at its
   core when an experiment is created.
-- The statistics: comparisons and grid summaries stay uncomputed until
-  the analysis is wired.
+- Of the analysis: label tests, which leave a label metric's results
+  descriptive, with no `p`, `q` or verdict; cell-level and
+  candidate-level metrics; the `uncalibrated` confound; benchmark
+  entries and trends. A grid
+  cell's summary is computed when the grid is read, by the same
+  procedures a stored figure would be, and the spend and outcome figures
+  of the stored analysis are not served.
 - Sink events are journaled and not delivered: `serve` refuses to start
   while `EXAMEN_EVENTS_URL` is set.
 - Bars, shares, dataset exports, annotations, re-grading, changing and
   deleting experiments, reports and publishing.
+- The console, a client of this API that ships apart.
