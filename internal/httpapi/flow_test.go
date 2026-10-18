@@ -51,7 +51,7 @@ func (x *client) must(status int, method, path, bearer string, body any, headers
 	x.t.Helper()
 	a := x.do(method, path, bearer, body, headers...)
 	if a.status != status {
-		x.t.Fatalf("%s %s: %d, want %d: %s", method, path, a.status, status, a.body)
+		x.t.Fatalf("%s %s: %d, want %d: %s\n%s", method, path, a.status, status, a.body, x.log())
 	}
 	if len(a.body) == 0 {
 		return nil

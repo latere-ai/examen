@@ -78,14 +78,14 @@ func (s *Server) pinBaseline(w http.ResponseWriter, r *http.Request, c access.Ca
 	}
 	owner := createOwner(r, c, d)
 	suite := objects.SuiteName{Owner: owner, Name: suiteName}
-	if _, err := s.Store.Versions().Current(r.Context(), objects.KindSuite, owner, suiteName); err != nil {
-		return storeError(err, apierr.CodeSuiteNotFound, "the owner has no suite named "+suiteName)
-	}
-	// The experiment is asked before any of its state is read, so a pin
-	// cannot confirm that another owner's experiment exists.
+	// The experiment is asked before any state is read, so a pin cannot
+	// confirm that another owner's experiment exists.
 	e, err := s.namedExperiment(r, c, "experiment", in.Experiment)
 	if err != nil {
 		return err
+	}
+	if _, err := s.Store.Versions().Current(r.Context(), objects.KindSuite, owner, suiteName); err != nil {
+		return storeError(err, apierr.CodeSuiteNotFound, "the owner has no suite named "+suiteName)
 	}
 	switch {
 	case e.State != objects.StateComplete:

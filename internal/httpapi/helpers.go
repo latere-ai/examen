@@ -37,6 +37,8 @@ func missingObject(code, detail string) error { return apierr.New(code, detail) 
 func storeError(err error, code, detail string) error {
 	var e *apierr.Error
 	switch {
+	case err == nil:
+		return nil
 	case errors.As(err, &e):
 		return e
 	case errors.Is(err, store.ErrNotFound):

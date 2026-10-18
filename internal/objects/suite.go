@@ -30,7 +30,9 @@ type Suite struct {
 func (s *Suite) Normalize() error {
 	norm := func(field string, refs []string, builtinOK bool) error {
 		for i, r := range refs {
-			if builtinOK && IsBuiltinMetric(r) {
+			// A built-in metric's reserved digest is kept as written, and
+			// one that names no built-in is refused where it is resolved.
+			if builtinOK && strings.HasPrefix(r, BuiltinPrefix) {
 				continue
 			}
 			_, d, err := ParseRef(field+"["+itoa(i)+"]", r)
@@ -50,7 +52,7 @@ func (s *Suite) Normalize() error {
 			return err
 		}
 	}
-	if s.PrimaryMetric != "" && !IsBuiltinMetric(s.PrimaryMetric) {
+	if s.PrimaryMetric != "" && !strings.HasPrefix(s.PrimaryMetric, BuiltinPrefix) {
 		_, d, err := ParseRef("primary_metric", s.PrimaryMetric)
 		if err != nil {
 			return err

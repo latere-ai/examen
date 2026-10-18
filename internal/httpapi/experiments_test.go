@@ -1,0 +1,292 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: Apache-2.0
+
+package httpapi
+
+import (
+	"context"
+	"maps"
+	"net/http"
+	"strings"
+	"testing"
+
+	"latere.ai/x/examen/authorizer"
+	"latere.ai/x/examen/internal/access"
+	"latere.ai/x/examen/internal/apierr"
+	"latere.ai/x/examen/internal/id"
+)
+
+func TestCreateRefusals(t *testing.T) {
+	x := newAPI(t, nil)
+	f := x.fixture()
+	ok := func(extra map[string]any) map[string]any {
+		b := map[string]any{"suite": f.suite, "candidates": []string{f.high}, "budget": map[string]any{"name": "study"}}
+		maps.Copy(b, extra)
+		return b
+	}
+	many := make([]string, 33)
+	for i := range many {
+		many[i] = "sha256:" + strings.Repeat(string(rune('a'+i%6)), 63) + string(rune('0'+i%10))
+	}
+	cases := []struct {
+		body   map[string]any
+		status int
+		code   string
+		field  string
+	}{
+		{map[string]any{"candidates": []string{f.high}, "budget": map[string]any{"name": "b"}}, 400, apierr.CodeMissingField, "suite"},
+		{map[string]any{"suite": f.suite, "budget": map[string]any{"name": "b"}}, 400, apierr.CodeMissingField, "candidates"},
+		{map[string]any{"suite": f.suite, "candidates": []string{f.high}}, 400, apierr.CodeMissingField, "budget"},
+		{ok(map[string]any{"candidates": many}), 422, apierr.CodeLimitExceeded, "candidates"},
+		{ok(map[string]any{"suite": "goalless"}), 422, apierr.CodeUnpinnedReference, "suite"},
+		{ok(map[string]any{"candidates": []string{"harness-high"}}), 422, apierr.CodeUnpinnedReference, "candidates[0]"},
+		{ok(map[string]any{"candidates": []string{f.high, f.high}}), 400, apierr.CodeInvalidField, "candidates[1]"},
+		{ok(map[string]any{"trials": 0}), 400, apierr.CodeInvalidField, "trials"},
+		{ok(map[string]any{"trials": 1001}), 422, apierr.CodeLimitExceeded, "trials"},
+		{ok(map[string]any{"budget": map[string]any{}}), 400, apierr.CodeInvalidField, "budget"},
+		{ok(map[string]any{"budget": map[string]any{"name": "a", "cap_usd_micro": 5}}), 400, apierr.CodeInvalidField, "budget"},
+		{ok(map[string]any{"budget": map[string]any{"name": ""}}), 400, apierr.CodeInvalidField, "budget.name"},
+		{ok(map[string]any{"budget": map[string]any{"cap_usd_micro": 0}}), 400, apierr.CodeInvalidField, "budget.cap_usd_micro"},
+		{ok(map[string]any{"parallelism": 0}), 400, apierr.CodeInvalidField, "parallelism"},
+		{ok(map[string]any{"parallelism": 257}), 422, apierr.CodeLimitExceeded, "parallelism"},
+		{ok(map[string]any{"reference": map[string]any{}}), 400, apierr.CodeInvalidField, "reference"},
+		{ok(map[string]any{"reference": map[string]any{"candidate": f.low}}), 422, apierr.CodeNotInExperiment, "reference.candidate"},
+		{ok(map[string]any{"reference": map[string]any{"candidate": "harness-low"}}), 422, apierr.CodeUnpinnedReference, "reference.candidate"},
+		{ok(map[string]any{"mode": "dry"}), 400, apierr.CodeInvalidField, "mode"},
+		{ok(map[string]any{"metadata": map[string]string{"examen.trial": "x"}}), 400, apierr.CodeInvalidField, "metadata.examen.trial"},
+		{ok(map[string]any{"adopt": true}), 400, apierr.CodeUnknownField, "adopt"},
+		{ok(map[string]any{"benchmark": "pub_1"}), 400, apierr.CodeUnknownField, "benchmark"},
+		{ok(map[string]any{"suite": "sha256:" + strings.Repeat("0", 64)}), 422, apierr.CodeReferenceNotFound, "suite"},
+		{ok(map[string]any{"suite": "other@" + f.suite}), 422, apierr.CodeReferenceNotFound, "suite"},
+		{ok(map[string]any{"candidates": []string{"sha256:" + strings.Repeat("0", 64)}}), 422, apierr.CodeReferenceNotFound, "candidates[0]"},
+		{ok(map[string]any{"budget": map[string]any{"cap_usd_micro": 5000000}}), 422, apierr.CodeCoreNotConfigured, "budget.cap_usd_micro"},
+	}
+	for _, c := range cases {
+		d := x.refuse(c.status, c.code, http.MethodPost, "/v1/experiments", "t-alice", c.body)
+		if d["field"] != c.field {
+			t.Errorf("%v: field %v, want %s", c.body, d["field"], c.field)
+		}
+	}
+	// What this release does not run is refused by name.
+	topos := x.apply("candidates", "agent", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "sha256:" + strings.Repeat("1", 64), "model": "claude-haiku-5-5"}})
+	if d := x.refuse(422, apierr.CodeExecutorUnavailable, http.MethodPost, "/v1/experiments", "t-alice", ok(map[string]any{"candidates": []string{topos}})); d["field"] != "candidates[0]" {
+		t.Fatalf("topos %v", d)
+	}
+	program := x.apply("candidates", "runner", map[string]any{"kind": "program", "program": map[string]any{"image": "ghcr.io/x/runner@sha256:" + strings.Repeat("2", 64)}})
+	x.refuse(422, apierr.CodeExecutorUnavailable, http.MethodPost, "/v1/experiments", "t-alice", ok(map[string]any{"candidates": []string{f.high, program}}))
+	check := x.apply("graders", "tests", map[string]any{"kind": "check", "produces": []string{f.quality}, "check": map[string]any{"command": []string{"make", "test"}}})
+	checked := x.apply("tasks", "checked", map[string]any{"checks": []string{check}})
+	withInputs := x.apply("tasks", "inputs", map[string]any{"inputs": []map[string]any{{"name": "brief.md", "text": "hi"}}})
+	judge := x.apply("graders", "judge", map[string]any{"kind": "model_judge", "produces": []string{f.quality}, "model_judge": map[string]any{"model": "claude-haiku-5-5", "prompt": "rate"}})
+	agent := x.apply("graders", "agent", map[string]any{"kind": "agent_judge", "produces": []string{f.quality}, "agent_judge": map[string]any{"agent": "sha256:" + strings.Repeat("3", 64), "instructions": "review"}})
+	decline := x.apply("graders", "decline", map[string]any{"kind": "model_judge", "produces": []string{"builtin:declined"}, "model_judge": map[string]any{"model": "claude-haiku-5-5", "prompt": "declined?", "inputs": map[string]any{"final_message": true, "transcript": true}}})
+	canon := x.apply("graders", "canon", map[string]any{"kind": "model_judge", "produces": []string{f.theme}, "model_judge": map[string]any{"model": "claude-haiku-5-5", "role": "canonicalize"}})
+	for i, c := range []struct {
+		suite map[string]any
+		core  string
+		field string
+	}{
+		{map[string]any{"tasks": []string{checked}, "metrics": []string{f.quality}, "primary_metric": f.quality}, "cella", "suite.tasks[0].checks"},
+		{map[string]any{"tasks": []string{withInputs}, "metrics": []string{f.quality}, "primary_metric": f.quality}, "arca", "suite.tasks[0].inputs"},
+		{map[string]any{"tasks": []string{f.taskA}, "metrics": []string{f.quality}, "primary_metric": f.quality, "graders": []string{judge}}, "lux", "suite.graders[0]"},
+		{map[string]any{"tasks": []string{f.taskA}, "metrics": []string{f.quality}, "primary_metric": f.quality, "graders": []string{agent}}, "topos", "suite.graders[0]"},
+		{map[string]any{"tasks": []string{f.taskA}, "metrics": []string{f.quality, "builtin:declined"}, "primary_metric": f.quality, "decline_judge": decline}, "lux", "suite.decline_judge"},
+		{map[string]any{"tasks": []string{f.taskA}, "metrics": []string{f.quality, f.theme}, "primary_metric": f.quality, "canonicalizers": []string{canon}}, "lux", "suite.canonicalizers[0]"},
+	} {
+		digest := x.apply("suites", "unbuilt-"+itoa(i), c.suite)
+		d := x.refuse(422, apierr.CodeCoreNotConfigured, http.MethodPost, "/v1/experiments", "t-alice", ok(map[string]any{"suite": digest}))
+		if d["core"] != c.core || d["field"] != c.field {
+			t.Errorf("%s: %v", c.field, d)
+		}
+	}
+	// A task with inputs is no refusal in mode import, which delivers none.
+	inputsSuite := x.apply("suites", "with-inputs", map[string]any{"tasks": []string{withInputs}, "metrics": []string{f.quality}, "primary_metric": f.quality})
+	x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", ok(map[string]any{"suite": inputsSuite, "mode": "import"}))
+	// Another subject cannot name alice's versions: its question is asked
+	// before the answer that the reference resolves to nothing.
+	x.refuse(422, apierr.CodeReferenceNotFound, http.MethodPost, "/v1/experiments", "t-bob", ok(nil))
+}
+
+// The limits an allow carries hold a create.
+func TestCreateLimits(t *testing.T) {
+	limits := &limitPolicy{}
+	x := newAPI(t, func(s *Server) {
+		limits.inner = s.Authz
+		s.Authz = limits
+	})
+	f := x.fixture()
+	body := func(extra map[string]any) map[string]any {
+		b := map[string]any{"suite": f.suite, "candidates": []string{f.high, f.low}, "trials": 4, "budget": map[string]any{"name": "study"}, "mode": "import"}
+		maps.Copy(b, extra)
+		return b
+	}
+	limits.set(map[string]any{"max_parallelism": 4})
+	if d := x.refuse(403, apierr.CodeForbidden, http.MethodPost, "/v1/experiments", "t-alice", body(map[string]any{"parallelism": 5})); d["reason"] != "max_parallelism" || d["figure"] != 4.0 {
+		t.Fatalf("parallelism %v", d)
+	}
+	if e := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", body(nil)); e["parallelism"] != 4.0 {
+		t.Fatalf("the default within the limit %v", e)
+	}
+	limits.set(map[string]any{"max_trials": 10})
+	if d := x.refuse(403, apierr.CodeForbidden, http.MethodPost, "/v1/experiments", "t-alice", body(nil)); d["reason"] != "max_trials" {
+		t.Fatalf("trials %v", d)
+	}
+	limits.set(map[string]any{"executors": []string{"cella"}})
+	if d := x.refuse(403, apierr.CodeForbidden, http.MethodPost, "/v1/experiments", "t-alice", body(nil)); d["reason"] != "executors" {
+		t.Fatalf("executors %v", d)
+	}
+	limits.set(map[string]any{"budget": "assigned"})
+	if d := x.refuse(403, apierr.CodeForbidden, http.MethodPost, "/v1/experiments", "t-alice", body(nil)); d["reason"] != "budget" {
+		t.Fatalf("budget %v", d)
+	}
+	e := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", body(map[string]any{"budget": map[string]any{"cap_usd_micro": 5000000}}))
+	if e["budget"].(map[string]any)["name"] != "assigned" {
+		t.Fatalf("an assigned budget %v", e)
+	}
+	limits.set(map[string]any{"max_active_experiments": 2})
+	if d := x.refuse(403, apierr.CodeForbidden, http.MethodPost, "/v1/experiments", "t-alice", body(nil)); d["reason"] != "max_active_experiments" {
+		t.Fatalf("active %v", d)
+	}
+	limits.set(nil)
+	for range 14 {
+		x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", body(nil))
+	}
+	if d := x.refuse(422, apierr.CodeLimitExceeded, http.MethodPost, "/v1/experiments", "t-alice", body(nil)); d["constant"] != "MAX_ACTIVE_EXPERIMENTS_PER_OWNER" {
+		t.Fatalf("the constant %v", d)
+	}
+	limits.deny = "sign_in_not_kept"
+	x.refuse(403, apierr.CodeSignInNotKept, http.MethodPost, "/v1/experiments", "t-alice", body(nil))
+}
+
+// limitPolicy allows experiment.create with the limits a test sets, or
+// denies it with a reason, and asks the policy it wraps everything else.
+type limitPolicy struct {
+	inner  access.Authorizer
+	limits map[string]any
+	deny   string
+}
+
+func (l *limitPolicy) set(m map[string]any) { l.limits = m }
+
+func (l *limitPolicy) Authorize(ctx context.Context, c access.Caller, q access.Question) (access.Decision, error) {
+	if q.Action != authorizer.ActionExperimentCreate {
+		return l.inner.Authorize(ctx, c, q)
+	}
+	if l.deny != "" {
+		return access.Decision{Reason: l.deny}, nil
+	}
+	d := access.Decision{Allow: true}
+	for k, v := range l.limits {
+		switch k {
+		case "max_parallelism":
+			d.Limits.MaxParallelism = v.(int)
+		case "max_trials":
+			d.Limits.MaxTrials = v.(int)
+		case "max_active_experiments":
+			d.Limits.MaxActiveExperiments = v.(int)
+		case "executors":
+			d.Limits.Executors = v.([]string)
+		case "budget":
+			d.Limits.Budget = v.(string)
+		}
+	}
+	return d, nil
+}
+
+func TestExperimentReads(t *testing.T) {
+	x := newAPI(t, nil)
+	f := x.fixture()
+	eid := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
+		"suite": f.suite, "candidates": []string{f.high, f.low}, "trials": 2, "budget": map[string]any{"name": "study"},
+		"metadata": map[string]string{"commit": "9f2c1e7"},
+	}, "Idempotency-Key", "create-1")["id"].(string)
+	// The same key and body answers the first response again.
+	replay := x.do(http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
+		"suite": f.suite, "candidates": []string{f.high, f.low}, "trials": 2, "budget": map[string]any{"name": "study"},
+		"metadata": map[string]string{"commit": "9f2c1e7"},
+	}, "Idempotency-Key", "create-1")
+	if replay.header.Get("Idempotent-Replayed") != "true" || replay.json(t)["id"] != eid {
+		t.Fatalf("replay %v %s", replay.header, replay.body)
+	}
+	for _, q := range []string{"", "?suite=" + f.suite, "?suite=goalless", "?candidate=" + f.high, "?state=running", "?mode=execute", "?metadata.commit=9f2c1e7"} {
+		if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments"+q, "t-alice", nil); len(got["items"].([]any)) != 1 {
+			t.Errorf("%s: %v", q, got)
+		}
+	}
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments?state=complete", "t-alice", nil); len(got["items"].([]any)) != 0 {
+		t.Fatal("no complete experiment")
+	}
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments", "t-bob", nil); len(got["items"].([]any)) != 0 {
+		t.Fatal("bob lists alice's")
+	}
+	x.refuse(404, apierr.CodeExperimentNotFound, http.MethodGet, "/v1/experiments/"+eid, "t-bob", nil)
+	x.refuse(404, apierr.CodeExperimentNotFound, http.MethodGet, "/v1/experiments/"+id.New(id.Experiment), "t-alice", nil)
+	cells := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/cells", "t-alice", nil)["items"].([]any)
+	if len(cells) != 4 {
+		t.Fatalf("cells %v", cells)
+	}
+	cell := cells[0].(map[string]any)
+	for _, q := range []string{"?state=smoking", "?task=todo-app", "?task=" + f.taskA, "?candidate=" + f.high} {
+		if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/cells"+q, "t-alice", nil); len(got["items"].([]any)) < 2 {
+			t.Errorf("cells %s: %v", q, got)
+		}
+	}
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/cells?task=nope", "t-alice", nil); len(got["items"].([]any)) != 0 {
+		t.Fatal("cells of a task the suite does not pin")
+	}
+	x.must(http.StatusOK, http.MethodGet, "/v1/cells/"+cell["id"].(string), "t-alice", nil)
+	x.refuse(404, apierr.CodeCellNotFound, http.MethodGet, "/v1/cells/"+cell["id"].(string), "t-bob", nil)
+	x.refuse(404, apierr.CodeCellNotFound, http.MethodGet, "/v1/cells/"+id.New(id.Cell), "t-alice", nil)
+	trials := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/trials?limit=1", "t-alice", nil)
+	if len(trials["items"].([]any)) != 1 || trials["next_cursor"] == nil {
+		t.Fatalf("trials %v", trials)
+	}
+	tr := trials["items"].([]any)[0].(map[string]any)
+	x.must(http.StatusOK, http.MethodGet, "/v1/trials/"+tr["id"].(string), "t-alice", nil)
+	x.refuse(404, apierr.CodeTrialNotFound, http.MethodGet, "/v1/trials/"+tr["id"].(string), "t-bob", nil)
+	x.refuse(404, apierr.CodeTrialNotFound, http.MethodGet, "/v1/trials/"+id.New(id.Trial), "t-alice", nil)
+	for _, q := range []string{"?state=pending", "?outcome=completed", "?imported=false", "?retried=false", "?cell=" + cell["id"].(string), "?task=todo-app", "?candidate=" + f.low} {
+		x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/trials"+q, "t-alice", nil)
+	}
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/trials?metric=quality", "t-alice", nil)
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/trials?metric=nope&value=1", "t-alice", nil)
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/trials?metric=quality&value=high", "t-alice", nil)
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/trials?metric=completed&value=yes", "t-alice", nil)
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/trials?imported=maybe", "t-alice", nil)
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/trials?retried=maybe", "t-alice", nil)
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/trials?metric=completed&value=missing", "t-alice", nil); len(got["items"].([]any)) != 4 {
+		t.Fatalf("unfinished trials have no value %v", got)
+	}
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/trials?metric=theme&value=x", "t-alice", nil); len(got["items"].([]any)) != 0 {
+		t.Fatal("no trial holds the label")
+	}
+	events := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/events?limit=2", "t-alice", nil)
+	if len(events["items"].([]any)) != 2 || events["next_cursor"] != "2" {
+		t.Fatalf("events %v", events)
+	}
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/events?after=2&limit=200", "t-alice", nil); got["items"].([]any)[0].(map[string]any)["seq"] != 3.0 {
+		t.Fatalf("events after 2 %v", got)
+	}
+	x.refuse(400, apierr.CodeInvalidCursor, http.MethodGet, "/v1/experiments/"+eid+"/events?after=x", "t-alice", nil)
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/events?limit=0", "t-alice", nil)
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/events?after=10000", "t-alice", nil); len(got["items"].([]any)) != 0 {
+		t.Fatal("no event past the latest")
+	}
+	x.refuse(409, apierr.CodeWrongMode, http.MethodPost, "/v1/experiments/"+eid+"/close", "t-alice", nil)
+	x.refuse(404, apierr.CodeExperimentNotFound, http.MethodPost, "/v1/experiments/"+eid+"/close", "t-bob", nil)
+	x.refuse(404, apierr.CodeExperimentNotFound, http.MethodPost, "/v1/experiments/"+eid+"/cancel", "t-bob", nil)
+	x.refuse(404, apierr.CodeExperimentNotFound, http.MethodPost, "/v1/experiments/"+id.New(id.Experiment)+"/cancel", "t-alice", nil)
+	x.must(http.StatusOK, http.MethodPost, "/v1/experiments/"+eid+"/cancel", "t-alice", nil)
+	again := x.must(http.StatusOK, http.MethodPost, "/v1/experiments/"+eid+"/cancel", "t-alice", nil)
+	if again["state"] != "canceled" {
+		t.Fatalf("a repeated cancel %v", again)
+	}
+	x.refuse(409, apierr.CodeExperimentFinished, http.MethodPost, "/v1/experiments/"+eid+"/work/lease", "t-alice", map[string]any{"candidate": f.high})
+	// Canceled trials keep their records, and the measurement routes read.
+	for _, path := range []string{"/v1/experiments/" + eid + "/measurements?generation=all", "/v1/trials/" + tr["id"].(string) + "/measurements?metric=quality&grader=builtin&generation=1"} {
+		x.must(http.StatusOK, http.MethodGet, path, "t-alice", nil)
+	}
+	x.refuse(400, apierr.CodeInvalidField, http.MethodGet, "/v1/experiments/"+eid+"/measurements?generation=0", "t-alice", nil)
+	x.refuse(404, apierr.CodeTrialNotFound, http.MethodGet, "/v1/trials/"+tr["id"].(string)+"/measurements", "t-bob", nil)
+	x.refuse(404, apierr.CodeMeasurementNotFound, http.MethodGet, "/v1/measurements/"+id.New(id.Measurement), "t-alice", nil)
+}

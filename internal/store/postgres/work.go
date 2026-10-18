@@ -636,9 +636,11 @@ func (x experiments) Submit(ctx context.Context, s store.Submission) (objects.Tr
 			return nil
 		case leaseID != s.Lease || leaseSubject != s.Subject:
 			return &apierr.Error{Code: apierr.CodeLeaseNotHeld, Field: "lease", Detail: "submit: the trial is not held under this lease by this subject", State: t.State}
-		case t.State != objects.StateRunning:
+		case t.State == objects.StateDone || t.State == objects.StateChecking:
 			return &apierr.Error{Code: apierr.CodeLeaseNotHeld, Field: "lease", Detail: "submit: the trial is " + t.State + " and no longer held", State: t.State}
 		case expires == nil || !expires.After(c.now):
+			// A lapsed lease keeps its columns on the trial it returned to
+			// pending, so its submit is told apart from another lease's.
 			return apierr.OnField(apierr.CodeLeaseExpired, "lease", "submit: the lease lapsed")
 		}
 		out, err = c.finish(ctx, t, s.Outcome, s.Lease, s.Digest)
@@ -951,7 +953,9 @@ func (x experiments) Park(ctx context.Context, cid, state, reason string) error 
 func (x experiments) Leasable(ctx context.Context, eid, candidate string) ([]objects.Cell, error) {
 	rows, err := x.s.pool.Query(ctx, `SELECT `+cellColumns+` FROM cells c WHERE experiment = $1 AND candidate = $2
 		AND state NOT IN ('blocked', 'over_budget', 'canceled', 'complete')
-		AND EXISTS (SELECT 1 FROM trials t WHERE t.cell = c.id AND t.state = 'pending') ORDER BY task_pos`, eid, candidate)
+		AND EXISTS (SELECT 1 FROM trials t WHERE t.cell = c.id
+			AND (t.state = 'pending' OR (t.state = 'running' AND t.lease_expires_at <= coalesce($3::timestamptz, now()))))
+		ORDER BY task_pos`, eid, candidate, x.s.at())
 	if err != nil {
 		return nil, fmt.Errorf("postgres: reading leasable cells: %w", err)
 	}
