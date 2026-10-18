@@ -78,7 +78,7 @@ failing on any `regressed` verdict for its metric.
   `self_reported` (spec 008); for `at_least` and `at_most`, the
   metric's suite-level result is read for it. A rule that reads one
   fails: a release decision does not rest on a value an external
-  harness claimed for itself. Spec 008 keeps such a value out of the
+  external harness claimed for itself. Spec 008 keeps such a value out of the
   headline; a bar fails closed on it, as it does on `missing`.
 - `insufficient` fails a rule: a release decision that cannot be made
   is not a pass, as Topos spec 025 holds that an incomplete run never

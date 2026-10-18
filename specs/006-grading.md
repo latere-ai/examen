@@ -84,7 +84,7 @@ with:
 | `EXAMEN_TASK` | the task's digest |
 | `EXAMEN_CHECK` | this check grader's digest |
 | `EXAMEN_WORKSPACE` | the absolute path of the working directory the agent left; in the check sandbox, its empty working directory |
-| `EXAMEN_TRANSCRIPT` | the path of the trial's transcript as JSONL in the machine: the session's log for `topos`, the forwarded request and response bodies for `cella`, and what the harness submitted for `external`, an empty file when it submitted none (spec 005) |
+| `EXAMEN_TRANSCRIPT` | the path of the trial's transcript as JSONL in the machine: the session's log for `topos`, the forwarded request and response bodies for `cella`, and what the external harness submitted for `external`, an empty file when it submitted none (spec 005) |
 | `EXAMEN_FINAL_MESSAGE` | the path of a file holding the text of the system under test's last message, empty when there is none |
 | `EXAMEN_INPUTS` | the directory holding the task's inputs, each at its name: `/examen/inputs`, or `examen/inputs` of the working directory on `topos` |
 | `EXAMEN_OUTPUTS` | the directory holding the system under test's outputs, `/examen/outputs` |
@@ -301,7 +301,7 @@ same request:
    checked against the manifest, and the manifest itself, paths, sizes
    and digests, given when the grader names the output alone. Examen
    reads the archive as data and runs nothing from it. For an external trial, `transcript` and `final_message`
-   are what its harness submitted, and one it did not submit is an
+   are what its external harness submitted, and one it did not submit is an
    empty block.
 2. **Bound.** The inputs together take at most `JUDGE_MAX_INPUT_BYTES`,
    filled in order: the final message, the files and then the outputs in
@@ -489,7 +489,7 @@ changes it.
 - **The built-in decline judge**, `builtin:decline`, is the decline
   judge of a suite whose `decline_judge` is absent. It calls no model:
   it records `declined` true exactly when the outcome is `declined`, a
-  provider's refusal or, for an external trial, what its harness
+  provider's refusal or, for an external trial, what its external harness
   submitted (spec 005), and false for every other outcome.
 - **A configured decline judge.** Examen ships a decline prompt and
   rubric, versioned with Examen. A suite configures its decline judge

@@ -86,6 +86,8 @@ var constants = map[string]any{
 	"API_REQUESTS_PER_MINUTE":          APIRequestsPerMinute,
 	"IDEMPOTENCY_WINDOW":               IdempotencyWindow,
 	"IDEMPOTENCY_KEY_MAX_BYTES":        IdempotencyKeyMaxBytes,
+	"IDEMPOTENCY_RESERVATION":          IdempotencyReservation,
+	"REQUEST_DEADLINE":                 RequestDeadline,
 	"STREAM_POLL_INTERVAL":             StreamPollInterval,
 	"STREAM_KEEPALIVE":                 StreamKeepalive,
 	"MAX_STREAMS_PER_SUBJECT":          MaxStreamsPerSubject,

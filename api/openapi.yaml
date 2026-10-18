@@ -4039,13 +4039,13 @@ components:
             - provenance_mismatch
             - metric_not_declared
             - budget_refused
+            - executor_unavailable
             - core_not_configured
             - image_not_admitted
             - credential_audience_reserved
             - file_store_not_download_only
             - instruction_required
             - unresolved_reference
-            - executor_unavailable
             - too_many_streams
             - rate_limited
             - internal

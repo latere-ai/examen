@@ -129,9 +129,11 @@ half   = (z / (1 + z^2 / n)) * sqrt(p (1 - p) / n + z^2 / (4 n^2))
 interval = [max(0, center - half), min(1, center + half)]
 ```
 
-The bounds lie in [0, 1] in exact arithmetic; the clamp removes the
-rounding of binary64, which puts the lower bound of `k = 0` at about
--2.8e-17.
+The bounds lie in [0, 1] in exact arithmetic. In binary64 the lower
+bound of `k = 0` may round to a tiny value on either side of 0 (0 of 5
+gives exactly 0, 0 of 7 about +2.8e-17), and the upper bound of `k = n`
+likewise around 1: the clamp removes a rounding outside [0, 1], and a
+bound of `k = 0` or `k = n` is set to exactly 0 or 1.
 
 **Bootstrap-t interval of a mean.** With `m` the mean of the `n`
 valued values and `se = s / sqrt(n)`: each of `BOOTSTRAP_RESAMPLES`
@@ -381,8 +383,12 @@ whatever the data:
 
 When that floor is above the result's threshold, no outcome of its
 trials could be a finding, and its `reason` is the power-floor template
-(Reasons, below) whatever its `p`; its verdict follows the rule as any
-result's does. A Monte Carlo test's floor, `1 / (1 + B)`, is below
+(Reasons, below) whatever its `p`. Its verdict still follows the rule:
+Benjamini and Hochberg's procedure grants the `i`-th smallest p-value
+`FALSE_DISCOVERY_RATE * i / m`, more than the lone finding's threshold,
+so a result whose floor exceeds `FALSE_DISCOVERY_RATE / m` can still be
+a finding when several results of its family are small together; the
+reason then states both, the floor and the rank that made it a finding. A Monte Carlo test's floor, `1 / (1 + B)`, is below
 every threshold by the choice of `B`.
 
 **Counts.** Counts of tokens, turns and tool calls are tested like any
@@ -1127,7 +1133,8 @@ it names:
 unranked.
 
 **Rank intervals.** A table's K ranked entries give
-`m = K(K - 1) / 2` pair results, whose p-values are adjusted together
+`m = K(K - 1) / 2` pair results (a pair with an unranked entry is
+outside the family and does not count toward `m`), whose p-values are adjusted together
 by Holm's step-down procedure at the family-wise level
 `1 - CONFIDENCE_LEVEL`. With the p-values sorted ascending, ties in the
 order of the pairs' submission ids, `p(1) <= ... <= p(m)`, the adjusted
@@ -1256,6 +1263,13 @@ order in which results are computed. Boschloo's test, the
 order-statistic intervals and the score intervals draw nothing. The
 root seed and each result's seed are recorded.
 
+**Draw order.** A resampling procedure draws in one fixed order: the
+candidate side's tasks first, then the reference side's, each side's
+tasks in ascending task-id order, and within a task its trials'
+resampled indices in sequence; one replicate is complete before the
+next begins. Every implementation that draws in this order from the
+generator below reproduces the same replicates.
+
 **Generator.** The 128-bit permuted congruential generator with DXSM
 output that Go's `math/rand/v2` `PCG` implements, seeded with the
 first and second 8 bytes of the procedure's seed read as big-endian
@@ -1310,7 +1324,7 @@ in binary64 otherwise, at `CONFIDENCE_LEVEL` 0.95:
 | Case | Inputs | Value |
 |---|---|---|
 | `z` | 0.95 | 1.959963984540054 |
-| Wilson, clamped | 0 of 5 | [0, 0.4345]: the lower bound is -2.8e-17 before the clamp |
+| Wilson, clamped | 0 of 5 | [0, 0.4345]: the lower bound of `k = 0` is set to exactly 0 |
 | Wilson | 5 of 5; 11 of 49; 7 of 50; 12 of 50 | [0.5655, 1]; [0.1302, 0.3588]; [0.0695, 0.2619]; [0.1430, 0.3741] |
 | Newcombe | 0/5 against 2/5 | -0.4000 [-0.7693, 0.1182] |
 | Newcombe | 7/50 against 11/49 | -0.0845 [-0.2362, 0.0696] |
@@ -1319,7 +1333,7 @@ in binary64 otherwise, at `CONFIDENCE_LEVEL` 0.95:
 | Kish and Wilson | ten tasks of weight 1, 5 of 5 in each | `n_eff` = 50, `S` = 1, [0.9287, 1] |
 | Kish and Wilson | weights 2, 1, 1 with 4/5, 3/10, 9/10 | `S` = 7/10, `n_eff` = 16 / (4/5 + 1/10 + 1/10) = 16, [0.4560, 0.8666] |
 | Agresti and Caffo | ten tasks of weight 1: candidate 5/5 in each; reference 5/5 in eight and 4/5 in two | delta 1/25 = 0.04; `D~` = 1/35 = 0.028571; `V~` = 32/8575; interval [-0.0912, 0.1483] |
-| bootstrap-t, no spread | 0, 0, 0, 0, 10 | `m` = 2, `se` = 2; a resample is all zeros with probability (4/5)^5 = 1024/3125, so about 3,277 of 10,000 resamples have `t*` = -infinity, far more than the 251 that make `Q*(alpha / 2)` infinite, and the interval is not shown |
+| bootstrap-t, no spread | 0, 0, 0, 0, 10 | `m` = 2, `se` = 2; a resample is all zeros with probability (4/5)^5 = 1024/3125, so about 3,277 of 10,000 resamples have `t*` = -infinity, far more than the 250 that make `Q*(alpha / 2)` infinite, and the interval is not shown |
 | median ranks | 5 values; 6 values; at 0.974679, 6 and 7 values | none; [x(1), x(6)], coverage 31/32; none, and [x(1), x(7)], 63/64 |
 | `p90` ranks | 28 values; 29 values; at 0.974679, 34 and 35 values | none; [x(21), x(29)], 0.9513; none, and [x(24), x(35)], 0.9749 |
 | Hall and Sheather's bandwidth | `n` = 5, `q` = 0.5; `n` = 35, `q` = 0.9 | 0.5682; 0.1058 |

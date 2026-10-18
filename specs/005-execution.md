@@ -1,5 +1,5 @@
 ---
-title: "Execution: the executor contract, the topos, cella and external executors, a task's inputs and references, the HTTP runner, the check sandbox, smoke trials and the cost check, the work queue, retries and retrying a parked cell, timeouts, cancellation, adoption, imported trials and external past runs, and where cost and provenance are read"
+title: "Execution: the executor contract, the topos, cella and external executors, a task's inputs and references, the HTTP runner, the check sandbox, smoke trials and the cost check, the work queue, retries and retrying a parked cell, timeouts, cancellation, adoption, imported trials and external past trials, and where cost and provenance are read"
 status: drafted
 track: core
 depends_on:
@@ -20,7 +20,7 @@ author: changkun
 
 Examen runs no trial itself. It hands each cell's trials to an executor,
 which asks the core that runs agents or sandboxes to run them, or hands
-them to the owner's own harness, and reads back what happened. This
+them to the owner's own external harness, and reads back what happened. This
 spec fixes the executor contract and the three executors: `topos` for a
 candidate of kind `topos`, `cella` for a candidate of kind `program`,
 and `external` for a candidate of kind `external`. It fixes how a
@@ -34,8 +34,11 @@ the smoke trials and the cost check, retries of infrastructure failures
 with their lineage, what happens when a Budget runs out, retrying a
 parked cell, timeouts, cancellation, adoption of trials an identical
 cell already ran, trials imported from sessions and sandboxes Examen
-did not start and from an external harness's past runs, and where each
-trial's cost and its sent and observed provenance are read.
+did not start and from an external harness's past trials, and where each
+trial's cost and its sent and observed provenance are read. It ends
+with the v0.1 profile, what an installation with no owner token
+source, key source or file store runs, which is what the first release
+serves.
 
 Neither the `topos` nor the `cella` executor can run today as written.
 Topos has sessions, budgets and metadata but no rollout primitive, no
@@ -152,7 +155,7 @@ trial carried (below). A `TrialReport` carries:
 | `Executor` | what the executor's own records add to `observed`: per request `{lux_request, usage, cost_micro}` from Topos, the program's exit code and the wall times from Cella |
 | `ServiceVersions` | the `service_versions` a program wrote to `/examen/observed.json` or an external harness submitted: an object from a service's name to its version; empty for a `topos` trial |
 | `ServiceUsage` | the `service_usage` a program wrote to `/examen/observed.json` or an external harness submitted: an object from a service's name to `{cost_usd_micro, units}`, what that API reported its own usage of the trial to be (Cost and the sent and observed layers, below); empty for a `topos` trial |
-| `Declared` | for an `external` trial: the `declared` its harness submitted, `{harness_version, image}` |
+| `Declared` | for an `external` trial: the `declared` its external harness submitted, `{harness_version, image}` |
 | `Checks` | for a `topos` trial: one `CheckRun` per check, in order: `{grader, state, exit_code, stdout, stdout_size, stdout_sha256, stderr_tail, duration}`, `stdout` at most `CHECK_MAX_OUTPUT_BYTES` and the size and digest of the whole; a check that did not run to its end does not change the trial's outcome; spec 006 turns it into measurements. A `cella` or `external` trial's report carries none: its checks run afterward in the check sandbox (below), which records the same runs |
 | `Evidence` | each evidence object, as spec 007's evidence ref: its kind, name, path, SHA-256 digest computed while writing, size, and Arca's `checksum` and `checksum_kind`; for a `topos` trial, the objects its session keeps in its own folder, as the rollout reports them (R9) |
 | `StartedAt`, `AgentEndedAt`, `EndedAt` | the agent's first step, the agent's end, and the trial's end after its checks and evidence |
@@ -206,7 +209,7 @@ A trial ends `done` with one outcome. The rules both executors follow:
 | `canceled` | the experiment was canceled, or the trial's cell parked, before the trial ended | not automatically: a cell's retry runs the index again |
 
 The executor sets the outcome once and examend never changes it (rule
-4). An external trial's outcome is the one its harness submitted, any
+4). An external trial's outcome is the one its external harness submitted, any
 but `canceled`, which only Examen sets. A `canceled` or `over_budget`
 trial, like an `infra_failed` one, is not a finished trial and is
 excluded from analysis (spec 002): how much money was left says nothing
@@ -286,7 +289,13 @@ every grader of kind `check`, `model_judge` and `agent_judge`
    smoke trials, of the trial's cost plus the cost of its grading, both
    from Lux's records. The cell's estimate is that times the trials
    left to run times `COST_ESTIMATE_MARGIN`.
-3. **The remainder.** examend leases the cell's Key from the key source
+3. **The remainder.** A cell whose estimate is zero, as an external
+   cell's is when its smoke trials' cost is `unknown` and no grader
+   spends (below), is admitted without a lease, since no remainder is
+   below zero, unless it is a `cella` cell whose candidate names a
+   `model`, which leases its main rollout's Key here as below; so an
+   installation with no key source runs such cells (The v0.1 profile,
+   below). Otherwise examend leases the cell's Key from the key source
    with the purpose `trial`, as the owner on behalf of `created_by`
    (spec 004), and reads its `remaining`: the smallest remainder across
    every Budget the Key draws on, which for the `lux` source is the
@@ -294,7 +303,7 @@ every grader of kind `check`, `model_judge` and `agent_judge`
    cell whose candidate names a `model` keeps the lease as its main
    rollout's Key; a `topos` cell releases it at once, since Topos issues
    its sessions' Keys under the same Budgets (R10), and so do a `cella`
-   cell without a `model` and an `external` cell, whose harness calls
+   cell without a `model` and an `external` cell, whose external harness calls
    models on Keys its owner gave it. From the remainder examend
    subtracts the outstanding estimate of every other cell of the same
    Budget admitted past its cost check and not `complete`: its per-trial
@@ -308,7 +317,7 @@ every grader of kind `check`, `model_judge` and `agent_judge`
 
 An external smoke trial whose cost is `unknown`, because Lux holds no
 record of its calls, adds only its grading cost to the estimate: the
-harness's own spend is not drawn on the experiment's Budget unless its
+external harness's own spend is not drawn on the experiment's Budget unless its
 owner arranged it, so it is neither estimated nor blocked on.
 A smoke trial whose cost Lux cannot price (a record with `priced`
 false) blocks the cell with `model_unpriced`: an estimate with an
@@ -320,7 +329,7 @@ source the installation answers for its Budgets, and examend records
 the Budget it was given (spec 004). A Budget's window may reset during
 an experiment and raise the remainder; the check reads it as it stands.
 
-Examen sets no per-trial spend cap of its own. A cap derived from the
+Examen sets no per-trial cap of its own. A cap derived from the
 smoke cost would cut off a trial that is legitimately dearer than the
 smoke trial, and excluding it would bias the cell toward cheap trials;
 the Budget's hard limit is the bound.
@@ -377,14 +386,14 @@ outcome is retried automatically.
 | the task's resolved `timeout` | the agent's work, from its first step to its end | the executor | `timed_out` |
 | `CHECK_TIMEOUT` | all of one trial's checks together | the executor, or examend's check sandbox job | spec 006 |
 | the trial's deadline: `timeout` + `CHECK_TIMEOUT` + `TRIAL_GRACE` from `StartedAt`, and for a `cella` trial `timeout` + `TRIAL_GRACE` | the whole trial, machine start and evidence writing included, and a `topos` trial's checks | examend's `watch` | `Cancel` of that trial, then `infra_failed` with code `deadline_passed` |
-| `TRIAL_START_TIMEOUT` | a pending trial of a rollout running fewer trials than its parallelism, counted from the later of the rollout's submission and the last end of one of its trials; not an `external` trial, which waits for a harness to lease it | examend's `watch` | `Cancel` of that trial, then `infra_failed` with code `not_started` |
+| `TRIAL_START_TIMEOUT` | a pending trial of a rollout running fewer trials than its parallelism, counted from the later of the rollout's submission and the last end of one of its trials; not an `external` trial, which waits for an external harness to lease it | examend's `watch` | `Cancel` of that trial, then `infra_failed` with code `not_started` |
 | `EXTERNAL_LEASE` | a leased external trial, from its lease or its last renewal | examend's `watch` | the trial returns to pending with its id, its lease ends, and no retry is spent |
 | the check deadline: `CHECK_TIMEOUT` + `TRIAL_GRACE` from a `cella` trial's export, or an external trial's submit or import | its check sandbox and evidence | examend's `watch` | its check sandbox is deleted, then `infra_failed` with code `deadline_passed` |
 
 The deadline exists for an executor that stops reporting; the executor
 enforces the first two bounds itself. An external trial's `timeout` is
-its harness's to keep: the lease carries it, and Examen sees only the
-times the harness submits.
+its external harness's to keep: the lease carries it, and Examen sees only the
+times the external harness submits.
 
 ### Cancellation
 
@@ -414,8 +423,8 @@ resubmission never re-mints a trial.
 
 ### Adoption
 
-Adoption is a later build step than the console path; the design is
-kept here so the first slice leaves room for it. With `adopt` true, a
+Adoption comes after v0.1, a later build step than the console path;
+the design is kept here so the first release leaves room for it. With `adopt` true, a
 cell may take trials an identical cell already ran instead of running
 them again.
 
@@ -481,21 +490,21 @@ built after the executed path (spec 001, decision 10).
   them (R10), and otherwise from the session's `model.request` events,
   marked as the executor's figure rather than Lux's.
 
-**An external harness's past run** is imported too (spec 003,
+**An external harness's past trial** is imported too (spec 003,
 `executor: external`), so a study run before Examen, or outside it, is
 backfilled into an experiment in mode `import` and graded like any
 trial. The import carries what a submit carries, without a lease, with
-the run's `ended_at` and its `declared` harness version and image; the
-three times may lie in the past. The cell is the one its task and
+the trial's `ended_at` and its `declared` `harness_version` and image;
+the three times may lie in the past. The cell is the one its task and
 external candidate give, its tuple the candidate's declaration, and the
-run's declared harness version must equal the candidate's `version`.
+declared `harness_version` must equal the candidate's `version`.
 examend writes its outputs, transcript and final message create-only
 under the trial's folder, as for a submit (The `external` executor,
 below), and when the task has checks runs them in a check sandbox; the
 deadline of an external trial's checks runs from the import. Its cost
 is read from Lux by the request ids it lists or the label it carried,
-when the run was made on Keys whose records Lux still holds, and is
-otherwise absent, as for any unpriced trial. Its provenance is
+when its model calls were made on Keys whose records Lux still holds,
+and is otherwise `unknown` (The `external` executor, below). Its provenance is
 declared, and every comparison that reads it says so (spec 008).
 
 ### Cost and the sent and observed layers
@@ -518,7 +527,7 @@ Key id over the trial's time range, keeping the records whose
 `requestLabels` carry the label when one is named; and, for a `program`
 or `external` trial (`by_owner`), with `owner=` the experiment's owner
 over the trial's time range, keeping the records whose request id the
-harness submitted, or, when it submitted none, whose `requestLabels`
+external harness submitted, or, when it submitted none, whose `requestLabels`
 carry the label. Each record counts once, by its request id. The owner
 read attributes the model calls an external harness made, and those a
 service that a program called made on the owner's behalf and labeled
@@ -573,7 +582,7 @@ of the decline judge (spec 006).
 | `completed` | outcome `completed` or `declined`: the agent ended its work itself |
 | `cost_usd` | the trial's cost from Lux, in USD; absent when unpriced or in another currency |
 | `input_tokens`, `output_tokens`, `reasoning_tokens` | the sums of Lux's `tokens.input`, `tokens.output`, `tokens.reasoning`; cached and cache-write counts stay in `observed` |
-| `duration` | `AgentEndedAt` less `StartedAt`, in seconds; the checks are not counted; for an external trial, from the times its harness submitted |
+| `duration` | `AgentEndedAt` less `StartedAt`, in seconds; the checks are not counted; for an external trial, from the times its external harness submitted |
 | `turns` | `topos`: the agent's responses on the session's own thread; `cella` and `external`: the trial's Lux records with status `ok`, since a program's threads cannot be told apart |
 | `tool_calls` | `topos`: every `agent.tool_use` of the session, on every thread; `cella` and `external`: absent, since nothing records it |
 
@@ -615,7 +624,7 @@ checks, which is why a benchmark is open and not held out (spec 013).
 |---|---|---|---|
 | `topos` | under `examen/inputs/` of the session's working directory, before the first step (R15) | read-only at `/examen/reference/`, after every process of the turn is stopped and the machine's network is `none` (R8) | the files and directories the task names under `/examen/outputs/`, kept in the session's folder with the output manifest (R9) |
 | `cella` | read by the trial driver into `/examen/inputs/` through a read link on the inputs folder, before the program starts | written into the check sandbox alone, after the replica has ended and its outputs are exported; the replica holds no link to them and nothing in it can ask for them | collected from `/examen/outputs/` with the replica's evidence; the export sandbox writes each directory output as an archive and the output manifest |
-| `external` | one presigned link per input from Arca's materialize route on the inputs folder, in the lease answer (spec 003) | written into the check sandbox alone | submitted by the harness, a file inline or from the owner's Arca space and a directory as an archive there, and written by examend under the trial's folder with the output manifest |
+| `external` | one presigned link per input from Arca's materialize route on the inputs folder, in the lease answer (spec 003) | written into the check sandbox alone | submitted by the external harness, a file inline or from the owner's Arca space and a directory as an archive there, and written by examend under the trial's folder with the output manifest |
 
 A check reads the outputs at `EXAMEN_OUTPUTS` and the references at
 `EXAMEN_REFERENCE` (spec 006).
@@ -641,7 +650,7 @@ its path, size and SHA-256, and whether it was kept.
 - **Where it is built.** On `topos`, the session builds the archive
   and the manifest when it keeps its evidence (R9). On `cella`, the
   export sandbox builds them from the collected paths. For an
-  `external` trial, the harness streams the archive into the owner's
+  `external` trial, the external harness streams the archive into the owner's
   Arca space with its own credentials, wherever it likes, and names it
   in the submit or the import with its digest (spec 003); examend reads
   it as the owner, checks the digest, and writes the trial's own
@@ -856,7 +865,7 @@ the replica.
 | the results Volume | rollout | `shared-read`, `retain` true until every replica is exported, then deleted |
 | the rollout's Lux Key | rollout | for a candidate that names a `model`, leased from the key source with the purpose `trial` (spec 004): `models` the candidate's model alone, the candidate's `surface` alone, the rollout's labels, a `ttl` of the rollout's longest possible life; the `lux` source names the experiment's Budget and allows no unpriced model. examend leases it before submitting: at the cost check for the main rollout, at submission for the others. Its id, never its value, is kept as the rollout's `key_id` (spec 002), so it is released at the rollout's end after a restart too |
 | the Lux Secret | rollout | the Key's value as a Cella Secret scoped to Lux's host, mounted under the candidate's key variable |
-| the credential Secrets | rollout | one per entry of the candidate's `credentials`: the owner token for its audience as a Cella Secret scoped to its `host` and injected into the `Authorization` header as a bearer, mounted under its `env`, or for `file` under a variable the driver writes into that file. The token lasts at most `OWNER_TOKEN_MAX_LIFETIME`, so examend replaces the Secret's value `OWNER_TOKEN_RENEWAL` before it expires while the rollout is open, which Cella applies at its gateway without touching a replica, since a replica holds only the placeholder; deleted at the rollout's end |
+| the credential Secrets | rollout | from the release that builds program credentials, after v0.1, one per entry of the candidate's `credentials`: the owner token for its audience as a Cella Secret scoped to its `host` and injected into the `Authorization` header as a bearer, mounted under its `env`, or for `file` under a variable the driver writes into that file. The token lasts at most `OWNER_TOKEN_MAX_LIFETIME`, so examend replaces the Secret's value `OWNER_TOKEN_RENEWAL` before it expires while the rollout is open, which Cella applies at its gateway without touching a replica, since a replica holds only the placeholder; deleted at the rollout's end |
 | the Arca Secret | rollout | a token of the owner for Arca, scoped to Arca's host, lasting the export's life; Secrets are not refreshed, so its life is bounded; mounted only in the export sandbox, which runs no agent code |
 | Arca read links | trial | one per folder a replica reads (an `arca` workspace, the task's inputs), on exactly that folder, expiring at the trial's deadline; none on the checks' `files` or the task's references, which only the check sandbox receives |
 | the SandboxSet | rollout | below |
@@ -1119,8 +1128,8 @@ may write `/examen/observed.json` the same way.
 
 ### The `external` executor
 
-An `external` candidate's trials run in its owner's own harness,
-wherever the harness likes. Examen hands them out, grades what comes
+An `external` candidate's trials run in its owner's own external harness,
+wherever the external harness likes. Examen hands them out, grades what comes
 back, and reads their cost from Lux. No core runs them, so the
 executor's calls act on examend's own rows:
 
@@ -1147,14 +1156,14 @@ route on the task's inputs folder, and never a reference.
 **Submitting.** `POST /trials/{id}/submit` (spec 003, `trial.submit`)
 carries the outcome, the start and end of the system under test's work,
 its outputs, and optionally its transcript, final message, service
-versions, the usage its services reported, its declared harness
+versions, the usage its services reported, its declared external harness
 version and image, self-reported values, and the Lux request ids of its
-model calls. The declared harness version, when given, equals the
+model calls. The declared external harness version, when given, equals the
 candidate's `version`, and is kept with the image in the trial's
 `declared` (spec 002). examend writes the outputs, the transcript and the final message
 create-only under the trial's folder as the owner (spec 007), records
 the rest, and, when the task has checks, enqueues its `check_sandbox`
-job. The outcome is the harness's, set once, and examend never changes
+job. The outcome is the external harness's, set once, and examend never changes
 it (rule 4).
 
 **Checks.** When the task has checks, a submitted trial's `check_sandbox`
@@ -1162,15 +1171,15 @@ job runs them in a check sandbox (The check sandbox, below), over the
 outputs examend wrote from the submit.
 
 **Attribution and cost.** An external trial's model calls are its
-harness's, on Keys its owner gave it. Examen reads their records from
+external harness's, on Keys its owner gave it. Examen reads their records from
 Lux as the owner (Cost and the sent and observed layers, above): by the
-request ids the harness submitted, or else by the request label
-`examen.trial=<trial id>` the harness set on each call with
+request ids the external harness submitted, or else by the request label
+`examen.trial=<trial id>` the external harness set on each call with
 `Lux-Labels`. The served model, the usage, the cost and the sent layer
-come from those records. A call the harness neither listed nor labeled
+come from those records. A call the external harness neither listed nor labeled
 is not attributed to the trial, and Examen cannot see that it is
 missing. A trial for which Lux holds no record Examen can attribute,
-such as a past run made through another gateway, has cost `unknown`:
+such as a past trial made through another gateway, has cost `unknown`:
 no `cost_usd` measurement, `observed.cost_state` `unknown` (spec 007),
 and every figure that sums cost counts it apart and shows it as
 unknown, never as zero. An executed trial's Keys are known, so no
@@ -1179,20 +1188,20 @@ record there means no spend.
 **Smoke and the cost check** run as for any cell: a cell's smoke trials
 are the only ones it leases until they are graded and its cost check
 passes. The estimate reads the smoke trials' Lux records, and it bounds
-the harness's spend through the experiment's Budget only when the
-harness's Keys draw on that Budget, which is its owner's to arrange.
+the external harness's spend through the experiment's Budget only when the
+external harness's Keys draw on that Budget, which is its owner's to arrange.
 
 **Declared provenance.** Nothing Examen observes pins what an external
-harness ran: the candidate's `harness`, `version`, `digest`, `model`,
-`reasoning` and `flags` are the harness's declaration, made explicit so
-that two configurations of one harness, such as one run at a high and
+external harness ran: the candidate's `harness`, `version`, `digest`, `model`,
+`reasoning` and `flags` are the external harness's declaration, made explicit so
+that two configurations of one external harness, such as one run at a high and
 one at a low reasoning level, are compared on the one field that
 differs (spec 008), and so are the outcome, the times, the outputs,
 the transcript, the service versions and usage, and the declared image. Examen grades the outputs as
 it grades any trial's, and every comparison that reads an external
 candidate lists that side in `declared_provenance` (spec 008).
 
-**Self-reported values.** A harness may submit values it computed
+**Self-reported values.** An external harness may submit values it computed
 itself, each for a metric the suite lists that no grader produces for
 the trial's task. examend stores them as one generation under the
 grader `self:<harness>`, with `self_reported` true (spec 007). Such a
@@ -1230,6 +1239,49 @@ and exec are built, so this path does not wait for SandboxSet; a check
 that names an `image`, a comparator among them, also needs Cella's
 image Volumes (Cella spec 019).
 
+### The v0.1 profile
+
+An installation with no owner token source, no key source and no file
+store serves the v0.1 profile (spec 003), and the first release serves
+nothing else: the `external` executor, for experiments whose candidates
+are all of kind `external` and whose graders include no `check`,
+`model_judge` or `agent_judge`, and experiments in mode `import` of an
+external harness's past trials. Nothing in it reaches a core as the
+owner:
+
+- **Smoke and the cost check.** A cell still runs its smoke trials
+  first, leases only them, and parks `blocked` on a smoke trial whose
+  last attempt ended `infra_failed`. Its estimate is zero, since an
+  external trial's own spend is not drawn on the experiment's Budget and
+  no grader of the profile calls a model, so the cell is admitted
+  without a lease (Smoke trials and the cost check, above). A trial
+  submitted `over_budget` parks its cell as any does.
+- **A submit and an import** take each output only as `{path, arca:
+  {path, digest}}`, an object the external harness wrote into the
+  owner's file store. examend records the path and the digest as the
+  trial's output evidence and never reads the object: no digest is
+  checked, no archive is opened, no output manifest is written and no
+  output limit of this spec is applied, since nothing in the profile
+  reads an output. An output carried inline, a transcript and a final
+  message are refused (spec 003).
+- **No check sandbox** runs, since no `check` grader is served, and a
+  submitted trial goes from `running` to `done`.
+- **Cost.** Every trial's cost is `unknown`: its `lux_requests` and its
+  request label are recorded and never read, since the `usage` job
+  reads Lux as the owner. `observed.cost_state` is `unknown` (spec
+  007), and every figure that sums cost counts it apart.
+- **Built-in metrics** are filled from the trial record as for any
+  external trial, `cost_usd` aside, and the built-in decline judge
+  produces `declined` from the outcome.
+
+Where this differs from the general text above: an external cell's
+cost check leases no Key, where step 3 leases one and releases it; a
+submitted Arca output is recorded unread, where The `external` executor
+writes the outputs, the transcript and the final message create-only
+under the trial's folder and reads each Arca object as the owner; and
+an external trial whose request ids Lux holds still has cost
+`unknown`, where Cost and the sent and observed layers reads them.
+
 ### Limits
 
 The constants of spec 002 this spec holds: `SMOKE_TRIALS`,
@@ -1264,6 +1316,7 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 | An examend killed after `Submit` returned and before the handle was stored, then restarted, holds one rollout and the same trial ids | `TestRestartResubmitsUnderTheSameKey`, e2e tier |
 | A smoke trial that ends `infra_failed` after its retries, or whose check is `malformed`, parks the cell `blocked` naming the trial and the code; one that ends `timed_out` does not | `queue.TestSmokeBlocks` |
 | A cell whose estimate exceeds the smallest remainder its lease reports, less the other admitted cells' outstanding estimates, parks `over_budget` with both figures and starts no main trial; the remainder is the lease's, from either key source | `queue.TestCostCheck`, over a stub Lux Budget and a stub key endpoint |
+| A cell whose estimate is zero is admitted without a Key lease unless it is a `cella` cell whose candidate names a model; with no owner token source, key source or file store, an experiment of `external` candidates runs from smoke to its final comparisons with no request to any core, records each `arca` output's path and digest without reading it, and gives every trial cost `unknown` | `queue.TestZeroEstimateLeasesNothing`, `external.TestV01Profile` |
 | A trial that ends `over_budget` mid-rollout parks its cell `over_budget`, cancels the cell's open rollouts, is excluded from analysis and is not retried automatically | `queue.TestBudgetRunsOut` |
 | A retry of a cell parked `over_budget` runs the cost check again and then every index without a finished trial, with `retry_of` and outside `MAX_INFRA_RETRIES`; a retry of a cell blocked by its smoke runs new smoke trials | `queue.TestRetryParkedCell` |
 | A smoke trial with an unpriced record blocks with `model_unpriced`, and an experiment naming a soft Budget is refused at apply | `queue.TestUnpricedBlocks`, `TestSoftBudgetRefused` |
@@ -1273,8 +1326,8 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 | Canceling an experiment cancels every open rollout, ends unfinished trials `canceled`, starts no grading, and releases the `cella` rollout's Key in the same job | `queue.TestCancel` |
 | Adoption, when built: with `adopt`, a cell with an equal tuple of the same owner adopts at most N adoptable trials of the most recent complete source cell, runs only the rest, and skips smoke when at least `SMOKE_TRIALS` were adopted; a cell of another owner, an older trial than `ADOPTION_MAX_AGE`, an imported or `infra_failed` trial is never adopted | `queue.TestAdoption` |
 | An imported Topos session yields a trial with `imported` true, its tuple read from the records, no checks, and evidence digests taken at import; the first import of a tuple creates its cell and later ones join it; a tuple field that differs from the named task's and candidate's or is unpinned refuses it as `provenance_mismatch`; a session not ended is refused | `topos.TestImport` |
-| An external past run imports with its past times and declared harness version and image, its outputs are written under its trial's folder and graded in a check sandbox, its provenance is declared, and a harness version other than its candidate's is refused | `external.TestImportPastRun` |
-| A program's `service_usage`, and a harness's, are kept in `observed` and never summed into the trial's cost or a built-in metric; the HTTP runner reads it from the last response | `cmd/examen-http.TestServiceUsage`, `luxread.TestServiceUsageKeptApart` |
+| An external past trial imports with its past times and declared `harness_version` and image, its outputs are written under its trial's folder and graded in a check sandbox, its provenance is declared, and a `harness_version` other than its candidate's is refused | `external.TestImportPastTrial` |
+| A program's `service_usage`, and an external harness's, are kept in `observed` and never summed into the trial's cost or a built-in metric; the HTTP runner reads it from the last response | `cmd/examen-http.TestServiceUsage`, `luxread.TestServiceUsageKeptApart` |
 | An experiment run through a benchmark copies the benchmark owner's Arca inputs, references and check files through links its `prepare` job mints for that run as the benchmark's owner, each expiring after `INPUT_LINK_TTL`, digests checked; the links leave the job's row and are revoked when it ends, and no span, log line or answer carries one, by canary | `execute.TestPrepareThroughBenchmarkLinks` |
 | A trial's cost is the sum of Lux's records for its Key ids, and for its request label when the Key is shared; spend without a label is the rollout's unattributed usage; a difference from Topos's own figure is logged | `luxread.TestCostFromRecords` |
 | `sent` and `observed` join per request by the Lux request id; a `cella` trial's `sent` is read from Lux's records, and a `requests.jsonl` the program rewrote changes neither layer | `luxread.TestLayersJoinByRequestID`, `cella.TestSentFromLux` |
