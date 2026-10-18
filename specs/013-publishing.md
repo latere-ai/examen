@@ -377,7 +377,9 @@ as they stand. The runner's experiment then holds the references and
 the checks' files, so a benchmark is open, not held out (The
 snapshot, above).
 
-**Submissions.** A submission (spec 002) enters one candidate of a
+**Submissions**, after v0.1, with the results table and its rank
+intervals below; the design is kept here. A submission (spec 002)
+enters one candidate of a
 report publication version in a benchmark version's results table. The
 report's experiment must have run that exact suite digest, and the
 report must be `published`; for an `unlisted` or `public` benchmark
@@ -432,7 +434,8 @@ entry is rejected or withdrawn, the default applies again. With no
 accepted entry of the owner's and none named, the version has no
 reference, and no entry carries a comparison with one.
 
-**The results table.** For a benchmark version, its accepted entries,
+**The results table**, after v0.1, with submissions. For a benchmark
+version, its accepted entries,
 at most `MAX_BENCHMARK_ENTRIES`: an acceptance beyond it, at submission
 or by the owner, is refused `409 benchmark_full` (spec 003). The table
 never shows a bare ranking, and never hides an order the data does
@@ -481,7 +484,7 @@ show by showing none:
    verdict follows `h`; the unadjusted `p` is shown in the reason as
    text and never as the verdict. The confounds are the tuple fields
    outside the candidate that differ, the layer confounds (a served
-   model, a harness's image or a service version that differs),
+   model, an external harness's image or a service version that differs),
    `incomplete`, `declared` for an `external` side, `window` when the
    two entries' trials ran in time windows more than
    `WINDOW_TOLERANCE` apart, and `taxonomy` when their labels were read
