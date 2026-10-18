@@ -244,25 +244,51 @@ on, and acting twice changes nothing the first act did not.
 | `usage` | reads Lux's records of a trial `USAGE_SETTLE_DELAY` after it ended |
 | `publish` | builds one publication version, copies its files, runs its secret scan and creates its Arca links, or revokes a version's links after a withdrawal and replaces them after a change to `private` or a new link token, retried until Arca accepts (spec 013) |
 
-Cells advance task by task, in the suite's order, and an experiment's
-smoke rollouts are submitted before any main rollout, so every cell is
-smoke-tested before any spends at scale. Within a task, the
-candidates' cells advance together (below). A retry rollout goes ahead
-of a main rollout not yet submitted, since it finishes a cell already
-running.
+An experiment's smoke rollouts are submitted before any main rollout,
+so every cell is smoke-tested before any spends at scale. How cells
+advance after that is the experiment's `scheduling` (spec 002), fixed
+at create: under `task_by_task`, the default, cells advance task by
+task, in the suite's order, and within a task the candidates' cells
+advance together; under `interleaved`, every cell of every task
+advances together (below). A retry rollout goes ahead of a main
+rollout not yet submitted, since it finishes a cell already running.
 
 ### Parallelism across cells
 
 An experiment's `parallelism` bounds its trials running or checking at
 once, across all its cells. examend deals it to the experiment's open
-rollouts one trial at a time: tasks in the suite's order, and within a
-task round robin across its cells' open rollouts in the experiment's
-candidate order, until the parallelism is dealt or no rollout has an
-unfinished trial left. Each core starts a rollout's trials in index
-order (R2), so trial `i` of each candidate's cell for a task runs
-alongside trial `i` of the others, and two cells a comparison within
-one experiment reads share one time window. A rollout's share is what
-it was dealt, and one dealt nothing waits unsubmitted. On every
+rollouts one trial at a time, in the order its `scheduling` names,
+until the parallelism is dealt or no rollout has an unfinished trial
+left:
+
+- **`task_by_task`**, the default: tasks in the suite's order, and
+  within a task round robin across its cells' open rollouts in the
+  experiment's candidate order. A task's cells take the parallelism
+  before the next task's take any, so two candidates' cells of one
+  task run in one window, and two tasks' cells generally do not.
+- **`interleaved`**: a trial already running or checking keeps its
+  place, and the rest of the parallelism goes round robin across the
+  open rollouts of every cell of every task, by the trials' order:
+  smoke trials, then retries, then main trials, each by index, and
+  among trials of one index the cells in the suite's task order and,
+  within a task, the experiment's candidate order. Every cell takes
+  one trial before any takes a second, and a slot a finished trial
+  frees goes to the next trial in that order rather than back to its
+  own cell, so trial `i` of every cell runs alongside trial `i` of
+  every other, whatever its task, and two tasks' cells of one
+  experiment share one window as two candidates' cells do. An
+  experiment that compares tasks with each other, such as two wordings
+  of one instruction, declares it, so the comparison does not compare
+  two times (spec 008).
+
+Each core starts a rollout's trials in index order (R2), so trial `i`
+of each cell dealt together runs alongside trial `i` of the others,
+and two cells a comparison within one experiment reads share one time
+window when the scheduling deals them together. A rollout's share is
+what it was dealt, and one dealt nothing waits unsubmitted. The deal is
+the same for every executor: a `topos` or `cella` rollout's share
+reaches its core as `Resize`, and an `external` rollout's bounds what
+may be leased (below). On every
 `report`, the shares are dealt again and a rollout whose share changed
 gets a `Resize`, never below 1 once submitted, since a SandboxSet's
 `parallelism` has that floor. A trial counts against the
@@ -1145,10 +1171,22 @@ executor's calls act on examend's own rows:
 | `Import` | never called (spec 003) |
 
 **Leasing.** `POST /experiments/{id}/work/lease` (spec 003,
-`trial.lease`) hands out the candidate's pending trials within each
-rollout's share, smoke trials first and main trials only after the
-cell's cost check. A lease lasts `EXTERNAL_LEASE` from the call or its
-last renewal, and the `watch` job returns each trial of a lapsed lease
+`trial.lease`) hands out pending trials within each rollout's share,
+smoke trials first and main trials only after the cell's cost check:
+the named candidate's, or, when the lease names no candidate, those of
+every `external` candidate of the experiment. Either way it takes them
+in the order the deal deals them: each cell's trials smoke first, then
+retries, then main trials, each by index, and across cells, under
+`task_by_task`, task by task with a task's cells taking turns trial by
+trial, and under `interleaved`, every cell taking its turn before any
+takes its next trial. A lease never takes more than the parallelism
+less every trial of the experiment already leased or checking, so the
+bound holds when the deal moves a share from a cell that still holds
+trials to one whose rollout opened later. So an external harness that
+leases one trial at a time without naming a candidate, from any number
+of workers, runs the experiment in the scheduling's order, and every
+trial it takes says which candidate it runs (spec 003). A lease lasts
+`EXTERNAL_LEASE` from the call or its last renewal, and the `watch` job returns each trial of a lapsed lease
 to pending, keeping its id and spending no retry. A lease is renewed
 rather than sized to the trial because a task's `timeout` runs from
 minutes to `MAX_TRIAL_TIMEOUT`: one fixed lease would either hold an
@@ -1324,6 +1362,8 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 | A retry of a cell parked `over_budget` runs the cost check again and then every index without a finished trial, with `retry_of` and outside `MAX_INFRA_RETRIES`; a retry of a cell blocked by its smoke runs new smoke trials | `queue.TestRetryParkedCell` |
 | A smoke trial with an unpriced record blocks with `model_unpriced`, and an experiment naming a soft Budget is refused at apply | `queue.TestUnpricedBlocks`, `TestSoftBudgetRefused` |
 | An experiment's trials running or pending never exceed its `parallelism` across its cells, shares are resized as rollouts finish, and a task's cells are dealt trials round robin, so their trials of one index run in one window | `queue.TestParallelismAcrossCells`, `queue.TestCandidatesInterleave` |
+| Under `interleaved` scheduling held trials keep their places and the rest of the parallelism goes round robin across every cell of every task, so with a parallelism below the cells' unfinished trials every cell holds a share before any holds two, and among the trials leasable at once trial `i` of each cell is leased before trial `i + 1` of any | `execute.TestInterleavedAcrossTasks`, `execute.TestBefore`, `postgres.TestLeaseInterleavesAcrossTasks` |
+| A lease that names no candidate takes trials of every `external` candidate in the scheduling's order, within each cell's share, and each leased trial names its candidate; under `task_by_task` it takes a task's trials before the next task's; a lease never holds more trials at once than the parallelism, counting those already held | `postgres.TestLeaseWithoutCandidate`, `postgres.TestLeaseHoldsTheParallelism`, `httpapi.TestLeaseWithoutCandidate` |
 | Only `infra_failed` is retried automatically, as a new trial with the same index and `retry_of`, at most `MAX_INFRA_RETRIES` times per index; the retried trial stays readable and is excluded from analysis | `queue.TestRetriesAndLineage` |
 | A trial past its deadline is canceled and recorded `infra_failed` with `deadline_passed`; a pending trial past `TRIAL_START_TIMEOUT` with free parallelism with `not_started` | `queue.TestDeadlines` |
 | Canceling an experiment cancels every open rollout, ends unfinished trials `canceled`, starts no grading, and releases the `cella` rollout's Key in the same job | `queue.TestCancel` |

@@ -219,7 +219,10 @@ to the owner. Each runs the experiment (Who creates and who runs,
 above), so a share never allows one. A token whose grants name
 `trial.lease` and `trial.submit` alone is how the owner, or a member of
 an owning organization, runs an external harness that can do nothing
-else; the token is still that person's.
+else; the token is still that person's. An authorizer that lets a
+subject lease the trials of one harness alone refuses a lease that
+names no candidate, whose question carries no `candidate` and no
+`harness`; each submit still names its trial's candidate and harness.
 
 The shared envelope keeps two names for the resource itself:
 `resource.kind`, the kind of the table's first column, and
@@ -240,7 +243,7 @@ object's own `type` or `kind` is sent as `metric_type`, `grader_kind`,
 | `metric`, `version` on a taxonomy action | the open-vocabulary metric's digest, and the record's `version`: on `taxonomy.apply`, the one it would append |
 | `metric_type`, `grader_kind`, `candidate_kind`, `workspace_kind` | the object's `type`, `kind`, or workspace kind (`none`, `origo`, `arca`) |
 | `model`, `agent`, `image`, `reasoning` | a grader's judge model or judge agent; a candidate's pinned agent version or a `program` candidate's image, its model and its reasoning level; on `report.update`, the model a narrative draft calls |
-| `harness` | an `external` candidate's `harness`; on `trial.lease` and `trial.submit`, that of the candidate whose trials are leased or submitted |
+| `harness` | an `external` candidate's `harness`; on `trial.lease` and `trial.submit`, that of the candidate whose trials are leased or submitted, absent on a lease that names no candidate |
 | `credential_audiences` | on `candidate.apply`, the audiences a `program` candidate's `credentials` name; on `experiment.create`, those of every candidate |
 | `repository`, `commit`, `path`, `image` on a task | the workspace's Origo repository and commit, or Arca path; the environment's image digest |
 | `task_count`, `metric_count` | how many tasks and metrics a suite version pins |
@@ -256,7 +259,7 @@ object's own `type` or `kind` is sent as `metric_type`, `grader_kind`,
 | `state` | on a stored experiment: its state |
 | `purpose`, `executor` | on `experiment.run`: the work about to be done (below) and its executor |
 | `cell` | on `experiment.run` and `cell.retry`: the cell's id |
-| `candidate`, `trial`, `lease`, `outcome` | on `trial.lease` and `trial.submit`: the candidate digest; the trial's id; the lease's id, on a renewal or a submit; the outcome submitted |
+| `candidate`, `trial`, `lease`, `outcome` | on `trial.lease` and `trial.submit`: the candidate digest, absent on a lease that names no candidate, which may take trials of every `external` candidate of the experiment (spec 003); the trial's id; the lease's id, on a renewal or a submit; the outcome submitted |
 | `cell_state`, `parked_reason` | on `cell.retry`: the cell's parked state, `blocked` or `over_budget`, and its `parked_reason` |
 | `grader` | on a re-grade and an annotation action: the grader version's digest |
 | `experiment` | on a report or annotation action: the experiment's id |
@@ -964,7 +967,8 @@ object's content beyond the fields sent.
 - `experiment.run` carries the experiment's `state`, and `cell.retry`
   reaches the authorizer as its own action with the cell's parked state
   and reason; `trial.lease` and `trial.submit` reach it as their own
-  actions with the candidate, its `harness` and the lease, and the owner
+  actions with the candidate and its `harness`, left out of a lease that
+  names no candidate, and the lease, and the owner
   policy allows them to the owner alone.
 - A question with no subject carries no peer address and no user agent,
   and two readers of one published version hit one cached answer.

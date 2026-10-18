@@ -896,7 +896,12 @@ reference alike: a baseline's experiment, adopted trials, an
 experiment in mode `import` whose cells hold runs of different times,
 and two benchmark entries. Two candidates of one experiment are dealt
 trials round robin (spec 005) and share one window unless a cell ran
-again later. It names the tasks it occurs in and leaves
+again later. Two tasks of one experiment share one window only under
+`interleaved` scheduling (spec 005), which deals every cell of every
+task in turn: under `task_by_task`, the default, a task's cells run
+before the next task's, so a comparison across tasks compares two
+times and carries `window` once they lie more than `WINDOW_TOLERANCE`
+apart. It names the tasks it occurs in and leaves
 `single_variable` as it is.
 
 **`uncalibrated`.** A result of a label metric, or of a cell-level
