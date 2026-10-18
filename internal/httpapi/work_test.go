@@ -137,6 +137,10 @@ func TestRetriesBlockAndResume(t *testing.T) {
 	if len(retried["items"].([]any)) != limits.MaxInfraRetries {
 		t.Fatalf("the retried trials %v", retried)
 	}
+	grid := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/grid?state=blocked", "t-alice", nil)
+	if c := grid["items"].([]any)[0].(map[string]any)["cells"].([]any)[0].(map[string]any); c["trials"].(map[string]any)["retried"] != float64(limits.MaxInfraRetries) {
+		t.Fatalf("the grid counts retried trials %v", c)
+	}
 	x.refuse(404, apierr.CodeCellNotFound, http.MethodPost, "/v1/cells/"+cell+"/retry", "t-bob", nil)
 	x.refuse(404, apierr.CodeCellNotFound, http.MethodPost, "/v1/cells/"+id.New(id.Cell)+"/retry", "t-alice", nil)
 	resumed := x.must(http.StatusOK, http.MethodPost, "/v1/cells/"+cell+"/retry", "t-alice", nil)
@@ -414,4 +418,18 @@ func mustJSON(t *testing.T, v any) []byte {
 		t.Fatal(err)
 	}
 	return b
+}
+
+// A server without the engine hands out every leasable cell's trials, and
+// leaves queued rollouts to the ticker.
+func TestLeaseWithoutTheEngine(t *testing.T) {
+	x := newAPI(t, nil)
+	f := x.fixture()
+	eid := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
+		"suite": f.suite, "candidates": []string{f.high}, "trials": 1, "budget": map[string]any{"name": "study"},
+	})["id"].(string)
+	x.srv.Engine = nil
+	if got := x.must(http.StatusOK, http.MethodPost, "/v1/experiments/"+eid+"/work/lease", "t-alice", map[string]any{"candidate": f.high}); len(got["trials"].([]any)) != 2 {
+		t.Fatalf("lease %v", got)
+	}
 }

@@ -152,7 +152,9 @@ func TestListsAndFilters(t *testing.T) {
 		t.Fatalf("tasks of a suite that is none %v", got)
 	}
 	x.refuse(http.StatusBadRequest, apierr.CodeInvalidField, http.MethodGet, "/v1/tasks?suite=goalless", "t-alice", nil)
-	x.apply("tasks", "labelled", map[string]any{"metadata": map[string]string{"area": "build"}})
+	x.apply("tasks", "labelled", map[string]any{"metadata": map[string]string{"area": "build"},
+		"workspace":   map[string]any{"kind": "origo", "repository": "acme/app", "commit": strings.Repeat("a", 40)},
+		"environment": map[string]any{"image": "ghcr.io/acme/env@sha256:" + strings.Repeat("b", 64)}})
 	if got := x.must(http.StatusOK, http.MethodGet, "/v1/tasks?metadata.area=build", "t-alice", nil); len(got["items"].([]any)) != 1 {
 		t.Fatalf("by metadata %v", got)
 	}

@@ -33,12 +33,6 @@ func scanComparison(row pgx.Row) (objects.Comparison, error) {
 			return objects.Comparison{}, err
 		}
 	}
-	if c.Variable == nil {
-		c.Variable = []string{}
-	}
-	if c.DeclaredProvenance == nil {
-		c.DeclaredProvenance = []string{}
-	}
 	if c.Confounds == nil {
 		c.Confounds = []string{}
 	}

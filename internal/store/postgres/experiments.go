@@ -139,9 +139,6 @@ func (x experiments) Create(ctx context.Context, ne store.NewExperiment) error {
 		for _, nc := range ne.Cells {
 			c := nc.Cell
 			c.Experiment, c.Owner, c.State = e.ID, e.Owner, objects.StatePending
-			if e.Mode == objects.ModeImport {
-				c.State = objects.StateRunning
-			}
 			var trials []store.RolloutTrial
 			if nc.Smoke != nil {
 				c.Rollouts = []objects.Rollout{nc.Smoke.Rollout}
@@ -327,13 +324,9 @@ func scanCell(row pgx.Row) (objects.Cell, error) {
 	if err := unmarshal(tuple, &c.Tuple); err != nil {
 		return objects.Cell{}, err
 	}
-	if err := unmarshal(rollouts, &c.Rollouts); err != nil {
-		return objects.Cell{}, err
-	}
-	if c.Rollouts == nil {
-		c.Rollouts = []objects.Rollout{}
-	}
-	return c, nil
+	// The column is never NULL and holds an array, so the slice is never
+	// nil.
+	return c, unmarshal(rollouts, &c.Rollouts)
 }
 
 func collectCells(rows pgx.Rows) ([]objects.Cell, error) {

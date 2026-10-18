@@ -192,7 +192,7 @@ func start(t *testing.T, extra env) *server {
 	ready := make(chan string, 1)
 	s := &server{logs: &syncBuffer{}, issuer: iss, stop: cancel, done: make(chan struct{})}
 	go func() {
-		s.code = run(ctx, []string{"serve"}, e.get, io.Discard, s.logs, Hooks{Ready: ready, Grace: 2 * time.Second, SweepEvery: 50 * time.Millisecond})
+		s.code = run(ctx, []string{"serve"}, e.get, io.Discard, s.logs, Hooks{Ready: ready, Grace: 2 * time.Second, SweepEvery: 50 * time.Millisecond, WorkEvery: 20 * time.Millisecond})
 		close(s.done)
 	}()
 	select {

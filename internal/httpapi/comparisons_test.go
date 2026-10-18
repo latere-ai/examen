@@ -116,7 +116,7 @@ func TestComparisons(t *testing.T) {
 	x.refuse(400, apierr.CodeInvalidCursor, http.MethodGet, "/v1/comparisons/"+cid+"/rows?cursor="+cursorFor("rows/"+cid, "x"), "t-alice", nil)
 	x.refuse(404, apierr.CodeComparisonNotFound, http.MethodGet, "/v1/comparisons/"+cid, "t-bob", nil)
 	x.refuse(404, apierr.CodeComparisonNotFound, http.MethodGet, "/v1/comparisons/"+id.New(id.Comparison)+"/rows", "t-alice", nil)
-	for _, q := range []string{"", "?experiment=" + eid, "?suite=goalless", "?suite=" + f.suite, "?candidate=" + f.low, "?single_variable=true", "?owner=" + url.PathEscape(alice)} {
+	for _, q := range []string{"", "?experiment=" + eid, "?suite=goalless", "?suite=" + f.suite, "?candidate=" + f.low, "?single_variable=true", "?owner=" + url.PathEscape(alice), "?reference_candidate=" + f.high} {
 		if got := x.must(http.StatusOK, http.MethodGet, "/v1/comparisons"+q, "t-alice", nil); len(got["items"].([]any)) != 1 {
 			t.Errorf("comparisons %s: %v", q, got)
 		}
@@ -161,6 +161,9 @@ func TestComparisons(t *testing.T) {
 	}
 	b := x.must(http.StatusCreated, http.MethodPut, "/v1/suites/goalless/baselines/main", "t-alice", map[string]any{"experiment": eid, "candidate": f.high})
 	x.must(http.StatusCreated, http.MethodPost, "/v1/comparisons", "t-alice", map[string]any{"experiment": eid, "candidate": f.low, "baseline": b["id"]})
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/comparisons?baseline="+b["id"].(string), "t-alice", nil); len(got["items"].([]any)) != 1 {
+		t.Fatalf("by baseline %v", got)
+	}
 	across := x.must(http.StatusCreated, http.MethodPost, "/v1/comparisons", "t-alice", map[string]any{"experiment": eid, "candidate": f.high, "variable": "task", "task": "todo-app", "reference_task": "calculator"})
 	if across["task"] != f.taskA || across["reference_task"] != f.taskB || across["variable"].([]any)[0] != "task_hash" {
 		t.Fatalf("across tasks %v", across)
