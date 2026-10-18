@@ -62,6 +62,11 @@ var constants = map[string]any{
 	"BOOTSTRAP_RESAMPLES":              BootstrapResamples,
 	"PERMUTATION_RESAMPLES":            PermutationResamples,
 	"PERMUTATION_EXACT_MAX":            PermutationExactMax,
+	"PERMUTATION_STOP_EXCEEDANCES":     PermutationStopExceedances,
+	"WINDOW_TOLERANCE":                 WindowTolerance,
+	"MAX_LABELS_OPEN_VOCABULARY":       MaxLabelsOpenVocabulary,
+	"MAX_BENCHMARK_ENTRIES":            MaxBenchmarkEntries,
+	"INPUT_LINK_TTL":                   InputLinkTTL,
 	"BOSCHLOO_GRID_POINTS":             BoschlooGridPoints,
 	"TIE_TOLERANCE":                    TieTolerance,
 	"MAX_TREND_POINTS":                 MaxTrendPoints,
@@ -189,7 +194,7 @@ func TestEveryLimitIsTheSpecs(t *testing.T) {
 			t.Errorf("%s is in the table of spec 002 and has no constant", name)
 			continue
 		}
-		if _, isFunc := c.(func(int) int); isFunc {
+		if _, isFunc := c.(func(int, float64) int); isFunc {
 			// The formula's figures are held by TestPermutationResamples.
 			if !strings.HasPrefix(text, "the larger of 10,000 and ceil(20") {
 				t.Errorf("%s reads %q, which the formula does not hold", name, text)
@@ -213,13 +218,23 @@ func TestEveryLimitIsTheSpecs(t *testing.T) {
 }
 
 // PERMUTATION_RESAMPLES is the larger of 10,000 and ceil(20 · m / the
-// false discovery rate).
+// family's level): a comparison's at the false discovery rate, a results
+// table's at 1 - CONFIDENCE_LEVEL.
 func TestPermutationResamples(t *testing.T) {
-	for _, c := range []struct{ m, want int }{
-		{0, 10000}, {1, 10000}, {25, 10000}, {26, 10400}, {100, 40000}, {101, 40400},
+	for _, c := range []struct {
+		m     int
+		alpha float64
+		want  int
+	}{
+		{0, FalseDiscoveryRate, 10000}, {1, FalseDiscoveryRate, 10000},
+		{25, FalseDiscoveryRate, 10000}, {26, FalseDiscoveryRate, 10400},
+		{40, FalseDiscoveryRate, 16000}, {100, FalseDiscoveryRate, 40000},
+		{101, FalseDiscoveryRate, 40400}, {500, FalseDiscoveryRate, 200000},
+		{3, 1 - ConfidenceLevel, 10000}, {496, 1 - ConfidenceLevel, 198400},
+		{26, 0.01, 52000},
 	} {
-		if got := PermutationResamples(c.m); got != c.want {
-			t.Errorf("PermutationResamples(%d) = %d, want %d", c.m, got, c.want)
+		if got := PermutationResamples(c.m, c.alpha); got != c.want {
+			t.Errorf("PermutationResamples(%d, %v) = %d, want %d", c.m, c.alpha, got, c.want)
 		}
 	}
 }
