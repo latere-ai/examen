@@ -221,10 +221,12 @@ type Trial struct {
 	// list's items alone.
 	Values map[string]any `json:"values,omitempty"`
 
-	// Rollout is the key of the rollout it belongs to, and Retried says a
-	// later trial retries it.
-	Rollout string `json:"-"`
-	Retried bool   `json:"-"`
+	// Rollout is the key of the rollout it belongs to; Retried says a
+	// later trial retries it; AutoRetry says it is an automatic retry of
+	// an infrastructure failure, which MAX_INFRA_RETRIES counts.
+	Rollout   string `json:"-"`
+	Retried   bool   `json:"-"`
+	AutoRetry bool   `json:"-"`
 }
 
 // Finished reports whether the trial is a finished trial: done, with an
