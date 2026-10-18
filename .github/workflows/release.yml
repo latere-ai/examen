@@ -35,15 +35,21 @@ env:
   GH_VERSION: "2.100.0"
 
 jobs:
-  # 1. The verify run for the push of this very commit concluded success.
-  # `lateregate release` pushes the branch and the tag in one push, so the
-  # run exists by now and may still be running; a tag on a commit whose
-  # gate never ran, or ran red, fails here and publishes nothing. The run
-  # the tag's own push starts is not the one read.
+  # 1. The tag's commit passed verify. `lateregate release` pushes the
+  # branch and the tag in one push, so the verify run for that commit has
+  # just started. This job reads the runs once and holds the runner for
+  # seconds: a job that polled here would hold one of the self-hosted
+  # runner's two slots while the run it waits for queues for the other, and
+  # two releases at once would hold both. The commit `lateregate release`
+  # cuts moves the notes under Unreleased into the tag's section and
+  # changes nothing else, after the whole bar ran on the tree, so while its
+  # own run has not concluded, a green run on its parent stands for it. A
+  # tag on any other commit whose gate has not run green fails here and
+  # publishes nothing. The run the tag's own push starts is not the one read.
   gate-green:
     name: the tag's commit passed verify
     runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
-    timeout-minutes: 60
+    timeout-minutes: 5
     permissions:
       contents: read
       actions: read
@@ -67,26 +73,41 @@ jobs:
           tar -xzf "$dir/$archive" -C "$dir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
           echo "$dir" >> "$GITHUB_PATH"
           "$dir/gh" --version | head -n1
-      - name: Wait for the verify run on this commit and require success
+      - name: The verify run on this commit, or on its parent, concluded success
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for i in $(seq 1 110); do
+          set -euo pipefail
+          # A failed API read fails the job rather than reading as pending.
+          shopt -s inherit_errexit
+          # success, failure, or pending (running, queued, superseded by a
+          # newer push, or not started) for the verify run of a commit's
+          # branch push.
+          verdict() {
+            local runs
             # $ENV is jq's, which reads the tag from the environment.
             # shellcheck disable=SC2016
-            conclusions=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/verify.yml/runs?head_sha=${GITHUB_SHA}&event=push&per_page=20" \
+            runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/verify.yml/runs?head_sha=$1&event=push&per_page=20" \
               --jq '[.workflow_runs[] | select(.head_branch != $ENV.GITHUB_REF_NAME) | .conclusion // "running"] | join(" ")')
-            case " $conclusions " in
-              *" success "*) echo "verify concluded success on ${GITHUB_SHA}"; exit 0 ;;
-              *" failure "*|*" cancelled "*|*" timed_out "*|*" startup_failure "*|*" action_required "*)
-                echo "verify concluded '$conclusions' on ${GITHUB_SHA}; a release is cut from a green tree" >&2; exit 1 ;;
+            case " $runs " in
+              *" success "*) echo success ;;
+              *" failure "*|*" timed_out "*|*" startup_failure "*|*" action_required "*) echo failure ;;
+              *) echo pending ;;
             esac
-            if [ -z "$conclusions" ] && [ "$i" -gt 10 ]; then
-              echo "no verify run exists for the push of ${GITHUB_SHA}; tag a commit whose gate ran" >&2; exit 1
-            fi
-            sleep 30
-          done
-          echo "verify did not conclude on ${GITHUB_SHA} within the hour" >&2; exit 1
+          }
+          own=$(verdict "$GITHUB_SHA")
+          case "$own" in
+            success) echo "verify concluded success on ${GITHUB_SHA}"; exit 0 ;;
+            failure) echo "verify failed on ${GITHUB_SHA}; a release is cut from a green tree" >&2; exit 1 ;;
+          esac
+          parent=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" --jq '.parents[0].sha')
+          changed=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${parent}...${GITHUB_SHA}" --jq '[.files[].filename] | join(" ")')
+          if [ "$changed" = "CHANGELOG.md" ] && [ "$(verdict "$parent")" = success ]; then
+            echo "verify has not concluded on ${GITHUB_SHA}, which changes CHANGELOG.md alone; it concluded success on its parent ${parent}"
+            exit 0
+          fi
+          echo "verify has not concluded on ${GITHUB_SHA} (it changes: ${changed:-nothing}), and this job does not wait for it on the shared runner. Re-run the release once verify is green: gh run rerun ${GITHUB_RUN_ID} --failed --repo ${GITHUB_REPOSITORY}" >&2
+          exit 1
 
   # 2. The image, built from this checkout with the tag's build identity,
   # pushed by digest and under no tag, so a run that stops before the
