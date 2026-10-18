@@ -35,13 +35,85 @@ here is refused before it is pushed.
   your authorizer: `metric.*`, `grader.*`, `task.*` and `candidate.*`
   `apply`, `read` and `list`; `suite.apply`, `suite.read`, `suite.list`,
   `taxonomy.apply` and `taxonomy.read`; `experiment.create`, `read`,
-  `list`, `update`, `cancel` and `import`; `trial.lease` and
-  `trial.submit`; and `baseline.pin`, `read` and `list`, with the fields
-  each sends and the limits an allow may carry.
+  `list`, `update`, `cancel` and `import`; `cell.retry`; `trial.lease`
+  and `trial.submit`; `experiment.run`, which Examen asks as the
+  experiment's creator, with no claims, before each rollout it submits
+  and before it hands out a cell's external trials; and `baseline.pin`,
+  `read` and `list`, with the fields each sends and the limits an allow
+  may carry. The allow of a `.list` question may name the owner a name
+  sent without `owner` is resolved in, so a member reads by name what it
+  applied in an organization's context. The owner policy allows
+  `experiment.run` when the experiment's owner and creator are the
+  subject, and reads a shared baseline.
+- Metrics, graders, tasks, suites and candidates: `PUT /{kind}/{name}`
+  applies a version, idempotent by its digest, with `If-Match` and
+  `If-None-Match`; `GET /{kind}/{ref}` reads one by name, `name@digest`,
+  digest or id; `GET /{kind}/{name}/versions` lists a name's versions;
+  `GET /{kind}` lists current versions with the filters of the API spec.
+  A suite is held to what it pins: no two tasks of one name, one
+  producer per metric and task, a cell-level metric's `of` listed. A
+  program credential naming an audience Examen acts through is `422
+  credential_audience_reserved`.
+- Experiments: create in mode `execute` or `import`, list, read with
+  progress, cancel, close an import's intake, the candidate × task grid,
+  cells, trials with their current values and `metric`/`value` filters,
+  measurements by generation, the event log as JSON and as server-sent
+  events (`GET /experiments/{id}/stream`, with `Last-Event-ID` replay and
+  keepalives), and `POST /cells/{id}/retry` for a cell parked `blocked`
+  or `over_budget`; a retry of a complete experiment's cell reopens it.
+- External harnesses: `POST /experiments/{id}/work/lease` leases a
+  candidate's pending trials within each cell's share of the
+  experiment's parallelism, smoke trials first and main trials once a
+  cell's smoke passes, for 10 minutes, renewable; a lapsed lease returns
+  its trials to pending. `POST /trials/{id}/submit` records the outcome,
+  the times, the declared harness version and image, the Lux request
+  ids as given, the outputs as Arca paths with their digests, and values
+  the harness computed itself under `self:<harness>`, marked
+  `self_reported`. An `infra_failed` trial is retried up to twice with
+  `retry_of` lineage; a smoke trial that keeps failing parks its cell
+  `blocked`; an `over_budget` trial parks its cell. The built-in
+  metrics `completed` and `duration` are filled at done, and `declined`
+  by the built-in decline judge when the suite lists it.
+- Past runs: `POST /experiments/{id}/imports` with `executor: external`
+  imports a harness's past run, with its past times and declared harness
+  version, which must equal the candidate's version, into an experiment
+  in mode `import`.
+- Baselines: pin, read, history, list and by id. Taxonomies of an
+  open-vocabulary metric: append a version, read, history, the raw
+  labels the current version does not map, and by id.
+- Comparisons: one automatic comparison of every candidate against the
+  experiment's reference, made at create and final once the experiment
+  completes; `POST /comparisons` asks for one, exploratory; list, read
+  with suite-level results, and page task-level rows. The figures are
+  the analysis's, which this build does not compute yet: a comparison
+  reads `computing` with no results, and a grid cell carries no summary
+  or verdict, until the analysis is wired.
+- `422 executor_unavailable` refuses a candidate whose executor this
+  release does not run.
+- `GET /openapi.yaml` names the server's own base path in `servers`.
 
 ### Not yet
 
-- The objects, experiments and their routes are not served yet; the API
-  answers its contract and `404 not_found` everywhere else.
-- Sink events are not delivered: `serve` refuses to start while
-  `EXAMEN_EVENTS_URL` is set.
+- Candidates of kind `topos` and `program` are stored and refused at an
+  experiment's create, `422 executor_unavailable`, until their executors
+  exist.
+- No grader runs but the built-ins: a suite whose tasks have checks is
+  `422 core_not_configured` with `core: cella`, and one whose graders,
+  decline judge or canonicalizers are model judges `core: lux`, agent
+  judges `core: topos`. Annotation queues are stored and fill nothing.
+- Examen makes no call to Lux, Arca, Cella, Topos or Origo in this
+  release, and obtains no owner token: a named Budget is recorded as
+  named and not read; a cap is `422 core_not_configured` unless your
+  authorizer assigns a Budget; a trial's cost reads `unknown`, never
+  zero; an `execute` task with inputs is refused, since its input links
+  come from Arca; outputs are taken only as Arca paths with digests,
+  recorded as declared and never read, and a run's transcript and final
+  message are not accepted; imports of Topos sessions and Cella
+  sandboxes are `422 core_not_configured`. No pin is resolved at its
+  core when an experiment is created.
+- The statistics: comparisons and grid summaries stay uncomputed until
+  the analysis is wired.
+- Sink events are journaled and not delivered: `serve` refuses to start
+  while `EXAMEN_EVENTS_URL` is set.
+- Bars, shares, dataset exports, annotations, re-grading, changing and
+  deleting experiments, reports and publishing.

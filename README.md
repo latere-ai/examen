@@ -16,9 +16,11 @@ besides the thing you meant to change.
 The name is Latin for the tongue of a balance, the pointer that shows
 which way it tips.
 
-> Examen is being built. `examend` starts, migrates its database,
-> verifies callers and serves its contract and probes; suites,
-> experiments and their comparisons are not served yet. The design is
+> Examen is being built. `examend` serves suites, candidates and
+> experiments whose trials your own harness runs: it leases them,
+> records what comes back, and imports the runs of a study you already
+> made. Agents and programs as candidates, checks and judges, and the
+> statistics of a comparison are not served yet. The design is
 > [`specs/001-architecture.md`](specs/001-architecture.md),
 > [`specs/README.md`](specs/README.md) lists the specs in build order,
 > and [`CHANGELOG.md`](CHANGELOG.md) says what each release serves.
