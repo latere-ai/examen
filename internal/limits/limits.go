@@ -21,7 +21,7 @@ const (
 	MinTrialsForVerdict           = 5
 	MinTrialsPerTaskInSuite       = 2
 	MinSuiteCoverage              = 0.8
-	MinTrialsForP90Interval       = 35
+	MinTrialsForP90Interval       = 29
 	MaxInfraRetries               = 2
 	MaxCellsPerExperiment         = 2000
 	MaxTasksPerSuite              = 1000
@@ -94,7 +94,12 @@ const (
 	FalseDiscoveryRate            = 0.05
 	ConfidenceLevel               = 0.95
 	BootstrapResamples            = 10000
-	PermutationExactMax           = 100000
+	PermutationExactMax           = 200000
+	PermutationStopExceedances    = 200
+	MaxLabelsOpenVocabulary       = 4096
+	MaxBenchmarkEntries           = 32
+	WindowTolerance               = 7 * 24 * time.Hour
+	InputLinkTTL                  = time.Hour
 	BoschlooGridPoints            = 1000
 	TieTolerance                  = 1e-9
 	permutationResamplesFloor     = 10000
@@ -102,12 +107,14 @@ const (
 )
 
 // PermutationResamples is PERMUTATION_RESAMPLES: the relabelings of a
-// Monte Carlo permutation test whose family holds m p-values, the larger
-// of 10,000 and ceil(20 · m / FalseDiscoveryRate). The primary metric's
-// suite-level result is a family of one.
-func PermutationResamples(m int) int {
-	x := permutationResamplesPerPValue * float64(max(m, 1)) / FalseDiscoveryRate
-	// The quotient is a whole number whenever the rate divides it, and the
+// Monte Carlo permutation test whose family holds m p-values and is held
+// at the level alpha, the larger of 10,000 and ceil(20 · m / alpha). A
+// comparison's family is held at FalseDiscoveryRate, and its primary
+// metric's suite-level result is a family of one; a benchmark's results
+// table is held at 1 - ConfidenceLevel with m its number of pairs.
+func PermutationResamples(m int, alpha float64) int {
+	x := permutationResamplesPerPValue * float64(max(m, 1)) / alpha
+	// The quotient is a whole number whenever the level divides it, and the
 	// float division may land a hair above it; within TieTolerance of a
 	// whole number it is that number.
 	n := int(math.Ceil(x - x*TieTolerance))
