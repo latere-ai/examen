@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.3.0 - 2026-10-18
+
 ### Added
 
 - Declare the comparisons an experiment will make when you create it:
