@@ -93,7 +93,7 @@ func Log(x float64) float64 {
 	}
 	m, e := math.Frexp(x)
 	if m < math.Sqrt2/2 {
-		m *= 2
+		m = float64(m * 2)
 		e--
 	}
 	f := m - 1

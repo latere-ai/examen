@@ -194,7 +194,7 @@ func welchT(x, y []float64) float64 {
 //	u = sqrt(2)·erfinv(2q - 1)
 //	b = n^(-1/3)·z^(2/3)·(1.5·phi(u)² / (2u² + 1))^(1/3)
 func hallSheather(n int, q, z float64) float64 {
-	u := float64(math.Sqrt(2) * mathx.Erfinv(2*q-1))
+	u := float64(math.Sqrt(2) * mathx.Erfinv(float64(2*q)-1))
 	phi := mathx.NormalPDF(u)
 	inner := float64(1.5*float64(phi*phi)) / (float64(2*float64(u*u)) + 1)
 	return float64(float64(mathx.Pow(float64(n), -1.0/3)*mathx.Pow(z, 2.0/3)) * mathx.Pow(inner, 1.0/3))
