@@ -13,6 +13,8 @@ import (
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/compare"
 	"latere.ai/x/examen/internal/store"
+	"latere.ai/x/examen/internal/store/postgres"
+	"latere.ai/x/examen/internal/store/postgres/pgtest"
 	"latere.ai/x/examen/internal/work"
 )
 
@@ -103,8 +105,30 @@ func (x *client) fixture() fixture {
 	return f
 }
 
-func TestTheExternalFlow(t *testing.T) {
-	x := newAPI(t, nil)
+func TestTheExternalFlow(t *testing.T) { externalFlow(t, newAPI(t, nil)) }
+
+// The same flow through a pooler in transaction mode with every statement
+// in exec mode, where a parameter travels as text: JSON bound as bytes
+// would reach a jsonb column as a hex literal and be refused.
+func TestTheExternalFlowThroughAPooler(t *testing.T) {
+	_, pooled := pgtest.Database(t)
+	st, _, err := postgres.Open(t.Context(), pooled+"&default_query_exec_mode=exec", postgres.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	h := newHarness(t, st, routes, func(s *Server) {
+		s.Engine = &work.Engine{Store: st, Authz: s.Authz, Analyzer: compare.NotComputed{}, Log: s.Log}
+	})
+	externalFlow(t, &client{harness: h, st: st})
+}
+
+func externalFlow(t *testing.T, x *client) {
+	t.Helper()
 	f := x.fixture()
 	created := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
 		"suite": "goalless@" + f.suite, "candidates": []string{f.high, f.low}, "trials": 2, "budget": map[string]any{"name": "study"},

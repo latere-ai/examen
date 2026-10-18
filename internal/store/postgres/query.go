@@ -79,13 +79,25 @@ func one(err error, what string) error {
 	return nil
 }
 
-// marshal renders a value as JSON for a jsonb column.
-func marshal(v any) ([]byte, error) {
+// marshal renders a value as JSON text for a jsonb column. JSON is bound
+// as text: a byte slice travels as bytea where a statement runs in exec
+// mode behind a pooler, and a jsonb column refuses it.
+func marshal(v any) (string, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return nil, fmt.Errorf("postgres: rendering a column: %w", err)
+		return "", fmt.Errorf("postgres: rendering a column: %w", err)
 	}
-	return b, nil
+	return string(b), nil
+}
+
+// marshalNullable renders a value as JSON text, and nil for a value that renders
+// as null, so a nullable jsonb column stays SQL NULL.
+func marshalNullable(v any) (*string, error) {
+	s, err := marshal(v)
+	if err != nil || s == "null" {
+		return nil, err
+	}
+	return &s, nil
 }
 
 // unmarshal reads a jsonb column, leaving v as it is for NULL.
@@ -100,7 +112,7 @@ func unmarshal(raw []byte, v any) error {
 }
 
 // labels renders a filter's labels as the jsonb a containment test reads.
-func labels(m map[string]string) ([]byte, error) { return marshal(m) }
+func labels(m map[string]string) (string, error) { return marshal(m) }
 
 // uniqueViolation reports a statement refused by a unique index.
 func uniqueViolation(err error) bool {

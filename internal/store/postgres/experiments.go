@@ -117,7 +117,7 @@ func (x experiments) Create(ctx context.Context, ne store.NewExperiment) error {
 			return err
 		}
 		if e.Metadata == nil {
-			metadata = []byte("{}")
+			metadata = "{}"
 		}
 		var refBaseline, refCandidate *string
 		if e.Reference.Baseline != "" {
@@ -282,7 +282,7 @@ func (x experiments) List(ctx context.Context, f store.ExperimentFilter, p store
 		if err != nil {
 			return nil, err
 		}
-		w.add("metadata @> %s::jsonb", string(b))
+		w.add("metadata @> %s::jsonb", b)
 	}
 	tail := w.page("id", p)
 	rows, err := x.s.pool.Query(ctx, `SELECT `+experimentColumns+` FROM experiments`+w.sql()+tail, w.args...)

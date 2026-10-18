@@ -331,7 +331,7 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 	if len(o.Evidence) > 0 {
 		t.Outputs = &objects.OutputsSummary{Files: len(o.Evidence)}
 	}
-	failure, err := marshal(t.Failure)
+	failure, err := marshalNullable(t.Failure)
 	if err != nil {
 		return t, err
 	}
@@ -339,7 +339,7 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 	if err != nil {
 		return t, err
 	}
-	declared, err := marshal(t.Declared)
+	declared, err := marshalNullable(t.Declared)
 	if err != nil {
 		return t, err
 	}
@@ -347,7 +347,7 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 	if err != nil {
 		return t, err
 	}
-	outputs, err := marshal(t.Outputs)
+	outputs, err := marshalNullable(t.Outputs)
 	if err != nil {
 		return t, err
 	}

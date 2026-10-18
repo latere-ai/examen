@@ -77,7 +77,7 @@ func (vs versions) Apply(ctx context.Context, in objects.Version, pre store.Prec
 		case errors.Is(err, pgx.ErrNoRows):
 			made = true
 			if _, err := tx.Exec(ctx, `INSERT INTO versions (id, kind, owner, name, digest, body, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				in.ID, in.Kind, in.Owner, in.Name, in.Digest, in.Body, now); err != nil {
+				in.ID, in.Kind, in.Owner, in.Name, in.Digest, string(in.Body), now); err != nil {
 				return fmt.Errorf("postgres: storing a version: %w", err)
 			}
 			out = in
@@ -161,7 +161,7 @@ func (vs versions) List(ctx context.Context, kind string, f store.VersionFilter,
 		if err != nil {
 			return nil, err
 		}
-		w.add("coalesce(v.body->'metadata', '{}'::jsonb) @> %s::jsonb", string(b))
+		w.add("coalesce(v.body->'metadata', '{}'::jsonb) @> %s::jsonb", b)
 	}
 	tail := w.page("v.id", p)
 	rows, err := vs.s.pool.Query(ctx, `SELECT `+versionColumns+versionFrom+w.sql()+tail, w.args...)
