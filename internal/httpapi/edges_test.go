@@ -5,6 +5,7 @@ package httpapi
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -87,6 +88,18 @@ func TestReadsAcrossOwnersAndOutages(t *testing.T) {
 		down.refuse(http.StatusServiceUnavailable, apierr.CodeAuthorizerUnavailable, http.MethodGet, path, "t-alice", nil)
 	}
 	down.refuse(http.StatusServiceUnavailable, apierr.CodeAuthorizerUnavailable, http.MethodPut, "/v1/metrics/pass", "t-alice", map[string]any{"type": "binary", "direction": "none", "aggregate": "rate"})
+	// An owner named in the query is the context of a name and of an
+	// apply.
+	owned := x.must(http.StatusCreated, http.MethodPut, "/v1/metrics/owned?owner="+url.PathEscape(alice), "t-alice", map[string]any{"type": "binary", "direction": "none", "aggregate": "rate"})
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/metrics/owned?owner="+url.PathEscape(alice), "t-alice", nil); got["id"] != owned["id"] {
+		t.Fatalf("by owner %v", got)
+	}
+	x.refuse(http.StatusForbidden, apierr.CodeForbidden, http.MethodPut, "/v1/metrics/owned?owner="+url.PathEscape(bob), "t-alice", map[string]any{"type": "binary", "direction": "none", "aggregate": "rate"})
+	if got := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/trials?metric=completed&value=true", "t-alice", nil); len(got["items"].([]any)) != 2 {
+		t.Fatalf("completed trials %v", got)
+	}
+	label := x.apply("metrics", "kind", map[string]any{"type": "label", "labels": []string{"a", "b"}, "direction": "none", "aggregate": "distribution"})
+	_ = label
 	if (&Server{}).analyzer() == nil || (&Server{}).log() == nil {
 		t.Fatal("defaults")
 	}
