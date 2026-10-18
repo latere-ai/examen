@@ -297,6 +297,12 @@ func TestResource(t *testing.T) {
 	if l := access.Resource(authorizer.ActionExperimentCreate, "exp_2", map[string]any{authorizer.FieldModels: []string{"m"}}); l.ID != "exp_2" || len(l.Fields) != 1 {
 		t.Fatalf("a create sends %+v", l)
 	}
+	// A set is sent empty, as an empty list, where another empty list is
+	// left out.
+	l := access.Resource(authorizer.ActionExperimentCreate, "exp_3", map[string]any{authorizer.FieldGraderKinds: access.Set(nil), authorizer.FieldModels: []string{}})
+	if kinds, ok := l.Fields[authorizer.FieldGraderKinds].([]string); !ok || kinds == nil || len(kinds) != 0 || len(l.Fields) != 1 {
+		t.Fatalf("an empty set sends %#v", l.Fields)
+	}
 	if l := access.List(authorizer.ActionExperimentList, ""); len(l.Fields) != 0 || l.ID != "" {
 		t.Fatalf("a list naming no owner sends %+v", l)
 	}

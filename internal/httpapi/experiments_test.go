@@ -7,6 +7,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,6 +108,41 @@ func TestCreateRefusals(t *testing.T) {
 	x.refuse(422, apierr.CodeReferenceNotFound, http.MethodPost, "/v1/experiments", "t-bob", ok(nil))
 }
 
+// experiment.create names the kinds of every grader the suite version pins,
+// its tasks' checks, decline judge and canonicalizers included, each once
+// and sorted, and an empty list for a suite that pins none, so an
+// authorizer decides from it whether the work needs an owner token.
+func TestCreateSendsGraderKinds(t *testing.T) {
+	policy := &limitPolicy{}
+	x := newAPI(t, func(s *Server) {
+		policy.inner = s.Authz
+		s.Authz = policy
+	})
+	f := x.fixture()
+	create := func(suite string) {
+		x.do(http.MethodPost, "/v1/experiments", "t-alice", map[string]any{"suite": suite, "candidates": []string{f.high}, "budget": map[string]any{"name": "study"}})
+	}
+	create(f.suite)
+	if kinds, ok := policy.asked[authorizer.FieldGraderKinds].([]string); !ok || len(kinds) != 0 {
+		t.Fatalf("a suite with no graders sends %#v", policy.asked[authorizer.FieldGraderKinds])
+	}
+	check := x.apply("graders", "tests", map[string]any{"kind": "check", "produces": []string{f.quality}, "check": map[string]any{"command": []string{"make", "test"}}})
+	checked := x.apply("tasks", "checked", map[string]any{"checks": []string{check}})
+	review := x.apply("graders", "review", map[string]any{"kind": "annotation", "produces": []string{f.quality}, "annotation": map[string]any{"instructions": "rate it"}})
+	decline := x.apply("graders", "decline", map[string]any{"kind": "model_judge", "produces": []string{"builtin:declined"}, "model_judge": map[string]any{"model": "claude-haiku-5-5", "prompt": "declined?", "inputs": map[string]any{"final_message": true, "transcript": true}}})
+	canon := x.apply("graders", "canon", map[string]any{"kind": "model_judge", "produces": []string{f.theme}, "model_judge": map[string]any{"model": "claude-haiku-5-5", "role": "canonicalize"}})
+	graded := x.apply("suites", "graded", map[string]any{
+		"tasks": []string{checked, f.taskA}, "metrics": []string{f.quality, f.theme, "builtin:declined"}, "primary_metric": f.quality,
+		"graders": []string{review}, "decline_judge": decline, "canonicalizers": []string{canon},
+	})
+	// The create is refused core_not_configured after the question, which
+	// names every kind.
+	create(graded)
+	if kinds, _ := policy.asked[authorizer.FieldGraderKinds].([]string); !slices.Equal(kinds, []string{"annotation", "check", "model_judge"}) {
+		t.Fatalf("a suite with graders sends %#v", policy.asked[authorizer.FieldGraderKinds])
+	}
+}
+
 // The limits an allow carries hold a create.
 func TestCreateLimits(t *testing.T) {
 	limits := &limitPolicy{}
@@ -164,6 +200,8 @@ type limitPolicy struct {
 	inner  access.Authorizer
 	limits map[string]any
 	deny   string
+	// asked are the resource fields of the last experiment.create.
+	asked map[string]any
 }
 
 func (l *limitPolicy) set(m map[string]any) { l.limits = m }
@@ -172,6 +210,7 @@ func (l *limitPolicy) Authorize(ctx context.Context, c access.Caller, q access.Q
 	if q.Action != authorizer.ActionExperimentCreate {
 		return l.inner.Authorize(ctx, c, q)
 	}
+	l.asked = q.Resource.Fields
 	if l.deny != "" {
 		return access.Decision{Reason: l.deny}, nil
 	}

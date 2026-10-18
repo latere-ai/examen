@@ -143,6 +143,10 @@ const (
 	FieldModels      = "models"
 	FieldJudgeModels = "judge_models"
 	FieldExecutors   = "executors"
+	// FieldGraderKinds are the kinds of the graders an experiment's suite
+	// version names, its task checks, decline judge and canonicalizers
+	// included, each once and sorted; the built-in decline judge is none.
+	FieldGraderKinds = "grader_kinds"
 	// FieldCells, FieldTrials and FieldTrialsTotal are tasks × candidates,
 	// N, and cells × N.
 	FieldCells       = "cells"
@@ -230,7 +234,7 @@ var table = []action{
 	{ActionCandidateRead, KindCandidate, []string{FieldOwner, FieldName, FieldDigest, FieldCandidateKind}, true},
 	{ActionCandidateList, KindCandidate, []string{FieldOwner}, false},
 	{ActionExperimentCreate, KindExperiment, []string{
-		FieldOwner, FieldSuite, FieldSuiteOwner, FieldCandidates, FieldExecutors, FieldModels, FieldJudgeModels, FieldCredentialAudiences,
+		FieldOwner, FieldSuite, FieldSuiteOwner, FieldCandidates, FieldExecutors, FieldModels, FieldJudgeModels, FieldGraderKinds, FieldCredentialAudiences,
 		FieldCells, FieldTrials, FieldTrialsTotal, FieldParallelism, FieldBudget, FieldBudgetCapUSDMicro, FieldReferenceCandidate,
 		FieldBaseline, FieldBaselineOwner, FieldMode,
 	}, true},

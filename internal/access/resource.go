@@ -13,13 +13,17 @@ import (
 // that sends one, and the members the action sends that are known. A
 // member Examen does not know is left out, never sent empty: an empty
 // string, a nil and an empty list are each left out, and a false or a zero
-// is sent, since either is a known answer.
+// is sent, since either is a known answer. A Set is sent even when it is
+// empty, as an empty list.
 func Resource(action, id string, members map[string]any) authz.Resource {
 	fields := map[string]any{}
 	for _, name := range authorizer.Fields(action) {
 		v, ok := members[name]
 		if !ok || unknown(v) {
 			continue
+		}
+		if set, isSet := v.(Set); isSet {
+			v = append([]string{}, set...)
 		}
 		fields[name] = v
 	}
@@ -28,6 +32,11 @@ func Resource(action, id string, members map[string]any) authz.Resource {
 	}
 	return authz.NewResource(authorizer.Kind(action), id, fields)
 }
+
+// Set is a member that is a set whose being empty is itself an answer,
+// such as grader_kinds for a suite that names no grader: it is sent as a
+// list, an empty one included, and never left out as unknown.
+type Set []string
 
 // unknown reports whether a member's value says nothing: an empty string,
 // a nil, or an empty list.

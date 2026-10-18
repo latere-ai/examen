@@ -263,15 +263,25 @@ func createMembers(r *http.Request, in createBody, suiteDigest string, candDiges
 		}
 		audiences = append(audiences, c.Audiences()...)
 	}
+	// Every grader the suite version pins is resolved: each task's checks,
+	// the suite's graders, its canonicalizers and its decline judge. An
+	// empty set is sent, since it says the suite has none, so an
+	// authorizer reads that no grader needs an owner token.
+	var kinds []string
 	for _, g := range p.resolved.Graders {
 		if g.ModelJudge != nil && !slices.Contains(judges, g.ModelJudge.Model) {
 			judges = append(judges, g.ModelJudge.Model)
 		}
+		if !slices.Contains(kinds, g.Kind) {
+			kinds = append(kinds, g.Kind)
+		}
 	}
 	slices.Sort(judges)
+	slices.Sort(kinds)
 	cells := len(p.resolved.Suite.Tasks) * len(candDigests)
 	m[authorizer.FieldExecutors], m[authorizer.FieldModels] = executors, strs(models)
 	m[authorizer.FieldJudgeModels], m[authorizer.FieldCredentialAudiences] = strs(judges), strs(audiences)
+	m[authorizer.FieldGraderKinds] = access.Set(kinds)
 	m[authorizer.FieldCells], m[authorizer.FieldTrialsTotal] = cells, cells*trials
 	return m
 }
