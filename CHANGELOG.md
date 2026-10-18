@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.1.0 - 2026-10-18
+
 The first release serves the v0.1 profile: suites, candidates of kind
 `external` and experiments whose trials your own harness runs or a study
 you already made imports, with every comparison and grid figure computed
