@@ -180,16 +180,16 @@ func (c *computer) classify() {
 		pl.descriptive = m.Aggregate == AggModeShare || m.Aggregate == AggDistinctCount
 		pl.inFamily = !pl.insufficient && !pl.descriptive && !pl.selfReported && !pl.primary
 	}
-	m := 0
 	for _, pl := range c.plans {
 		if pl.inFamily {
-			m++
+			c.family++
 		}
 	}
+	alone, family := resamples(1, c.p.FalseDiscoveryRate), resamples(c.family, c.p.FalseDiscoveryRate)
 	for _, pl := range c.plans {
-		pl.b = resamples(1, c.p.FalseDiscoveryRate)
+		pl.b = alone
 		if pl.inFamily {
-			pl.b = resamples(m, c.p.FalseDiscoveryRate)
+			pl.b = family
 		}
 	}
 }
@@ -325,6 +325,23 @@ func (c *computer) computeTask(pl *plan) {
 	}
 }
 
+// boschlooFloor is the smallest p-value Boschloo's test gives sides of n_x
+// and n_y trials: the table of every candidate trial true and every
+// reference trial false, on the fixed grid. It depends on the sizes alone,
+// so a comparison computes it once per pair of sizes.
+func (c *computer) boschlooFloor(nx, ny int) float64 {
+	key := [2]int{nx, ny}
+	if f, ok := c.floors[key]; ok {
+		return f
+	}
+	f, _ := boschloo(nx, nx, 0, ny, c.p.BoschlooGridPoints, c.p.TieTolerance)
+	if c.floors == nil {
+		c.floors = map[[2]int]float64{}
+	}
+	c.floors[key] = f
+	return f
+}
+
 // ones counts the true values of a binary side.
 func ones(v []float64) int {
 	k := 0
@@ -346,8 +363,7 @@ func (c *computer) taskRate(pl *plan, x, y []float64) {
 	pl.res.DeltaInterval = &DeltaInterval{Interval: newcombe(kx, nx, ky, ny, c.z)}
 	p, _ := boschloo(kx, nx, ky, ny, c.p.BoschlooGridPoints, c.p.TieTolerance)
 	pl.setTest(methodBoschloo, statFisherP, testResult{p: p, exact: true}, false)
-	pl.floor, _ = boschloo(nx, nx, 0, ny, c.p.BoschlooGridPoints, c.p.TieTolerance)
-	pl.floorOK = true
+	pl.floor, pl.floorOK = c.boschlooFloor(nx, ny), true
 	pl.floorWhat = sizes(nx, ny)
 }
 

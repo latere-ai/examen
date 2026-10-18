@@ -564,23 +564,12 @@ func (c *computer) correct() {
 	}
 }
 
-// familySize is the number of results in the family.
-func (c *computer) familySize() int {
-	m := 0
-	for _, pl := range c.plans {
-		if pl.inFamily {
-			m++
-		}
-	}
-	return m
-}
-
 // decide gives a result its verdict and its reason.
 func (c *computer) decide(pl *plan) {
 	m := pl.metric
 	res := &pl.res
 	fdr := c.p.FalseDiscoveryRate
-	fam := c.familySize()
+	fam := c.family
 	switch {
 	case pl.insufficient:
 		res.Verdict = Insufficient

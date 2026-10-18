@@ -5,6 +5,7 @@ package analysis
 
 import (
 	"math"
+	"math/big"
 	"strconv"
 	"testing"
 )
@@ -231,5 +232,109 @@ func TestOrderStatisticInterval(t *testing.T) {
 	}
 	if _, _, _, ok := osRanks(1, 0.5, level, tol); ok {
 		t.Error("one value has ranks")
+	}
+}
+
+// expectedModeShare is the expected mode share of d trials spread evenly
+// over k labels, in exact rationals: E[max count]/d, with
+// P(max <= m) = d!·[x^d](Σ_{j <= m} x^j/j!)^k / k^d.
+func expectedModeShare(d, k int) float64 {
+	atMost := func(m int) *big.Rat {
+		base := make([]*big.Rat, m+1)
+		f := big.NewRat(1, 1)
+		for j := 0; j <= m; j++ {
+			if j > 0 {
+				f.Quo(f, big.NewRat(int64(j), 1))
+			}
+			base[j] = new(big.Rat).Set(f)
+		}
+		poly := []*big.Rat{big.NewRat(1, 1)}
+		for range k {
+			next := make([]*big.Rat, min(len(poly)+m, d+1))
+			for i := range next {
+				next[i] = new(big.Rat)
+			}
+			for i, a := range poly {
+				for j, b := range base {
+					if i+j <= d {
+						next[i+j].Add(next[i+j], new(big.Rat).Mul(a, b))
+					}
+				}
+			}
+			poly = next
+		}
+		if len(poly) <= d {
+			return new(big.Rat)
+		}
+		r := new(big.Rat).Mul(poly[d], new(big.Rat).SetInt(new(big.Int).MulRange(1, int64(d))))
+		return r.Quo(r, new(big.Rat).SetInt(new(big.Int).Exp(big.NewInt(int64(k)), big.NewInt(int64(d)), nil)))
+	}
+	e := new(big.Rat)
+	for m := 1; m <= d; m++ {
+		e.Add(e, new(big.Rat).Sub(big.NewRat(1, 1), atMost(m-1)))
+	}
+	f, _ := e.Quo(e, big.NewRat(int64(d), 1)).Float64()
+	return f
+}
+
+// Of trials spread evenly over 20 labels, the expected mode share is 0.2885
+// at 5 trials and 0.1176 at 49, while the expected repeat rate is 0.05 at
+// both: Σ_l E[k_l(k_l - 1)]/(d(d - 1)) = 20·(1/20)² for any d.
+func TestModeShareAgainstRepeatRate(t *testing.T) {
+	if v := expectedModeShare(5, 20); !near(v, 0.2885, 4) {
+		t.Errorf("expected mode share at 5 trials: %v, want 0.2885", v)
+	}
+	if v := expectedModeShare(49, 20); !near(v, 0.1176, 4) {
+		t.Errorf("expected mode share at 49 trials: %v, want 0.1176", v)
+	}
+	// The repeat rate's expectation, exactly, by enumerating every assignment
+	// of 3 trials to 4 labels: 4·(1/4)² = 1/4.
+	sum, n := 0.0, 0
+	for a := range 4 {
+		for b := range 4 {
+			for c := range 4 {
+				sum += repeatRate([]float64{float64(a), float64(b), float64(c)})
+				n++
+			}
+		}
+	}
+	if math.Abs(sum/float64(n)-0.25) > 1e-15 {
+		t.Errorf("the repeat rate's expectation is %v, want 1/4", sum/float64(n))
+	}
+}
+
+// The power floors of the worked examples and the family sizes from which
+// they bind: Boschloo's 5 against 5 from m = 26, an exact permutation of 5
+// against 5 from m = 7, of 10 against 10 from m = 4,619.
+func TestPowerFloorThresholds(t *testing.T) {
+	p := Defaults()
+	b, _ := boschloo(5, 5, 0, 5, p.BoschlooGridPoints, p.TieTolerance)
+	from := func(floor float64) int {
+		for m := 1; ; m++ {
+			if floor > p.FalseDiscoveryRate/float64(m) {
+				return m
+			}
+		}
+	}
+	if m := from(b); m != 26 {
+		t.Errorf("Boschloo 5 against 5 binds from m = %d, want 26", m)
+	}
+	if m := from(2.0 / 252); m != 7 {
+		t.Errorf("5 against 5 binds from m = %d, want 7", m)
+	}
+	if m := from(2.0 / 184756); m != 4619 {
+		t.Errorf("10 against 10 binds from m = %d, want 4,619", m)
+	}
+	// Newcombe's interval always holds its delta.
+	for nx := 1; nx <= 12; nx++ {
+		for kx := 0; kx <= nx; kx++ {
+			for ky := 0; ky <= 7; ky++ {
+				iv := newcombe(kx, nx, ky, 7, z95)
+				d := float64(kx)/float64(nx) - float64(ky)/7
+				if iv[0] > d+1e-15 || iv[1] < d-1e-15 {
+					t.Fatalf("%d/%d against %d/7: %v does not hold %v", kx, nx, ky, iv, d)
+				}
+			}
+		}
 	}
 }

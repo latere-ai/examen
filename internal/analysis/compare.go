@@ -49,6 +49,8 @@ type computer struct {
 	ownTrials map[string]cellTrials
 	unpaired  UnpairedTasks
 	plans     []*plan
+	family    int                // the number of results in the family
+	floors    map[[2]int]float64 // Boschloo's floors by the sides' sizes
 }
 
 // validate checks the metrics and the shape of the input.
@@ -346,13 +348,10 @@ func (c *computer) assemble(digest string) Comparison {
 	if external(c.in.Reference) {
 		out.DeclaredProvenance = append(out.DeclaredProvenance, "reference")
 	}
-	family := 0
+	family := c.family
 	names := map[string]bool{}
 	for _, pl := range c.plans {
 		out.Results = append(out.Results, pl.res)
-		if pl.inFamily {
-			family++
-		}
 		for _, cf := range pl.res.Confounds {
 			names[cf.Name] = true
 		}
