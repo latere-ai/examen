@@ -294,21 +294,37 @@ same request:
    the agent's last message; `transcript` is the trial's transcript as
    spec 007 renders it to text; each of `files` is that evidence file,
    included when it is UTF-8 text and otherwise named with its size and
-   digest alone. Each of `outputs` is that output of the trial, read the
-   same way; an output that is a directory archive (spec 007) is read
-   through its manifest, the grader naming the files it reads as
-   `<output>/<path>`, each extracted from the archive and its digest
-   checked against the manifest, and the manifest itself, paths, sizes
-   and digests, given when the grader names the output alone. Examen
-   reads the archive as data and runs nothing from it. For an external trial, `transcript` and `final_message`
+   digest alone; a file is UTF-8 text when its bytes are valid UTF-8 and
+   hold no NUL byte. Each of `outputs` is that output of the trial, read
+   the same way. A directory output, kept as one archive with the output
+   manifest (spec 005), is read from the archive, each file extracted
+   and its digest checked against the manifest, a mismatch ending the
+   judgment `evidence_changed` as above:
+   - **One file of it**, named `<output>/<path>`, is that file, read as a
+     file is.
+   - **The whole output**, named `<output>/` alone, is every file the
+     manifest lists, in ascending bytewise order of path: each kept file
+     that is UTF-8 text is a block of its own, named `<output>/<path>`,
+     and every other file, one that is not UTF-8 text or that was kept by
+     digest alone (spec 005), is a line `<path> <size> <digest> <why>` of
+     one listing block named `<output>/` after the files, `why` being
+     `not_text` or `not_kept`. So a judge that reads what an agent built
+     reads its source and its notes, and is told what else is there.
+
+   Examen reads the archive as data and runs nothing from it. For an external trial, `transcript` and `final_message`
    are what its external harness submitted, and one it did not submit is an
    empty block.
 2. **Bound.** The inputs together take at most `JUDGE_MAX_INPUT_BYTES`,
    filled in order: the final message, the files and then the outputs in
-   the grader's order, the transcript. An input that does not fit is
-   cut: the final message, a file and an output keep their beginning;
-   the transcript keeps its first message and as much of its end as
-   fits. A line `[examen: <n> bytes elided]` stands at each cut, and
+   the grader's order, a whole directory output's file blocks in their
+   path order and then its listing, the transcript. An input that does
+   not fit is cut: the final message, a file, an output, a directory
+   output's file and its listing keep their beginning; the transcript
+   keeps its first message and as much of its end as fits. Once the
+   bound is reached, a whole directory output's files not yet read are
+   not read: each joins its listing as a line with the `why`
+   `over_bound`, and the listing, cut like any input, keeps as many of
+   them as fit. A line `[examen: <n> bytes elided]` stands at each cut, and
    each cut is recorded.
 3. **Delimit.** Each input is one block:
 
@@ -670,6 +686,7 @@ calibration (spec 010); the threats to judges (spec 012).
 | A path selector finds exactly the values its fixtures list, quoted members and `[*]` included | `compare.TestSelectors` |
 | Input assembly is deterministic: the same evidence gives a byte-identical request, and the recorded digest matches it | `judge.TestAssemblyIsDeterministic` |
 | Inputs past `JUDGE_MAX_INPUT_BYTES` are cut in the order and at the ends given, each cut marked and recorded | `judge.TestInputBound` |
+| A directory output named alone is read as its kept UTF-8 text files in ascending bytewise order of path, each a block named `<output>/<path>` whose digest is checked against the manifest, then a listing of every other file with its size, digest and why; a file with a NUL byte or invalid UTF-8 is listed `not_text`, one kept by digest `not_kept`; past `JUDGE_MAX_INPUT_BYTES` the files not yet read are listed `over_bound`; one file named `<output>/<path>` is read alone; the same archive gives the same request bytes | `judge.TestDirectoryOutputFiles` |
 | No byte of evidence or of the task's instruction appears in the system content, and the boundary occurs in no input | `judge.TestEvidenceStaysInTheUserTurn`, `judge.FuzzBoundary` |
 | An answer with two tool calls, a missing metric, a `null` value, an out-of-range value or a rationale past `JUDGE_MAX_RATIONALE_BYTES` is retried up to `JUDGE_MAX_ATTEMPTS` and then `malformed`, with no measurement | `judge.TestMalformedAnswers`, against the stub Lux |
 | A refusal is `refused` with no second call; a spend refusal is `over_budget` and parks the cell; a refused model is `gateway_refused`; a transient failure leaves the judgment `pending` | `judge.TestJudgmentStates` |

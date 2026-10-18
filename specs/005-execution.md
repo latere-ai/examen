@@ -688,6 +688,11 @@ its path, size and SHA-256, and whether it was kept.
   leaves the output directory refuses the whole archive: the output is
   recorded as refused in the manifest and keeps no file.
 
+A model judge that names a directory output reads its kept files from
+the archive, its UTF-8 text files in path order within
+`JUDGE_MAX_INPUT_BYTES` (spec 006), so a judge of what an agent built
+reads the workspace and not its size and digest alone.
+
 The checks of a `topos` trial run in the trial's machine, over the
 directory as the system under test left it, so the limits bound what
 is kept as evidence and not what the checks read. A `cella` or

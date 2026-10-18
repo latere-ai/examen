@@ -155,7 +155,9 @@ flowchart TB
    task's first rollout, its inputs and references are copied once into
    the experiment's folder in Arca. A task's cells are dealt
    trials round robin, so candidates compared within one experiment run
-   in one time window. Trials that failed for an infrastructure reason
+   in one time window; under `interleaved` scheduling every cell of
+   every task is dealt in turn, so two tasks compared run in one window
+   too (spec 005). Trials that failed for an infrastructure reason
    run again in retry rollouts.
 5. **Trials.** Topos runs each agent trial to its end, runs the task's
    checks inside the trial's Cella machine once the agent's processes
@@ -441,8 +443,9 @@ Each decision names the alternative it rejects.
     organization they belong to, so its `owner` and its `created_by`
     can differ and both are kept. Only its creator, its owner and the
     owner's members run it: every action that starts, feeds or changes
-    its execution. A share of an experiment or a publication, a link
-    and a listing let everyone else read its setup and outcomes; a
+    its execution, and it runs on a suite of its owner's. Every share,
+    of an experiment, a publication, a suite or a baseline, a link and
+    a listing let everyone else read; a
     published benchmark runs on its owner's side alone and takes
     submissions from it alone, with `submissions` kept so that can be
     reopened. A published version names the person who signed off on
@@ -452,7 +455,9 @@ Each decision names the alternative it rejects.
     004). *Rejected:* a member role of an experiment beside its
     owner's, which would be a second membership the installation
     already keeps; shares that run, which would let a reader spend the
-    owner's budget or feed its results; and a name for the publisher
+    owner's budget or feed its results; a suite share that lets its
+    grantee run experiments of its own on the suite, which makes a share
+    more than a grant of reading; and a name for the publisher
     stored in Examen, which holds no profile and would keep a name the
     person changed.
 
@@ -469,11 +474,11 @@ client and any console use the same API. Spec 011 covers distribution.
 |---|---|
 | 002 Objects | every object, its fields, states, identifiers and limits |
 | 003 API | the contract a client codes against, its errors, and the event sink |
-| 004 Identity and authorization | the authorizer contract, actions, the built-in owner policy, share grants and readers who do not sign in, acting as the owner, the key source |
-| 005 Execution | the executor contract, the `topos`, `cella` and `external` executors, task inputs and references, the HTTP runner, the check sandbox, smoke and the cost check, retries and retrying a parked cell, cancellation, imported trials and external past trials, an API's own cost |
-| 006 Grading | checks, the built-in comparators, model judges, candidate-level judges, agent judges, annotations, the decline judge, generations, open vocabularies and their taxonomies, calibration |
+| 004 Identity and authorization | the authorizer contract, actions, the built-in owner policy, share grants of reading alone and readers who do not sign in, acting as the owner, the key source |
+| 005 Execution | the executor contract, the `topos`, `cella` and `external` executors, task inputs and references, the HTTP runner, the check sandbox, smoke and the cost check, task-by-task and interleaved scheduling and the lease order, retries and retrying a parked cell, cancellation, imported trials and external past trials, an API's own cost |
+| 006 Grading | checks, the built-in comparators, model judges and the directory outputs they read, candidate-level judges, agent judges, annotations, the decline judge, generations, open vocabularies and their taxonomies, calibration |
 | 007 Measurements and evidence | the measurement store, provenance layers, evidence references and where evidence lives, retention, dataset export |
-| 008 Analysis | aggregation and intervals by metric level, studentized permutation tests and the label tests, the repeat rate, score intervals for weighted rates, the primary result, exploratory comparisons and the corrected family, confounds, automatic comparisons, verdicts, reasons and the power floor, a benchmark's rank intervals, trends |
+| 008 Analysis | aggregation and intervals by metric level, studentized permutation tests and the label tests, the stratified label test, the repeat rate, score intervals for weighted rates, the primary result, exploratory comparisons and the corrected family, declared comparisons corrected together and the experiment's test of independence, confounds, automatic comparisons, verdicts, reasons and the power floor, a benchmark's rank intervals, trends |
 | 009 Bars | bar rules, evaluation, release use, bar events |
 | 010 Reports | what a console reads and shows, the report document, export |
 | 011 Distribution | the binary, configuration, Postgres, upgrades, versioning |
