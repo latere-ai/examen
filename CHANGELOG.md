@@ -6,6 +6,29 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Fixed
+
+- `POST /experiments` that names no `owner` now resolves its suite and
+  candidates in the owner context your authorizer names. It asks
+  `experiment.list` first and resolves in the owner that allow's `owner`
+  limit names, so a member creating in an organization's context reaches
+  the organization's suite instead of being refused
+  `reference_not_found`. An authorizer whose list allows name no owner
+  sees no change. Roll the authorizer that answers `experiment.list` with
+  an `owner` limit before this release.
+
+### Changed
+
+- The specs state who creates, who runs and who signs off: a person
+  creates under an owner, a person or an organization they belong to, so
+  an experiment's `owner` and `created_by` can differ and both are
+  answered; only the creator, the owner and the owner's members run an
+  experiment, and a share, a link or a publication lets everyone else
+  read it; a published benchmark runs on its owner's side alone and
+  takes submissions from it alone; a publication version answers
+  `published_by`, the person who signed off on publishing it, on every
+  read.
+
 ## v0.1.0 - 2026-10-18
 
 The first release serves the v0.1 profile: suites, candidates of kind
