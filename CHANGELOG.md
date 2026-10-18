@@ -54,6 +54,15 @@ here is refused before it is pushed.
   `baseline_owner` names another owner, shared or not, and the specs
   no longer let `suite.use` or `baseline.use` rest on a share. An
   authorizer of your own should refuse the same questions.
+- The specs keep every subject out of the public reads. A publication
+  version's `published_by` is answered by the signed-in reads alone,
+  `GET /publications/{id}` and `GET /publications/{id}/versions/{n}`,
+  and never under `/public/`; a snapshot leaves out a released
+  narrative's `released_by` and a measurement's `annotator`; and a
+  version whose owner neither your authorizer nor the request names
+  shows `attribution: null` instead of the owner's subject. A page that
+  names who signed off reads the version signed in and shows the name it
+  resolves, never the subject.
 - The specs define the stratified label test, the summed chi-square of
   a label metric permuted within each task, as a label result's
   suite-level test and as an experiment's declared test of independence
