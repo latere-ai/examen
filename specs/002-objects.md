@@ -165,6 +165,7 @@ else. The last column names the spec that explains its use.
 | `MAX_TASKS_PER_SUITE` | 1000 | tasks in one suite version | 002 |
 | `MAX_METRICS_PER_SUITE` | 64 | metrics in one suite version | 002 |
 | `MAX_CANDIDATES_PER_EXPERIMENT` | 32 | candidates in one experiment | 003 |
+| `MAX_DECLARED_COMPARISONS` | 128 | comparisons one experiment declares; it holds every pair of 16 candidates, and eleven per model for ten models | 003, 008 |
 | `MAX_ACTIVE_EXPERIMENTS_PER_OWNER` | 16 | experiments of one owner neither `complete` nor `canceled` | 004 |
 | `DEFAULT_PARALLELISM` | 8 | trials of one experiment running at once, unless set lower or higher | 005 |
 | `MAX_PARALLELISM` | 256 | the highest parallelism an experiment may set | 005 |
@@ -194,7 +195,7 @@ else. The last column names the spec that explains its use.
 | `FALSE_DISCOVERY_RATE` | 0.05 | the rate the multiple-comparison correction holds | 008 |
 | `CONFIDENCE_LEVEL` | 0.95 | the level of every reported interval | 008 |
 | `BOOTSTRAP_RESAMPLES` | 10,000 | resamples of every bootstrap interval | 008 |
-| `PERMUTATION_RESAMPLES` | the larger of 10,000 and ceil(20 · m / α), with m the number of p-values in the test's family and α the level that family is held at: for a comparison, m is the corrected family's size, 1 for the primary metric's suite-level result of a comparison that is not exploratory, and α is `FALSE_DISCOVERY_RATE`; for a benchmark's results table, m is K(K − 1) / 2 over its K ranked entries and α is 1 − `CONFIDENCE_LEVEL` | relabelings of a Monte Carlo permutation test | 008 |
+| `PERMUTATION_RESAMPLES` | the larger of 10,000 and ceil(20 · m / α), with m the number of p-values in the test's family and α the level that family is held at: for a comparison, m is the corrected family's size, 1 for the primary metric's suite-level result of a comparison that is not exploratory, D, the number of declared comparisons, for a declared comparison's primary result, 1 for an experiment's test of independence, and α is `FALSE_DISCOVERY_RATE`; for a benchmark's results table, m is K(K − 1) / 2 over its K ranked entries and α is 1 − `CONFIDENCE_LEVEL` | relabelings of a Monte Carlo permutation test | 008 |
 | `PERMUTATION_EXACT_MAX` | 200,000 | the most relabelings a permutation test, or tables Freeman and Halton's test, enumerates instead of sampling; it holds C(20, 10) = 184,756, so two cells of 10 trials are tested exactly | 008 |
 | `PERMUTATION_STOP_EXCEEDANCES` | 200 | the relabelings at least as extreme as the observed one after which a Monte Carlo permutation test stops drawing (Besag and Clifford's sequential rule); a stopped estimate's relative standard error is about 1 / sqrt(200), 7% | 008 |
 | `WINDOW_TOLERANCE` | 7 days | how far apart the starts, or the ends, of two sides' trial time windows may lie before a result carries the confound `window` | 008 |
@@ -430,6 +431,8 @@ One execution of a suite against candidates.
 | `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset. The reference set before any cell leaves `pending` is the declared one; a reference set later makes exploratory comparisons (spec 008) |
 | `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE`; after v0.1, a later build step (spec 005) |
 | `mode` | enum | `execute` (the default): Examen runs every cell; `import`: Examen runs no trial, and each cell is made from the resolved provenance tuple of the first trial imported into it (below) |
+| `comparisons` | []object | the comparisons the experiment declares it will make, at most `MAX_DECLARED_COMPARISONS`, set at create and never changed: each either `{candidate, reference_candidate, variable}`, two different candidates of the experiment and optionally one logical variable of spec 008 other than `task`, or `{candidate, task, reference_task}`, one candidate and two different tasks of the suite, by digest; no pair twice, in either orientation. Each is computed without being asked and is not exploratory, and the primary results of all of them are corrected together (spec 008). Empty when the experiment declares none |
+| `independence` | object | `{metric}`: one trial-level label metric of the suite, by digest, whose dependence on the candidate the experiment declares it will test over all its candidates, at least two, as the experiment-level test of independence (spec 008); set at create and never changed; accepted from the release that builds label tests |
 | `scheduling` | enum | how the cells take the experiment's `parallelism` and its external trials are leased, set at create and never changed: `task_by_task` (the default), a task's cells before the next task's, or `interleaved`, every cell of every task in turn, so trial `i` of every cell runs in one window whatever its task (spec 005) |
 | `state` | enum | below |
 | `created_by` | subject | the person who created it (spec 004), which may differ from `owner`: an experiment created in an organization's context is owned by the organization and created by the member. Set at create from the caller, never changed, and answered on every read |
@@ -621,8 +624,9 @@ true it never changes, and computing again makes a new comparison.
 | `baseline` | baseline id | the reference, when it is a baseline |
 | `reference_candidate` | candidate digest | the reference, when it is another candidate of the same experiment |
 | `task`, `reference_task` | task digest | for a comparison whose variable is `task`: the candidate's task, and the task of the same experiment whose cell of the same candidate is the reference (spec 008), whose `unpaired_tasks` and `candidate_suite` are then empty; exactly one of `baseline`, `reference_candidate` and `reference_task` is set |
-| `automatic` | bool | true for the comparison Examen keeps of a candidate against its experiment's `reference`; false for one computed on request (spec 003) |
-| `exploratory` | bool | true for a comparison computed on request, and for an automatic one against a reference set after a cell left `pending`: it is never headlined, and its primary metric's suite-level result is corrected in the family (spec 008); false for the automatic comparison against the declared reference |
+| `automatic` | bool | true for the comparison Examen keeps of a candidate against its experiment's `reference`; false for one computed on request (spec 003) and for a declared one that is not that pair |
+| `declared` | int | for a comparison its experiment declared: its position in the experiment's `comparisons`, from 0; absent otherwise. A declared comparison is computed without being asked, as the automatic one is, and its primary result is corrected with the other declared comparisons' in the experiment's declared analysis (spec 008) |
+| `exploratory` | bool | true for a comparison computed on request, and for an automatic one against a reference set after a cell left `pending`: it is never headlined, and its primary metric's suite-level result is corrected in the family (spec 008); false for the automatic comparison against the declared reference and for a declared comparison |
 | `state` | enum | `computing`, `complete`, `failed` |
 | `final` | bool | true once both sides are final: every declared trial of each side is `done` and graded; false while a figure can still change |
 | `variable` | []tuple field | what the comparison intends to vary: the tuple fields of one logical variable, `task_hash` for a comparison across tasks (spec 008) |
@@ -635,7 +639,7 @@ true it never changes, and computing again makes a new comparison.
 | `candidate_suite` | object | per metric, the candidate's own suite-level summary over the tasks of its suite with weight greater than zero, whatever the reference holds |
 | `windows` | object | for each side, the earliest `started_at` and the latest `ended_at` of every trial the comparison read; a result's `window` confound carries the same figures over that result's trials alone, which may be narrower (spec 008) |
 | `verdict_counts` | object | per metric, the number of task-level results with each verdict |
-| `correction` | object | `{method, primary, family}`: the correction applied, `benjamini_hochberg`; `primary`, the digest of the metric whose suite-level result is tested alone and reported uncorrected, absent on an exploratory comparison, whose primary result is in the family; and `family`, how many p-values the one corrected family held (spec 008) |
+| `correction` | object | `{method, primary, family, declared}`: the correction applied, `benjamini_hochberg`; `primary`, the digest of the metric whose primary result is out of the comparison's family, tested alone and reported uncorrected, or for a declared comparison corrected in the declared family, absent on an exploratory comparison, whose primary result is in the family; `family`, how many p-values the one corrected family held; and `declared`, on a declared comparison alone, `D`, the size of the declared family its primary result is corrected in (spec 008) |
 | `analysis_version` | string | `examen.analysis/v1` |
 | `parameters` | object | the values it was computed with of `FALSE_DISCOVERY_RATE`, `CONFIDENCE_LEVEL`, `MIN_TRIALS_FOR_VERDICT`, `MIN_TRIALS_PER_TASK_IN_SUITE`, `MIN_SUITE_COVERAGE`, `MIN_TRIALS_FOR_P90_INTERVAL`, `BOOTSTRAP_RESAMPLES`, `PERMUTATION_EXACT_MAX`, `PERMUTATION_STOP_EXCEEDANCES`, `BOSCHLOO_GRID_POINTS`, `TIE_TOLERANCE` and `WINDOW_TOLERANCE`, and `PERMUTATION_RESAMPLES` as resolved for the primary result and for the family |
 | `inputs_digest` | string | the digest of its inputs document (spec 008) |
@@ -653,10 +657,10 @@ A **result** is one row of `results`:
 | `delta`, `delta_kind` | the change, candidate less reference, and its kind: `difference`, or for a `label` metric `per_label`, an object from each label to the difference of its proportions |
 | `delta_interval` | the delta's interval at `CONFIDENCE_LEVEL`, for `per_label` an object from each label to its interval; absent where spec 008 computes none |
 | `no_delta_interval` | when `delta_interval` is absent on a result that is not `insufficient`: one plain sentence saying why, from spec 008's templates |
-| `method`, `statistic`, `exact`, `resamples` | the test: `boschloo_exact`, `permutation`, `stratified_permutation`, and once label tests are built `fisher_freeman_halton` or, when its tables are too many to enumerate, `chi_square_permutation`; the statistic it orders by: `fisher_p` for `boschloo_exact`, `welch_t`, `studentized_quantile`, `difference`, `table_probability`, `pearson_x2` or `label_distance` (spec 008); whether it enumerated every case; how many relabelings or tables it enumerated or drew, absent for `boschloo_exact`; all four absent on a descriptive result |
+| `method`, `statistic`, `exact`, `resamples` | the test: `boschloo_exact`, `permutation`, `stratified_permutation`, and once label tests are built `fisher_freeman_halton` or, when its tables are too many to enumerate, `chi_square_permutation`; the statistic it orders by: `fisher_p` for `boschloo_exact`, `welch_t`, `studentized_quantile`, `difference`, `table_probability`, `pearson_x2` or, for the stratified label test, `pearson_x2_sum` (spec 008); whether it enumerated every case; how many relabelings or tables it enumerated or drew, absent for `boschloo_exact`; all four absent on a descriptive result |
 | `seed` | this result's derived seed, hex |
-| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE`; on the primary metric's suite-level result of a comparison that is not exploratory, which is not corrected, `q` equals `p`; on a result that reads self-reported values, which stays outside the family, `p` alone; on a pair result of two benchmark entries, `h`, its Holm-adjusted value, in place of `q` (spec 008) |
-| `verdict` | one of the verdicts of the glossary; absent on a descriptive result: a `candidate` result, a `mode_share` or `distinct_count` result, a result that reads self-reported values, and a result of a `label` metric until label tests are built (spec 008) |
+| `p`, `q` | the uncorrected p-value, and the value after the correction at `FALSE_DISCOVERY_RATE`; on the primary metric's suite-level result of a comparison that is not exploratory, which is not corrected, `q` equals `p`; on a declared comparison's primary result, `p` alone, its `q` being the declared analysis's; on a result that reads self-reported values, which stays outside the family, `p` alone; on a pair result of two benchmark entries, `h`, its Holm-adjusted value, in place of `q` (spec 008) |
+| `verdict` | one of the verdicts of the glossary; absent on a descriptive result: a `candidate` result, a `mode_share` or `distinct_count` result, a result that reads self-reported values, and a result of a `label` metric until label tests are built; and on a declared comparison's primary result unless it is `insufficient`, whose verdict the declared analysis gives (spec 008) |
 | `reason` | one plain sentence saying why the verdict is what it is, such as "p = 0.048; q = 0.19 after correcting 40 results at 5%" or "task t3 has 3 trials; 5 needed" (spec 008) |
 | `left_out` | on a `suite` result: each task of weight above zero that the result does not include, `{task, why, candidate, reference}`, `why` either `unpaired` or `too_few_trials`, with each side's valued trials |
 | `confounds` | the result's confounds, below: on a task result for that task's cells, on a suite result for the tasks it includes |
@@ -694,6 +698,25 @@ candidate's tasks:
 | `tasks`, `coverage` | at suite level: the number of tasks included, and the share of the suite's weight they hold (spec 008); the tasks left out are named in the result's `left_out` |
 | `excluded` | the trials of the set not counted in `n`, by reason: `retried`, `infra_failed`, `over_budget`, `canceled`, `not_done` |
 | `final` | true once every declared trial of the set is `done` and graded; false while the figure can still change |
+
+## Declared analysis
+
+What an experiment declared before it ran, with its outcome: the
+correction of its declared comparisons' primary results together, and
+its test of independence. Computed by Examen (spec 008) for an
+experiment that declares `comparisons` or `independence`, and never
+written by a client. It is recomputed as the declared comparisons are,
+and replaced each time, so it always reads each declared comparison's
+newest record.
+
+| Field | Type | Meaning |
+|---|---|---|
+| `experiment` | experiment id | |
+| `final` | bool | true once every declared comparison's newest record is final and every cell the test of independence reads is final |
+| `family` | object | `{method, size, level}`: `benjamini_hochberg`; `D`, the number of comparisons the experiment declared, every one of which counts; and `FALSE_DISCOVERY_RATE` as the declared comparisons recorded it |
+| `comparisons` | []object | per declared comparison, in the experiment's order: `{index, comparison, metric, p, q, verdict, reason, final}`, its position, the id of its newest comparison, absent until one is computed, the primary metric's digest, its primary result's `p` and the `q` the declared family gives it, absent when it has no usable `p`, which counts as 1, the verdict from that `q` by spec 008's rule, `insufficient` for an insufficient result and absent for a descriptive or self-reported one, its reason, and whether that comparison is final |
+| `independence` | object | the experiment's independence result when it declares one: `metric`, `metric_name`, `candidates` (the experiment's, in its order), `summaries` (each candidate's suite-level summary over the included tasks, in that order), `tasks`, `coverage`, `left_out` (each task of weight above zero left out, `{task, why, counts}`, `why` `unpaired` or `too_few_trials`, `counts` each candidate's valued trials), `method`, `statistic`, `exact`, `resamples`, `seed`, `p`, `q` (equal to `p`), `verdict` (`changed`, `within_noise` or `insufficient`; absent on self-reported values and before label tests are built), `reason`, `confounds`, `final`, `analysis_version`, `parameters`, `inputs_digest` (spec 008) |
+| `computed_at` | time | |
 
 ## Bar
 
@@ -955,6 +978,12 @@ statistics (008), bar evaluation (009), reports (010) and sharing (013).
 - Metadata with more than `METADATA_MAX_PAIRS` pairs, or a key beginning
   `examen.`, is refused on every object that has it.
 - An experiment's N cannot change once any of its cells has started.
+- An experiment's `comparisons`, `independence` and `scheduling` are
+  set at create and never change; a declared pair named twice, in
+  either orientation, more than `MAX_DECLARED_COMPARISONS` of them, a
+  candidate or task the experiment does not hold, and an `independence`
+  metric that is not a trial-level label metric of the suite are
+  refused at create, naming the member.
 - An experiment's `created_by` is the caller of its create and its
   `owner` the context the create resolved, the two different for an
   organization's experiment; both are stored and answered on every

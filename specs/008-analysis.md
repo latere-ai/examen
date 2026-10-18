@@ -1,5 +1,5 @@
 ---
-title: "Analysis: per-cell summaries and their intervals by metric type and level, Boschloo's exact test, studentized permutation tests with sequential stopping and the label tests, the repeat rate, suite-level summaries with task weights and coverage, score intervals for weighted rates, the primary result, exploratory comparisons and the one corrected family, verdicts, reasons and the power floor, computed confounds and declared provenance, automatic and progressive comparisons, a benchmark's pair results over common tasks and simultaneous rank intervals, and trends, all computed deterministically and stored"
+title: "Analysis: per-cell summaries and their intervals by metric type and level, Boschloo's exact test, studentized permutation tests with sequential stopping and the label tests, the stratified label test, the repeat rate, suite-level summaries with task weights and coverage, score intervals for weighted rates, the primary result, exploratory comparisons and the one corrected family, declared comparisons whose primary results are corrected together, the experiment-level test of independence, verdicts, reasons and the power floor, computed confounds and declared provenance, automatic and progressive comparisons, a benchmark's pair results over common tasks and simultaneous rank intervals, and trends, all computed deterministically and stored"
 status: drafted
 track: core
 depends_on:
@@ -25,7 +25,9 @@ changed a metric against a reference, per task and over the suite. It
 fixes every summary, interval and test by name and formula, for
 metrics of every type and of each level, `trial`, `cell` and
 `candidate`, the correction that keeps many metrics and tasks from
-producing chance findings, the verdict rule and the plain reason each
+producing chance findings, the comparisons and the test of
+independence an experiment declares before it runs and how their
+planned tests are corrected, the verdict rule and the plain reason each
 verdict carries, how confounds are computed from the provenance tuple,
 the provenance layers and the trials' times, and how two comparisons
 of the same inputs are guaranteed to agree bit for bit.
@@ -379,7 +381,10 @@ whatever the data:
 - an exact permutation test: `1 / C(N, n_x)`, and `2 / C(N, n_x)` when
   `n_x = n_y`, since swapping the two sides gives the same `S`;
 - an exact stratified permutation test: `1 / prod_t C(n_xt + n_yt,
-  n_xt)`, doubled when every task's two sides are of one size.
+  n_xt)`, doubled when every task's two sides are of one size; for the
+  stratified label test of more than two sides, `1 / prod_t M_t` times
+  the orderings of the sides that keep every task's sizes (The
+  stratified label test, below).
 
 When that floor is above the result's threshold, no outcome of its
 trials could be a finding, and its `reason` is the power-floor template
@@ -440,12 +445,90 @@ log-gamma function.
 - A table with fewer than two labels, every trial of both sides holding
   one label, has `p = 1` and is `within_noise`.
 
-**The suite-level test** is the stratified permutation of below, with
-the statistic `label_distance`,
-`D = sum_l (S_x(l) - S_y(l))^2 / P(l)` over the labels, `S(l)` a side's
-weighted proportion and `P(l) = (S_x(l) + S_y(l)) / 2`, labels with
-`P(l) = 0` left out: one figure for the difference of the two weighted
-distributions the result reports.
+**The suite-level test** is the stratified label test, below, of the
+two sides over the included tasks (Suite-level summaries, below). When
+the primary metric is a label metric, it is the primary result of a
+comparison.
+
+### The stratified label test
+
+One test of whether a label metric depends on which side a trial is
+on, over several tasks at once, for any number of sides `K` of at
+least two: the two sides of a comparison's suite-level label result
+(`K = 2`), and every candidate of an experiment for the experiment's
+test of independence (below). Its `method` is
+`stratified_permutation` and its `statistic` `pearson_x2_sum`.
+
+For each included task `t`, the table is the `K` by `k_t` table of
+label counts over the labels with a count on any side in that task, an
+unmapped raw label among them as a label of its own: `O_tsl` the
+trials of side `s` holding label `l`, `n_ts` its row totals, `c_tl` its
+column totals, `N_t` its trials. The statistic is
+
+```
+X^2   = sum over the included tasks t of X^2_t
+X^2_t = sum over sides s and labels l of (O_tsl - E_tsl)^2 / E_tsl,
+        E_tsl = n_ts * c_tl / N_t
+```
+
+summed in a fixed order: tasks in ascending bytewise order of name,
+within a task the sides in their order (a comparison's candidate side
+first; an experiment's candidates in its order) and the labels in the
+result's label order, each squared difference rounded before its
+division. A task whose trials all hold one label adds 0 under every
+relabeling. The discrepancy is `X^2`.
+
+A relabeling permutes each included task's trials among its sides
+separately, keeping every side's `n_ts`. Under the null hypothesis
+that on every included task the sides share one distribution of the
+label, each task's trials are exchangeable, so every relabeling is
+equally likely and the test is exact whatever the statistic.
+
+- **Exact** when the product over tasks of `M_t`, the number of a
+  task's relabelings, `N_t! / prod_s n_ts!`, is at most
+  `PERMUTATION_EXACT_MAX`: every combination of the tasks' relabelings
+  is enumerated, a task's relabelings by choosing the first side's
+  trials among all of the task's in lexicographic order of position,
+  then the second side's among the rest, and so on, and the first
+  task's varying slowest, and `p` is the share of them whose `X^2` is at
+  least the observed one, the observed labeling included.
+- **Monte Carlo** otherwise, with sequential stopping as for any
+  permutation test (Tests per task, above), drawn from the result's
+  seed: each draw shuffles, for each task in the order above, a fresh
+  copy of the task's pooled values, the sides' values in the sides'
+  order and each side's in ascending order of trial id, and gives the
+  first `n_t1` to the first side, the next `n_t2` to the second, and so
+  on. `B` is `PERMUTATION_RESAMPLES` resolved for the result's family.
+- Its smallest p-value, when exact, is `1 / prod_t M_t` times the
+  number of orderings of the sides that leave every side's size the
+  same in every task: `2 / prod_t M_t` for two sides of one size in
+  every task, since swapping them gives the same `X^2` (The power floor,
+  above).
+
+**Why the summed chi-square.** The statistic sums what each task shows,
+so it has power against a difference on any one task, and against
+differences in opposite directions on two tasks, which cancel in the
+weighted proportions a label result reports: a candidate that answers
+`a` on one task where the reference answers `b`, and `b` on another
+where the reference answers `a`, has the reference's weighted
+distribution exactly, and a test of that distribution's difference
+would find nothing (Worked examples, below). The price is that a
+task's `X^2_t` grows with its trials, so unlike every other
+suite-level test this one does not weigh a task by the suite's weight:
+a weight decides only whether a task enters, by being above zero.
+That departs from the rule that fixes the other suite-level tests
+(Suite-level summaries, below) for a reason: a rate, a mean or a
+quantile reports one weighted figure, and its test asks about that
+figure; a label result reports per-label differences, which are
+descriptive, and its verdict is one test of whether the distributions
+differ at all, so there is no single weighted figure for it to match.
+When every included task holds as many valued trials per side, as a
+declared N gives unless trials fail, and every included task weighs
+the same, the summed chi-square is a fixed multiple of the
+weight-normalized one, and both give the same p-value. The stratified
+permutation of a distance between the two sides' weighted distributions
+is rejected: it tests the weighted figures and so finds nothing where
+differences cancel.
 
 ### Cell-level and candidate-level metrics
 
@@ -617,16 +700,21 @@ statistic:
 - `median`, `p90`: `studentized_quantile`,
   `T = (S_x - S_y) / sqrt(sum_t (w_t / W)^2 q (1 - q) (r_xt^2 / n_xt + r_yt^2 / n_yt))`,
   each `r` as per task;
-- `label`: `label_distance`, `D` (Label metrics, above).
+- `label`: `pearson_x2_sum`, the stratified label test (above), whose
+  relabelings, enumeration and draws are as defined there.
 
 The discrepancy is `abs(T)`. The test is exact when the product over
 tasks of `C(n_x + n_y, n_x)` is at most `PERMUTATION_EXACT_MAX`, and
 Monte Carlo with sequential stopping otherwise, with the p-values
 defined as per task. Every suite-level `delta_kind` of a numeric or
-binary metric is `difference`. The Cochran, Mantel and Haenszel test
-and van Elteren's stratified rank test are rejected: each weighs a task
-by its number of trials, not by the weight the suite declares, so its
-p-value would test a different summary than the one reported.
+binary metric is `difference`. For a rate, a mean and a quantile, the
+Cochran, Mantel and Haenszel test and van Elteren's stratified rank
+test are rejected: each weighs a task by its number of trials, not by
+the weight the suite declares, so its p-value would test a different
+summary than the one reported. A label result reports no single
+weighted summary for its test to match, and its stratified label test
+sums each task's chi-square as the task holds it (The stratified label
+test, above).
 
 In a comparison, the tasks considered are the paired tasks
 (Comparisons, below) of weight greater than zero, weighted by the
@@ -647,7 +735,10 @@ Each result gets one by this rule, in this order:
 2. No verdict on a descriptive result: a `candidate` result, a
    `mode_share` or `distinct_count` result, a result that reads
    self-reported values (Multiple comparisons, below), and a `label`
-   result before label tests are built.
+   result before label tests are built. A declared comparison's primary
+   result has no verdict in the comparison: the experiment's declared
+   analysis gives it one, by this rule, from its `q` there (Multiple
+   comparisons, below).
 3. For a metric whose `direction` is `none`: `changed` when the
    corrected value `q` is at most `FALSE_DISCOVERY_RATE`, and
    `within_noise` otherwise.
@@ -685,6 +776,10 @@ verdict is what it is, built from fixed templates with numbers in spec
 | a result whose exact test cannot reach its threshold | "with 5 trials per side, no difference can be shown among 40 results"; with sides of two sizes, "with 5 and 7 trials, no difference can be shown among 40 results"; tested alone, "with 2 trials per side, no difference can be shown at 5%"; at suite level, "with 3 tasks of 2 trials per side, no difference can be shown among 40 results" |
 | a delta of zero | "no difference between the two sides" |
 | a result that reads self-reported values | "p = 0.03 on values the external harness reported itself: not a finding, and outside the corrected family" |
+| a declared comparison's primary result | "p = 0.012 for the primary metric of a declared comparison; corrected with the primary results of 11 declared comparisons in the experiment's declared analysis" |
+| a declared comparison's primary result whose exact test cannot reach `FALSE_DISCOVERY_RATE / D` | "with 5 trials per side, no difference can be shown among 11 declared comparisons" |
+| a declared comparison in the declared analysis | "p = 0.012; q = 0.044 after correcting the primary results of 11 declared comparisons at 5%"; one not computed yet, "not computed yet: the candidate has no finished trial"; otherwise its comparison's own reason |
+| the experiment's test of independence | "p = 0.004 for the experiment's declared test of independence, tested alone without correction"; with a power floor, "with 4 tasks of 5 trials per candidate, no difference can be shown at 5%"; a statistic of 0, "no difference between the candidates" |
 | a mode share | "descriptive: a mode share depends on the number of trials, so it is not tested" |
 | a count of distinct labels | "descriptive: a count of distinct labels depends on the number of trials, so it is not tested" |
 | a label result, before label tests are built | "descriptive: label tests are not built yet" |
@@ -723,7 +818,9 @@ A comparison's p-values are read in two parts:
   pre-declared test: the suite names the metric and the experiment its
   reference before any trial runs, and the comparison exists to answer
   it. It is tested alone at `FALSE_DISCOVERY_RATE` and reported without
-  correction, so its `q` equals its `p`.
+  correction, so its `q` equals its `p`. A declared comparison's
+  primary result is corrected with the other declared comparisons'
+  instead (Declared comparisons, below).
 - **The family.** Every other result of the comparison that has a
   p-value, the task-level results of every metric, the primary
   metric's included, and the suite-level results of every other
@@ -771,6 +868,72 @@ declared before any trial ran, so testing it alone is one planned test,
 not a pick among many. Correcting it together with hundreds of
 task-level results would make the result a release rests on depend on
 how many tasks and metrics the suite happens to list.
+
+**Declared comparisons.** An experiment may declare, when it is
+created, the comparisons it will make (spec 002, `comparisons`): pairs
+of its candidates, each optionally with a variable, and pairs of tasks
+for one of its candidates, the comparison across tasks of Confounds and
+the variable, below. Each is computed without being asked, as the
+automatic comparison is, progressively and a last time when both sides
+are final (Comparisons, below), with `declared` its position in the
+experiment's list and `exploratory` false. A declared comparison is
+read like any other, with one difference: its primary result, the
+suite-level result of the primary metric for a pair of candidates and
+the task-level result of the primary metric for a pair of tasks, is in
+no comparison's family. The primary results of all the experiment's
+declared comparisons form one family of their own, corrected together
+by Benjamini and Hochberg's procedure at `FALSE_DISCOVERY_RATE`, and
+every other result of a declared comparison is in its own comparison's
+family, as in any comparison that is not exploratory.
+
+- **The family's size** is `D`, the number of comparisons the
+  experiment declared, known at create. Every declared comparison
+  counts in it: a primary result without a usable p-value, because it
+  is insufficient, descriptive, reads self-reported values or is not
+  computed yet, counts as `p = 1`, so it is never a finding and never
+  makes the correction grant another result more than `D` p-values
+  allow. `PERMUTATION_RESAMPLES` for a declared primary result resolves
+  with `m = D`, and its power floor's threshold is
+  `FALSE_DISCOVERY_RATE / D`.
+- **Where the corrected values live.** A declared comparison's primary
+  result stores its `p`, its reason, which names the declared family or
+  states its power floor, and no `q` or verdict, since its `q` depends
+  on the other declared comparisons' p-values. The experiment's
+  declared analysis (The stored analysis, below) stores, for each
+  declared comparison, its primary result's `p`, `q`, verdict and
+  reason, computed from what the declared comparisons store; a primary
+  result that is insufficient keeps that verdict there. A bar or a
+  report that reads a declared comparison's primary verdict reads it
+  there.
+- **The automatic pair.** A declared pair of candidates that is the
+  automatic comparison's pair, the same candidate against the
+  experiment's reference candidate, in that orientation, is that
+  comparison: one record, `automatic` true and `declared` set, whose
+  primary result is in the declared family and not tested alone. In
+  the other orientation it is a comparison of its own.
+
+Why one family across declared comparisons, when the family is
+otherwise one comparison: the family is one comparison so that adding a
+candidate to an experiment never moves another candidate's verdicts.
+The declared set is closed when the experiment is created, before any
+trial is leased, submitted or imported (spec 003), so no candidate or
+comparison added later can join it and move its corrected values; a
+comparison asked for later is made on request, and is exploratory. And
+correcting the planned tests together is what bounds the share of
+false findings among them at `FALSE_DISCOVERY_RATE`: tested alone at
+5% each, ten independent planned tests find at least one difference in
+40% of experiments where nothing differs. Correcting them with
+every task-level result instead would bury the planned tests under
+hundreds of others, so each comparison's other results keep their own
+family.
+
+**The experiment's test of independence.** An experiment may also
+declare, when it is created, one label metric whose dependence on the
+candidate it tests over all its candidates at once (spec 002,
+`independence`): the experiment-level test of independence (below). It
+is one planned test, tested alone at `FALSE_DISCOVERY_RATE`, its `q`
+equal to its `p`, and in no family, for the reason the declared
+primary result of a comparison that is not exploratory stands alone.
 
 Benjamini and Hochberg's procedure controls the false discovery rate
 when the p-values are positively dependent, which is the dependence
@@ -976,11 +1139,18 @@ the two in one window.
   change of the experiment's `reference` starts new automatic
   comparisons, `exploratory` when the change came after a cell left
   `pending`; the earlier ones stay.
+- **Declared.** For every comparison the experiment declared (Multiple
+  comparisons, above), with `declared` its position in the
+  experiment's `comparisons` and `exploratory` false, computed and
+  recomputed as an automatic comparison is, from its candidate's first
+  finished trial to its last computation once both sides are final. A
+  declared comparison across tasks needs both of its cells; until both
+  exist, as in mode `import` before the first trial of each, it waits.
 - **After a later grading.** A grading appended to a trial that a final
   comparison read, or a taxonomy record appended for an open-vocabulary
   metric it read (spec 006), makes a new comparison of the same pair,
-  final and with the same `automatic` and `exploratory`; the earlier one
-  stays.
+  final and with the same `automatic`, `declared` and `exploratory`;
+  the earlier one stays, and the declared analysis reads the newest.
 - **For a bar evaluation.** When a bar pins a taxonomy record that no
   final comparison of the pair it reads was read at, a comparison of
   that pair read at the bar's records, with the `automatic` and
@@ -998,7 +1168,7 @@ runs, and a bar or a report reads only a final comparison (specs 009
 and 010). Every comparison is computed by the work queue.
 
 **The comparison record** is spec 002's. Of its fields, the analysis
-fills `reference_candidate` or `baseline`, `automatic`, `exploratory`,
+fills `reference_candidate` or `baseline`, `automatic`, `declared`, `exploratory`,
 `state`, `final`, `single_variable`, `confounds`,
 `declared_provenance`, `unpaired_tasks`, `candidate_suite` (what a
 bar's `at_least` and `at_most` read, spec 009), `windows`,
@@ -1049,6 +1219,84 @@ analysis: it computes its own side summaries and keeps them, so a
 comparison stays reproducible when the stored analysis moves on.
 
 Each comparison also stores its `verdict_counts`, which a headline shows.
+
+**The declared analysis.** For an experiment that declared comparisons
+or a test of independence, `examend` keeps one more record (spec 002):
+
+- the declared family: its method, `benjamini_hochberg`, its size `D`
+  and its level, `FALSE_DISCOVERY_RATE` as the declared comparisons
+  recorded it;
+- for each declared comparison, in the experiment's order, the newest
+  comparison of it, its primary metric, its primary result's `p`, the
+  `q` Benjamini and Hochberg's procedure gives it among the `D`
+  p-values, each missing one counted as 1 (Multiple comparisons,
+  above), its verdict by the rule of Verdicts, below, from that `q`,
+  its reason, and whether that comparison is final;
+- the experiment's test of independence when it declared one (below).
+
+It is recomputed by the work queue, under the experiment's row lock,
+each time a declared comparison is computed, and replaces the record
+before; it computes no test, only the correction of the p-values the
+comparisons store, so recomputing it from the same comparisons gives
+the same record bit for bit. It is `final` once every declared
+comparison's newest record is final, and the test of independence's
+cells are final.
+
+### The experiment-level test of independence
+
+An experiment that declares `independence` (spec 002) names one
+trial-level label metric of its suite, and the test asks whether that
+metric depends on the candidate, over all the experiment's candidates
+and the suite's tasks at once. It is the stratified label test (above)
+with one side per candidate, in the experiment's candidate order,
+`K` of them, at least two.
+
+- **Tasks.** A task of weight above zero is included when every
+  candidate's cell of it holds at least `MIN_TRIALS_PER_TASK_IN_SUITE`
+  valued trials of the metric. `coverage` is the included tasks' share
+  of the weight of the suite's tasks of weight above zero, and every
+  task left out is listed in `left_out` as `unpaired`, when a candidate
+  holds no cell of it, or `too_few_trials`, with each candidate's
+  valued trials. Below `MIN_SUITE_COVERAGE` the result is
+  `insufficient`, with no p-value.
+- **Reading.** Each candidate's cells are read at the producing grader
+  the suite names, an open-vocabulary metric at the suite's current
+  taxonomy record, as a comparison reads its candidate side
+  (Comparisons, above).
+- **Summaries.** Each candidate's suite-level summary of the metric
+  over the included tasks, as a comparison's suite-level label result
+  carries it.
+- **Verdict.** `changed` when `p` is at most `FALSE_DISCOVERY_RATE`,
+  and `within_noise` otherwise; `q` equals `p`. It has no verdict, and
+  keeps its `p`, when any value it reads is self-reported; and no `p`,
+  `q` or verdict before label tests are built, like any label result.
+  `insufficient` comes first, by the coverage rule above.
+- **Confounds.** `missing`, `self_reported`, `incomplete` and
+  `uncalibrated`, as a comparison's results carry them, with their
+  counts per candidate and the tasks they occur in. Its candidates
+  differ by design, so no tuple field is a confound, and the layer
+  confounds are a pair's and are read in the declared comparisons.
+- **Seeds.** Its inputs document is the canonical JSON of
+  `analysis_version`, `parameters`, `label_tests`, the metric's
+  digest, the suite's weights, the taxonomy record and calibration
+  read, and for each candidate in the experiment's order, per cell of
+  a task of weight above zero, the task's name and digest and per
+  finished trial its id and outcome and the measurement read, as a
+  comparison's document holds them, with each candidate's excluded
+  trials. Its root seed derives from that document's digest as a
+  comparison's does, and its test's seed from the scope
+  `"experiment"` (Determinism, below).
+- **When.** It is computed with the declared analysis, from the
+  candidates' first finished trials, and recomputed as they finish and
+  as gradings arrive; it is final once every cell it reads is final,
+  and is then computed a last time.
+
+The result is spec 002's independence result: the metric, the
+candidates, their summaries, `tasks`, `coverage` and `left_out`, the
+test's `method`, `statistic`, `exact`, `resamples` and `seed`, `p`,
+`q`, the verdict and its reason, the confounds, `final`, and the
+`analysis_version`, `parameters` and `inputs_digest` it was computed
+with.
 
 ### Benchmark entries
 
@@ -1238,7 +1486,9 @@ every machine and architecture.
 
 **Inputs.** A comparison's inputs document is the canonical JSON of
 spec 002 of: `analysis_version`, `parameters`, `variable`,
-`exploratory`, the candidate suite's weights and primary metric, and
+`exploratory`, for a declared comparison `declared`, the size `D` of
+its experiment's declared family, which resolves its primary result's
+`PERMUTATION_RESAMPLES`, the candidate suite's weights and primary metric, and
 for each side and each paired task the task name and digest, the
 cell's tuple, the producing grader read per metric, each taxonomy
 record read with its digest and whether a bar pinned it, for each label
@@ -1259,7 +1509,9 @@ inputs_digest)`. Each procedure of each result has its own seed,
 `SHA-256(root || metric digest || 0x00 || scope || 0x00 ||
 procedure)`. `scope` is `"task:"` and the task's name for a task-level
 result (for a comparison across tasks, `"task:"` and both names joined
-by `" vs "`), `"suite"` for a suite-level result, and `"pair:"` with
+by `" vs "`), `"suite"` for a suite-level result, `"experiment"` for
+the experiment-level test of independence, whose root seed comes from
+its own inputs document, and `"pair:"` with
 two submission ids for a pair result; a name of spec 003 holds no `:`
 and no space, so no task's scope equals another scope. `procedure` is
 one of `summary_interval:candidate`, `summary_interval:reference`,
@@ -1351,6 +1603,12 @@ in binary64 otherwise, at `CONFIDENCE_LEVEL` 0.95:
 | resamples | m = 40; m = 500 | `B` = 16,000; `B` = 200,000 |
 | sequential stopping | the 200th exceedance at the 800th draw | p = 200/800 = 0.25, `resamples` 800 |
 | Holm | p = 0.003, 0.03, 0.4 over three pairs | h = 0.009, 0.06, 0.4: only the first pair is apart at 0.05, and the pair of p = 0.03 is `within_noise` |
+| stratified label test, two sides | t1: a, a, a, b against b, b, b, a; t2: a, a, b against a, b, b | X^2 = 2 + 2/3 = 8/3; 70 × 20 = 1,400 relabelings; p = 752/1,400 = 94/175 = 0.5371 |
+| stratified label test, opposite shifts | t1: a, a, a, a against b, b, b, b; t2: b, b, b, b against a, a, a, a | the two weighted distributions are equal, so a test of them finds nothing; X^2 = 8 + 8 = 16; 4,900 relabelings; p = 4/4,900 = 1/1,225 = 0.00082 |
+| stratified label test, three sides | t1: a, a, b; a, b, b; b, b, b; t2: a, a; a, b; b, b | X^2 = 3 + 4 = 7; 1,680 × 90 = 151,200 relabelings; p = 63,720/151,200 = 59/140 = 0.4214 |
+| stratified label test, one label per task | every trial of t1 holds a, every trial of t2 holds b | X^2 = 0 under every relabeling; p = 1 |
+| the declared family | D = 4: primary p-values 0.01, 0.04, an insufficient result, 0.03 | the insufficient result counts as 1: q = 0.04, 0.0533, none, 0.0533, one finding at 5%; corrected over the three p-values alone, q would be 0.03, 0.04 and 0.04, three findings |
+| resamples of a declared primary result | D = 33 | `B` = 13,200 |
 | rank intervals | three entries, the first and the third apart | [1, 2], [1, 3], [2, 3] |
 
 ### Limits
@@ -1378,7 +1636,10 @@ benchmark (spec 013).
 
 ## Build order
 
-The first release, v0.1, builds everything above but label tests, open
+Declared comparisons, their declared family and the declared analysis
+follow v0.1 in the release after it; the experiment's test of
+independence is accepted, and computed, from the release that builds
+label tests, since it is one. The first release, v0.1, builds everything above but label tests, open
 vocabularies, cell-level and candidate-level metrics and the
 `uncalibrated` confound, benchmark entries, trends and the
 cross-architecture run of the golden comparison, which follow as later
@@ -1409,6 +1670,10 @@ after publishing (spec 013).
 | A suite-level rate's interval is Wilson's on Kish's effective sample size and a suite-level rate difference's is Agresti and Caffo's, matching the worked examples; no rate or rate difference uses the bootstrap-t | `analysis.TestSuiteRateIntervals` |
 | A metric with direction `none` is never `improved` or `regressed`; a significant change is `changed`; before label tests are built a label result carries no verdict, `p` or `q` | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive` |
 | Label tests: Fisher, Freeman and Halton's p-value matches reference values for 2 by k tables, ties and a one-label table included; above `PERMUTATION_EXACT_MAX` tables the chi-square permutation draws from the result's seed with sequential stopping and repeats bit for bit; a significant difference is `changed`; per-label intervals are Newcombe's per task and Agresti and Caffo's over the suite | `analysis.TestFisherFreemanHalton`, `analysis.TestChiSquarePermutation` |
+| The stratified label test matches the worked examples' exact p-values for two and three sides; a task of one label adds nothing and every task of one label gives p = 1; above `PERMUTATION_EXACT_MAX` relabelings it draws from its seed with sequential stopping, repeats bit for bit and lands near the exact p-value; a comparison's suite-level label result is its two-sided form, with the statistic `pearson_x2_sum`, and finds the opposite shifts a test of the weighted distributions misses | `analysis.TestStratifiedLabelTest`, `analysis.TestLabelResults` |
+| A declared comparison's primary result is in no comparison's family, carries its `p` and no `q` or verdict, draws `PERMUTATION_RESAMPLES` resolved with `m = D` and reads its power floor at `FALSE_DISCOVERY_RATE / D`; a declared comparison across tasks is not exploratory and its primary result is the primary metric's task-level result; its inputs document carries `D` and one that is not declared is unchanged | `analysis.TestDeclaredComparison` |
+| The declared family corrects every declared comparison's primary p-value together over `D`, a missing one counted as 1, and matches the worked example; an insufficient primary result keeps its verdict and no `q`; a self-reported one keeps its `p` and no verdict; the declared analysis recomputed from the same comparisons is identical | `analysis.TestDeclaredFamily` |
+| The experiment's test of independence over three candidates matches the worked example; it includes the tasks every candidate holds enough trials of and is `insufficient` below `MIN_SUITE_COVERAGE`, is tested alone with `q` equal to `p`, is `changed` or `within_noise`, has no verdict on self-reported values and no `p` before label tests are built, states its power floor, and recomputes bit for bit from its inputs document with the seed scope `experiment` | `analysis.TestIndependence` |
 | A repeat rate matches the worked examples, is tested by the exact permutation of its difference (12/252 for five equal labels against five distinct), has no interval and says why, and its suite-level figure is the weighted mean; `mode_share` and `distinct_count` carry no interval, `p`, `q` or verdict, and stay out of the family, `verdict_counts` and the headline | `analysis.TestRepeatRate`, `analysis.TestDescriptiveCellMeasures` |
 | A candidate-level result carries both values and no interval, `p`, `q` or verdict, and stays out of the family | `analysis.TestCandidateLevelIsDescriptive` |
 | An open-vocabulary metric is read at one taxonomy record on both sides, the suite's or the one a bar pins; an unmapped raw label counts as a label of its own, marked, and never as missing; a new record after a final comparison makes a new comparison | `analysis.TestTaxonomyReads` |
