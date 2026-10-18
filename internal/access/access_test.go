@@ -208,6 +208,11 @@ func TestTheLimitsOfAnAllow(t *testing.T) {
 	if update.Owner != "" || update.MaxParallelism != limits.MaxParallelism || update.MaxTrials != 50 || update.Budget != "" || update.Executors != nil {
 		t.Fatalf("update %+v", update)
 	}
+	// A list's allow names the owner context a name is resolved in.
+	s.Allow(stub.Rule{Action: authorizer.ActionSuiteList, Limits: map[string]any{"owner": "https://issuer.example.com|org"}})
+	if list := ask(authorizer.ActionSuiteList, "").Limits; list.Owner != "https://issuer.example.com|org" || list.MaxTrials != 0 {
+		t.Fatalf("list %+v", list)
+	}
 	apply := ask(authorizer.ActionSuiteApply, "").Limits
 	if apply.Owner != "https://issuer.example.com|org" || apply.MaxTrials != 0 || apply.Budget != "" {
 		t.Fatalf("apply %+v", apply)
@@ -351,6 +356,11 @@ func TestOwnerPolicy(t *testing.T) {
 		{"a create naming another", alice, authorizer.ActionExperimentCreate, res(authorizer.ActionExperimentCreate, "exp_9", map[string]any{"owner": bob}), false, authz.ReasonNotOwner, false},
 		{"a pin naming no owner", alice, authorizer.ActionBaselinePin, res(authorizer.ActionBaselinePin, "", map[string]any{"name": "main"}), true, "", false},
 		{"a taxonomy of its own suite", alice, authorizer.ActionTaxonomyApply, res(authorizer.ActionTaxonomyApply, "", map[string]any{"owner": alice}), true, "", false},
+		{"another's shared baseline", bob, authorizer.ActionBaselineRead, res(authorizer.ActionBaselineRead, "bas_1", map[string]any{"owner": alice, "shared": true}), true, "", false},
+		{"another's baseline", bob, authorizer.ActionBaselineRead, res(authorizer.ActionBaselineRead, "bas_1", map[string]any{"owner": alice}), false, authz.ReasonNotOwner, false},
+		{"its own cell retry", alice, authorizer.ActionCellRetry, res(authorizer.ActionCellRetry, "exp_1", map[string]any{"owner": alice, "cell": "cel_1"}), true, "", false},
+		{"a run of its own experiment", alice, authorizer.ActionExperimentRun, res(authorizer.ActionExperimentRun, "exp_1", map[string]any{"owner": alice, "created_by": alice}), true, "", false},
+		{"a run of an experiment another created", bob, authorizer.ActionExperimentRun, res(authorizer.ActionExperimentRun, "exp_1", map[string]any{"owner": alice, "created_by": bob}), false, authz.ReasonNotOwner, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

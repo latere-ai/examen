@@ -45,9 +45,11 @@ var readsShared = []string{
 //   - a stored object whose owner is the subject, any action: allow;
 //   - a read of a task, metric, grader, suite or taxonomy that is shared
 //     with the subject or pinned by an experiment of the subject's: allow;
-//   - a read of an experiment shared with the subject: allow;
+//   - a read of an experiment or a baseline shared with the subject:
+//     allow;
 //   - an apply, create or pin that names no owner, or names the subject:
 //     allow;
+//   - experiment.run whose created_by and owner are the subject: allow;
 //   - anything else: deny, not_owner.
 //
 // A subject therefore acts on what it owns and nothing else, so
@@ -108,9 +110,11 @@ func (OwnerPolicy) decide(req authz.Request) authz.Decision {
 		return allow
 	case slices.Contains(readsShared, req.Action) && (flag(req.Resource, authorizer.FieldShared) || flag(req.Resource, authorizer.FieldPinned)):
 		return allow
-	case req.Action == authorizer.ActionExperimentRead && flag(req.Resource, authorizer.FieldShared):
+	case (req.Action == authorizer.ActionExperimentRead || req.Action == authorizer.ActionBaselineRead) && flag(req.Resource, authorizer.FieldShared):
 		return allow
 	case slices.Contains(creates, req.Action) && (owner == "" || owner == req.Subject):
+		return allow
+	case req.Action == authorizer.ActionExperimentRun && owner == req.Subject && req.Resource.String(authorizer.FieldCreatedBy) == req.Subject:
 		return allow
 	}
 	return authz.Decision{Reason: authz.ReasonNotOwner}

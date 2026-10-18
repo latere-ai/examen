@@ -61,6 +61,9 @@ const (
 	ActionExperimentRead   = "experiment.read"
 	ActionExperimentList   = "experiment.list"
 	ActionExperimentUpdate = "experiment.update"
+	// ActionCellRetry resumes a cell parked blocked or over_budget. It acts
+	// on the experiment and is decided as experiment.update is.
+	ActionCellRetry        = "cell.retry"
 	ActionExperimentCancel = "experiment.cancel"
 	ActionExperimentImport = "experiment.import"
 	// ActionTrialLease and ActionTrialSubmit are an external harness's work
@@ -68,6 +71,11 @@ const (
 	// can name them alone, and are decided as experiment.update is.
 	ActionTrialLease  = "trial.lease"
 	ActionTrialSubmit = "trial.submit"
+	// ActionExperimentRun is asked by Examen itself, with no caller
+	// present, before each step of an experiment's unattended work: a
+	// rollout's submission, and handing out a cell's external trials. Its
+	// subject is the experiment's created_by and its claims are empty.
+	ActionExperimentRun = "experiment.run"
 
 	ActionBaselinePin  = "baseline.pin"
 	ActionBaselineRead = "baseline.read"
@@ -171,7 +179,21 @@ const (
 	FieldOutcome = "outcome"
 	// FieldExperiment is, on a baseline pin, the experiment it pins.
 	FieldExperiment = "experiment"
+	// FieldCreatedBy, FieldPurpose and FieldCell are, on experiment.run,
+	// the subject that created the experiment, the work about to be done,
+	// and the cell it is for; FieldCell is also the cell cell.retry names.
+	FieldCreatedBy = "created_by"
+	FieldPurpose   = "purpose"
+	FieldCell      = "cell"
+	// FieldCellState and FieldParkedReason are, on cell.retry, the cell's
+	// parked state and its parked_reason.
+	FieldCellState    = "cell_state"
+	FieldParkedReason = "parked_reason"
 )
+
+// PurposeTrial is the purpose experiment.run names for a cell's rollouts
+// and for handing out its external trials.
+const PurposeTrial = "trial"
 
 // action is one row of the vocabulary table: its name, its kind, the
 // fields it sends, and whether it sends an id.
@@ -215,10 +237,12 @@ var table = []action{
 	{ActionExperimentRead, KindExperiment, []string{FieldOwner, FieldSuite, FieldState, FieldMode, FieldShared}, true},
 	{ActionExperimentList, KindExperiment, []string{FieldOwner}, false},
 	{ActionExperimentUpdate, KindExperiment, append(slices.Clone(experiment), FieldTrials, FieldTrialsTotal, FieldParallelism, FieldReferenceCandidate, FieldBaseline, FieldBaselineOwner), true},
+	{ActionCellRetry, KindExperiment, append(slices.Clone(experiment), FieldCell, FieldCellState, FieldParkedReason), true},
 	{ActionExperimentCancel, KindExperiment, []string{FieldOwner, FieldSuite, FieldState}, true},
 	{ActionExperimentImport, KindExperiment, append(slices.Clone(experiment), FieldTask, FieldCandidate, FieldExecutor, FieldExecutorRef), true},
 	{ActionTrialLease, KindExperiment, append(slices.Clone(experiment), FieldCandidate, FieldHarness, FieldLease), true},
 	{ActionTrialSubmit, KindExperiment, append(slices.Clone(experiment), FieldCandidate, FieldHarness, FieldTrial, FieldLease, FieldOutcome), true},
+	{ActionExperimentRun, KindExperiment, []string{FieldOwner, FieldCreatedBy, FieldState, FieldPurpose, FieldCell, FieldExecutor, FieldBudget}, true},
 	{ActionBaselinePin, KindBaseline, []string{FieldOwner, FieldSuite, FieldSuiteOwner, FieldName, FieldExperiment, FieldCandidate}, false},
 	{ActionBaselineRead, KindBaseline, []string{FieldOwner, FieldSuite, FieldSuiteOwner, FieldName, FieldShared}, true},
 	{ActionBaselineList, KindBaseline, []string{FieldOwner, FieldSuite, FieldSuiteOwner}, false},

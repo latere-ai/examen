@@ -204,16 +204,18 @@ var applies = []string{
 }
 
 // readsLimits reports whether the allow of an action carries limits Examen
-// holds. The limits of any other allow are not read.
+// holds. The limits of any other allow are not read. A list is asked
+// before a name sent without an owner is resolved, and its allow's owner
+// is the context the name is resolved in.
 func readsLimits(action string) bool {
-	return slices.Contains(applies, action) || action == authorizer.ActionExperimentUpdate
+	return slices.Contains(applies, action) || action == authorizer.ActionExperimentUpdate || authz.IsList(action)
 }
 
 // held keeps the members an action's allow is read for, each narrowed to
 // the limit of spec 002 it may lower and never raise.
 func held(action string, l authorizer.Limits) authorizer.Limits {
 	var out authorizer.Limits
-	if slices.Contains(applies, action) {
+	if slices.Contains(applies, action) || authz.IsList(action) {
 		out.Owner = l.Owner
 	}
 	switch action {
