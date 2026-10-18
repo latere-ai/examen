@@ -42,6 +42,11 @@ that loop declarative:
   configuration, the model and what actually served, the versions of
   the services it called, the environment and the task. When two
   results differ in more than one of those, the report says so.
+- **Planned tests stay planned.** Declare the comparisons an experiment
+  will make before any trial runs, and their headline results are
+  corrected together; a comparison asked for afterwards is marked
+  exploratory. Trials can be interleaved across every task and
+  candidate, so the conditions you compare run in the same window.
 - **Expected outputs scored without a model.** Built-in comparators
   score an output against a reference answer, by exact match, numeric
   tolerance, set overlap, text overlap or field-level precision and
@@ -61,12 +66,13 @@ that loop declarative:
   did in its own words; a taxonomy you keep, versioned, groups those
   labels, and Examen tests whether two candidates' label distributions
   differ and how often each fixes on one answer.
-- **Results you can share.** Publish a report, a suite others can run
-  with the results submitted to it, or a dataset, as immutable
+- **Results you can share.** Publish a report, a benchmark of a suite
+  with the results your side ran on it, or a dataset, as immutable
   versions: for the people you invite, for anyone with the link, or
-  listed once your installation approves. You choose how much of the
-  runs' content goes with it, a secret scan runs first, and you can
-  withdraw a version at any time.
+  listed once your installation approves. Whoever you share with reads
+  what you shared, and only your side runs your experiments. You
+  choose how much of the runs' content goes with it, a secret scan
+  runs first, and you can withdraw a version at any time.
 
 Each run with its grades is also one scored trajectory, so the same
 rollouts can feed a training loop.
