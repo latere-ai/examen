@@ -34,15 +34,6 @@ var kinds = []kindRoute{
 	{kind: objects.KindCandidate, plural: "candidates", apply: authorizer.ActionCandidateApply, read: authorizer.ActionCandidateRead, list: authorizer.ActionCandidateList},
 }
 
-func kindOf(kind string) kindRoute {
-	for _, k := range kinds {
-		if k.kind == kind {
-			return k
-		}
-	}
-	return kindRoute{}
-}
-
 // versionRoutes are the four routes of each versioned kind.
 func versionRoutes() []route {
 	var out []route

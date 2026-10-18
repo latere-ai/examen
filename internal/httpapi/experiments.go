@@ -451,7 +451,12 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	if l.MaxActiveExperiments > 0 {
 		ne.MaxActive = l.MaxActiveExperiments
 	}
+	// In mode import no cell exists at create: each is made by the first
+	// import of its task and candidate.
 	for ti, td := range p.resolved.Suite.Tasks {
+		if mode != objects.ModeExecute {
+			break
+		}
 		for ci, cb := range p.candBodies {
 			tuple, err := p.resolved.TupleOf(td, cb)
 			if err != nil {
@@ -461,13 +466,10 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 				ID: id.New(id.Cell), Task: td, Candidate: candDigests[ci], Tuple: tuple,
 				TaskID: p.resolved.TaskIDs[td], CandidateID: p.candidates[ci].ID, TaskPos: ti, CandidatePos: ci,
 			}
-			nc := store.NewCell{Cell: cell}
-			if mode == objects.ModeExecute {
-				smoke := execute.Smoke(cell.ID, trials)
-				nc.Smoke = &store.Rollout{Rollout: smoke.Rollout}
-				for _, t := range smoke.Trials {
-					nc.Smoke.Trials = append(nc.Smoke.Trials, store.RolloutTrial{Index: t.Index})
-				}
+			smoke := execute.Smoke(cell.ID, trials)
+			nc := store.NewCell{Cell: cell, Smoke: &store.Rollout{Rollout: smoke.Rollout}}
+			for _, t := range smoke.Trials {
+				nc.Smoke.Trials = append(nc.Smoke.Trials, store.RolloutTrial{Index: t.Index})
 			}
 			ne.Cells = append(ne.Cells, nc)
 		}

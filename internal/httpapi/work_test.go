@@ -300,6 +300,11 @@ func TestSubmitAndImportRefusals(t *testing.T) {
 	imp := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
 		"suite": f.suite, "candidates": []string{f.high}, "trials": 1, "budget": map[string]any{"name": "study"}, "mode": "import",
 	})["id"].(string)
+	// In mode import no cell exists until the first import of its task
+	// and candidate.
+	if cells := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+imp+"/cells", "t-alice", nil); len(cells["items"].([]any)) != 0 {
+		t.Fatalf("cells at create in mode import %v", cells)
+	}
 	x.refuse(409, apierr.CodeWrongMode, http.MethodPost, "/v1/experiments/"+imp+"/work/lease", "t-alice", map[string]any{"candidate": f.high})
 	ip := "/v1/experiments/" + imp + "/imports"
 	for _, c := range []struct {

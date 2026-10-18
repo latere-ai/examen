@@ -30,13 +30,18 @@ func pastRun(task, candidate, ref string, extra map[string]any) map[string]any {
 
 // completeImport is a complete experiment in mode import with one run of
 // each candidate on the first task.
-func (x *client) completeImport(f fixture) string {
+func (x *client) completeImport(f fixture, tasks ...string) string {
 	x.t.Helper()
 	eid := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
 		"suite": f.suite, "candidates": []string{f.high, f.low}, "trials": 3, "budget": map[string]any{"name": "study"}, "mode": "import",
 	})["id"].(string)
 	x.must(http.StatusCreated, http.MethodPost, "/v1/experiments/"+eid+"/imports", "t-alice", pastRun(f.taskA, f.high, "run-1", nil))
 	x.must(http.StatusCreated, http.MethodPost, "/v1/experiments/"+eid+"/imports", "t-alice", pastRun(f.taskA, f.low, "run-2", nil))
+	for i, task := range tasks {
+		for j, c := range []string{f.high, f.low} {
+			x.must(http.StatusCreated, http.MethodPost, "/v1/experiments/"+eid+"/imports", "t-alice", pastRun(task, c, "more-"+itoa(i)+"-"+itoa(j), map[string]any{"outputs": nil}))
+		}
+	}
 	closed := x.must(http.StatusOK, http.MethodPost, "/v1/experiments/"+eid+"/close", "t-alice", nil)
 	if closed["state"] != "complete" {
 		x.t.Fatalf("closed %v", closed)
