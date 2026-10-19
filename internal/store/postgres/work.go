@@ -57,28 +57,29 @@ func (x experiments) begin(ctx context.Context, eid string, fn func(*change) err
 
 func scanLocked(row pgx.Row, seq *int64) (objects.Experiment, error) {
 	var e objects.Experiment
-	var metadata, declared []byte
+	var metadata, declared, independence []byte
 	if err := row.Scan(&e.ID, &e.Owner, &e.Suite, &e.SuiteID, &e.SuiteName, &e.Candidates, &e.CandidateIDs, &e.Trials, &e.Budget.Name,
-		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.Scheduling, &declared, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
+		&e.Parallelism, &e.Reference.Baseline, &e.Reference.Candidate, &e.Mode, &e.Scheduling, &declared, &independence, &e.State, &e.CreatedBy, &metadata, &e.IntakeClosed,
 		&e.CreatedAt, &e.UpdatedAt, seq); err != nil {
 		return objects.Experiment{}, err
 	}
 	if err := unmarshal(metadata, &e.Metadata); err != nil {
 		return objects.Experiment{}, err
 	}
-	return e, declaredComparisons(declared, &e)
+	return e, declaredOf(declared, independence, &e)
 }
 
-// declaredComparisons reads an experiment's declared comparisons, an empty
-// list when it declared none.
-func declaredComparisons(raw []byte, e *objects.Experiment) error {
-	if err := unmarshal(raw, &e.Comparisons); err != nil {
+// declaredOf reads what an experiment declared: its comparisons, an empty
+// list when it declared none, and its test of independence, nil when it
+// declared none.
+func declaredOf(comparisons, independence []byte, e *objects.Experiment) error {
+	if err := unmarshal(comparisons, &e.Comparisons); err != nil {
 		return err
 	}
 	if e.Comparisons == nil {
 		e.Comparisons = []objects.DeclaredComparison{}
 	}
-	return nil
+	return unmarshal(independence, &e.Independence)
 }
 
 // experimentState moves the experiment to a state and journals it, with

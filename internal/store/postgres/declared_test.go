@@ -6,11 +6,14 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"slices"
+	"strconv"
 	"testing"
 
 	"latere.ai/x/examen/internal/id"
 	"latere.ai/x/examen/internal/objects"
 	"latere.ai/x/examen/internal/store"
+	"latere.ai/x/examen/internal/store/postgres/pgtest"
 )
 
 // An experiment's declared comparisons are stored with it; Declare hands
@@ -103,3 +106,72 @@ func TestDeclare(t *testing.T) {
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// An experiment's test of independence and a declaration of the general
+// form are stored with it and read back; Declare asks for the declared
+// analysis of an experiment that declares a test of independence alone;
+// and the candidate-level values of a candidate are read apart from its
+// trials' values, at each grader's latest generation.
+func TestDeclarationsAndCandidateValues(t *testing.T) {
+	ctx := t.Context()
+	w := newWorld(t)
+	p := w.plan()
+	ne, _ := w.experiment(p, objects.ModeImport, 2)
+	ne.Experiment.Independence = &objects.Independence{Metric: "builtin:completed", Variable: "object", By: []string{"candidate"}, Where: map[string]string{"volition": "want"}}
+	decl := objects.DeclaredComparison{Variable: "object", Levels: []string{"build", "do"}, Where: map[string]string{"candidate": p.a.Digest}, By: []string{"volition"}, Metric: "builtin:completed"}
+	ne.Experiment.Comparisons = []objects.DeclaredComparison{decl}
+	zero := 0
+	ne.Comparisons = append(ne.Comparisons, objects.Comparison{ID: id.New(id.Comparison), Candidate: p.a.Digest, DeclaredIndex: &zero, Declaration: &decl, State: objects.ComparisonComputing})
+	if err := w.st.Experiments().Create(ctx, ne); err != nil {
+		t.Fatal(err)
+	}
+	eid := ne.Experiment.ID
+	got, err := w.st.Experiments().Get(ctx, eid)
+	if err != nil || got.Independence == nil || got.Independence.Where["volition"] != "want" || got.Comparisons[0].Metric != "builtin:completed" || got.Comparisons[0].By[0] != "volition" {
+		t.Fatalf("the declarations %+v %+v %v", got.Independence, got.Comparisons, err)
+	}
+	cmp, err := w.st.Experiments().Comparison(ctx, ne.Comparisons[1].ID)
+	if err != nil || cmp.Declaration == nil || cmp.Declaration.Variable != "object" || cmp.ReferenceCandidate != "" {
+		t.Fatalf("the general comparison %+v %v", cmp, err)
+	}
+	if auto, err := w.st.Experiments().Comparison(ctx, ne.Comparisons[0].ID); err != nil || auto.Declaration != nil {
+		t.Fatalf("a comparison of no declaration %+v %v", auto.Declaration, err)
+	}
+	alone, _ := w.experiment(p, objects.ModeImport, 2)
+	alone.Experiment.Independence = ne.Experiment.Independence
+	if err := w.st.Experiments().Create(ctx, alone); err != nil {
+		t.Fatal(err)
+	}
+	asked := false
+	if err := w.st.Experiments().Declare(ctx, alone.Experiment.ID, func(e objects.Experiment, family []objects.Comparison) (objects.DeclaredAnalysis, error) {
+		asked = true
+		return objects.DeclaredAnalysis{Experiment: e.ID, Comparisons: []objects.DeclaredResult{}}, nil
+	}); err != nil || !asked {
+		t.Fatalf("an experiment of a test of independence alone was asked %v: %v", asked, err)
+	}
+
+	// Candidate-level values beside a trial's: two generations of one
+	// grader, and another candidate's.
+	tr, err := w.st.Experiments().Import(ctx, store.Import{Experiment: eid, Cell: objects.Cell{Task: p.task.Digest, TaskID: p.task.ID, Candidate: p.a.Digest, CandidateID: p.a.ID}, Outcome: outcome(objects.OutcomeCompleted)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, v := range []struct {
+		candidate  string
+		generation int
+		value      float64
+	}{{p.a.Digest, 1, 0.25}, {p.a.Digest, 2, 0.75}, {p.b.Digest, 1, 0.5}} {
+		if err := pgtest.Exec(ctx, w.dsn, `INSERT INTO measurements (id, owner, experiment, candidate, metric, grader, self_reported, generation, value_num, rationale, created_at)
+			VALUES ($1, $2, $3, $4, 'sha256:rank', 'sha256:ranker', false, $5, $6, '', now())`, "msr_cand"+strconv.Itoa(i), owner, eid, v.candidate, v.generation, v.value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	vals, err := w.st.Experiments().Measurements(ctx, store.MeasurementFilter{Experiment: eid, Candidate: p.a.Digest, CandidateLevel: true}, store.Page{Limit: 10})
+	if err != nil || len(vals) != 1 || vals[0].Value != 0.75 || vals[0].Trial != "" {
+		t.Fatalf("candidate-level values %+v %v", vals, err)
+	}
+	all, err := w.st.Experiments().Measurements(ctx, store.MeasurementFilter{Experiment: eid, Candidate: p.a.Digest}, store.Page{Limit: 10})
+	if err != nil || !slices.ContainsFunc(all, func(m objects.Measurement) bool { return m.Trial == tr.ID }) {
+		t.Fatalf("without the filter a candidate's trials' values are read too: %+v %v", all, err)
+	}
+}

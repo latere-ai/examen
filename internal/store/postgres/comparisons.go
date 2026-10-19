@@ -15,20 +15,20 @@ import (
 )
 
 const comparisonColumns = `id, owner, experiment, candidate, coalesce(baseline, ''), coalesce(reference_candidate, ''), coalesce(task, ''),
-	coalesce(reference_task, ''), automatic, declared, exploratory, state, final, variable, declared_provenance, computed, created_at, updated_at`
+	coalesce(reference_task, ''), automatic, declared, exploratory, state, final, variable, declared_provenance, computed, declaration, created_at, updated_at`
 
 func scanComparison(row pgx.Row) (objects.Comparison, error) {
 	var c objects.Comparison
-	var variable, declared, computed []byte
+	var variable, declared, computed, declaration []byte
 	if err := row.Scan(&c.ID, &c.Owner, &c.Experiment, &c.Candidate, &c.Baseline, &c.ReferenceCandidate, &c.Task, &c.ReferenceTask,
-		&c.Automatic, &c.DeclaredIndex, &c.Exploratory, &c.State, &c.Final, &variable, &declared, &computed, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		&c.Automatic, &c.DeclaredIndex, &c.Exploratory, &c.State, &c.Final, &variable, &declared, &computed, &declaration, &c.CreatedAt, &c.UpdatedAt); err != nil {
 		return objects.Comparison{}, err
 	}
 	c.CreatedAt, c.UpdatedAt = c.CreatedAt.UTC(), c.UpdatedAt.UTC()
 	for _, f := range []struct {
 		raw []byte
 		v   any
-	}{{variable, &c.Variable}, {declared, &c.DeclaredProvenance}, {computed, &c.Computed}} {
+	}{{variable, &c.Variable}, {declared, &c.DeclaredProvenance}, {computed, &c.Computed}, {declaration, &c.Declaration}} {
 		if err := unmarshal(f.raw, f.v); err != nil {
 			return objects.Comparison{}, err
 		}
@@ -87,11 +87,19 @@ func insertComparison(ctx context.Context, tx pgx.Tx, c objects.Comparison, now 
 	if err != nil {
 		return err
 	}
+	var declaration *string
+	if c.Declaration != nil {
+		raw, err := marshal(c.Declaration)
+		if err != nil {
+			return err
+		}
+		declaration = &raw
+	}
 	if _, err := tx.Exec(ctx, `INSERT INTO comparisons (id, owner, experiment, candidate, baseline, reference_candidate, task, reference_task,
-			automatic, declared, exploratory, state, final, dirty, variable, declared_provenance, computed, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, $14, $15, $16, $17, $17)`,
+			automatic, declared, exploratory, state, final, dirty, variable, declared_provenance, computed, declaration, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, true, $14, $15, $16, $17, $18, $18)`,
 		c.ID, c.Owner, c.Experiment, c.Candidate, nullable(c.Baseline), nullable(c.ReferenceCandidate), nullable(c.Task), nullable(c.ReferenceTask),
-		c.Automatic, c.DeclaredIndex, c.Exploratory, c.State, c.Final, variable, declared, computed, now); err != nil {
+		c.Automatic, c.DeclaredIndex, c.Exploratory, c.State, c.Final, variable, declared, computed, declaration, now); err != nil {
 		return fmt.Errorf("postgres: storing a comparison: %w", err)
 	}
 	return nil
@@ -141,7 +149,7 @@ func (x experiments) Comparisons(ctx context.Context, f store.ComparisonFilter, 
 
 // comparisonColumnsOfC are the comparison columns of the alias c.
 const comparisonColumnsOfC = `c.id, c.owner, c.experiment, c.candidate, coalesce(c.baseline, ''), coalesce(c.reference_candidate, ''), coalesce(c.task, ''),
-	coalesce(c.reference_task, ''), c.automatic, c.declared, c.exploratory, c.state, c.final, c.variable, c.declared_provenance, c.computed, c.created_at, c.updated_at`
+	coalesce(c.reference_task, ''), c.automatic, c.declared, c.exploratory, c.state, c.final, c.variable, c.declared_provenance, c.computed, c.declaration, c.created_at, c.updated_at`
 
 func (x experiments) Comparison(ctx context.Context, cid string) (objects.Comparison, error) {
 	c, err := scanComparison(x.s.pool.QueryRow(ctx, `SELECT `+comparisonColumns+` FROM comparisons WHERE id = $1`, cid))
@@ -229,7 +237,7 @@ func (x experiments) Clean(ctx context.Context, cid string, seen time.Time) erro
 
 func (x experiments) Declare(ctx context.Context, eid string, correct func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error)) error {
 	return x.begin(ctx, eid, func(ch *change) error {
-		if len(ch.e.Comparisons) == 0 {
+		if len(ch.e.Comparisons) == 0 && ch.e.Independence == nil {
 			return nil
 		}
 		// The newest record of each declared comparison: a later grading

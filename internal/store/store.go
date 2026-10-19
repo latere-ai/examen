@@ -269,6 +269,9 @@ type MeasurementFilter struct {
 	Metric     string
 	Grader     string
 	Generation string
+	// CandidateLevel keeps the values that belong to a candidate rather
+	// than to a trial: those of a candidate-level metric.
+	CandidateLevel bool
 }
 
 // ComparisonFilter narrows a list of comparisons.
