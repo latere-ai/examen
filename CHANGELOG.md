@@ -6,6 +6,18 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Fixed
+
+- A run that found no machine free to work on, `machine_unavailable`,
+  is retried after a wait and spends none of `MAX_INFRA_RETRIES`, since
+  its owner's other sessions and sandboxes share the plan's ceiling and
+  free a machine as they end. The retry holds its place in the
+  parallelism with no session for `MACHINE_WAIT` (30 seconds) after the
+  run it retries ended, the wait doubling with each such retry up to
+  `MACHINE_WAIT_MAX` (5 minutes), for `MAX_MACHINE_WAITS` (8) retries of
+  one index. A run past them that again finds no machine spends a retry
+  as any infrastructure failure does.
+
 ## v0.6.2 - 2026-10-19
 
 ### Fixed
