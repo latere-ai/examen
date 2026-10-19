@@ -443,3 +443,191 @@ func mustCell(t *testing.T, st store.Store, cid string) objects.Cell {
 	}
 	return c
 }
+
+// denyGate answers experiment.run with a deny, or no decision.
+type denyGate struct{ unavailable bool }
+
+func (g denyGate) Authorize(context.Context, access.Caller, access.Question) (access.Decision, error) {
+	if g.unavailable {
+		return access.Decision{}, access.ErrUnavailable
+	}
+	return access.Decision{Reason: "stopped"}, nil
+}
+
+// TestToposStopsEveryWay: the session of a canceled trial is let go when
+// it is gone at Topos, when it ended already, and, with no warning but a
+// log line, when the owner's sign-in no longer mints; a Topos that does
+// not answer keeps it to stop at the next tick.
+func TestToposStopsEveryWay(t *testing.T) {
+	st := pgtest.Open(t, false, postgres.Options{})
+	stub := topostest.New(t)
+	stub.Agent("helper", topostest.Version{Version: 1, Digest: agentDigest})
+	m := &minter{}
+	e := toposEngine(st, stub, m, &toposGate{})
+	e.Now = func() time.Time { return time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC) }
+	ctx := t.Context()
+	started := func() (string, string) {
+		eid, _ := seedTopos(t, st, 1)
+		if err := e.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+		sid := stub.Sessions()[len(stub.Sessions())-1]
+		stub.Set(sid, topos.StatusRunning, "")
+		if _, err := st.Experiments().Cancel(ctx, eid); err != nil {
+			t.Fatal(err)
+		}
+		return eid, sid
+	}
+	left := func(eid string) int {
+		s, err := st.Experiments().Stopping(ctx, eid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(s)
+	}
+
+	gone, sid := started()
+	stub.Delete(sid)
+	if err := e.Tick(ctx); err != nil || left(gone) != 0 {
+		t.Fatalf("a session gone at Topos: %v, %d left", err, left(gone))
+	}
+	ended, sid := started()
+	stub.Set(sid, topos.StatusEnded, topos.StopCompleted)
+	if err := e.Tick(ctx); err != nil || left(ended) != 0 {
+		t.Fatalf("a session that ended: %v, %d left", err, left(ended))
+	}
+	down, _ := started()
+	stub.Down(true)
+	if err := e.Tick(ctx); err == nil || left(down) != 1 {
+		t.Fatalf("a Topos that does not answer: %v, %d left", err, left(down))
+	}
+	stub.Down(false)
+	unsigned, sid := started()
+	m.err = &tokens.RefusedError{Reason: tokens.ReasonSignInNotKept}
+	if err := e.Tick(ctx); err != nil || left(unsigned) != 0 || stub.Session(sid).Status != topos.StatusRunning {
+		t.Fatalf("a sign-in that no longer mints: %v, %d left, session %s", err, left(unsigned), stub.Session(sid).Status)
+	}
+	m.err = nil
+	waiting, _ := started()
+	m.err = tokens.ErrUnavailable
+	if err := e.Tick(ctx); err == nil || left(waiting) != 1 {
+		t.Fatalf("a minter that does not answer: %v, %d left", err, left(waiting))
+	}
+	m.err = nil
+	if !conflict(&topos.RefusedError{Status: http.StatusConflict}) || conflict(&topos.RefusedError{Status: http.StatusForbidden}) {
+		t.Fatal("conflict reads the status")
+	}
+}
+
+// TestToposFollowsThroughRefusals: a run whose owner's sign-in stops
+// minting while it runs parks its cell; a Topos refusal with no code
+// parks it naming the status; a Topos that does not answer a read waits;
+// and experiment.run's deny parks the cell canceled before a session
+// starts, where no decision starts none.
+func TestToposFollowsThroughRefusals(t *testing.T) {
+	st := pgtest.Open(t, false, postgres.Options{})
+	stub := topostest.New(t)
+	stub.Agent("helper", topostest.Version{Version: 1, Digest: agentDigest})
+	m := &minter{}
+	e := toposEngine(st, stub, m, &toposGate{})
+	e.Now = func() time.Time { return time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC) }
+	ctx := t.Context()
+	cellOf := func(cid string) objects.Cell {
+		c, err := st.Experiments().Cell(ctx, cid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	eid, cid := seedTopos(t, st, 1)
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stub.Set(stub.Sessions()[0], topos.StatusRunning, "")
+	stub.Down(true)
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if tr := trialsOf(t, st, eid); tr[0].State != objects.StateRunning {
+		t.Fatalf("a read Topos did not answer ended the trial: %+v", tr[0])
+	}
+	stub.Down(false)
+	m.err = &tokens.RefusedError{Reason: tokens.ReasonRefused}
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c := cellOf(cid); c.State != objects.StateBlocked || c.ParkedReason != tokens.ReasonRefused {
+		t.Fatalf("a refused token while running: cell %s %q", c.State, c.ParkedReason)
+	}
+	m.err = nil
+
+	_, cid = seedTopos(t, st, 1)
+	stub.Refuse(http.StatusUnprocessableEntity, "")
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c := cellOf(cid); c.State != objects.StateBlocked || c.ParkedReason != "topos_refused: 422" {
+		t.Fatalf("a refusal with no code: cell %s %q", c.State, c.ParkedReason)
+	}
+
+	before := len(stub.Sessions())
+	_, cid = seedTopos(t, st, 1)
+	if err := e.Advance(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
+	e.Authz = denyGate{unavailable: true}
+	if err := e.RunTopos(ctx); err != nil || len(stub.Sessions()) != before {
+		t.Fatalf("no decision: %v, %d sessions, had %d", err, len(stub.Sessions()), before)
+	}
+	e.Authz = denyGate{}
+	if err := e.RunTopos(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c := cellOf(cid); c.State != objects.StateCanceled || c.ParkedReason != ReasonRunDenied || len(stub.Sessions()) != before {
+		t.Fatalf("a denied run: cell %s %q, %d sessions", c.State, c.ParkedReason, len(stub.Sessions()))
+	}
+}
+
+// TestARunReadsItsCellsVersions: a run is made from its cell's task and
+// candidate as the owner applied them; a task or a candidate the owner
+// holds no version of, and a candidate of another kind, make none.
+func TestARunReadsItsCellsVersions(t *testing.T) {
+	st := pgtest.Open(t, false, postgres.Options{})
+	e := toposEngine(st, topostest.New(t), &minter{}, &toposGate{})
+	ctx := t.Context()
+	eid, cid := seedTopos(t, st, 1)
+	exp, cell := mustExperiment(t, st, eid), mustCell(t, st, cid)
+	if run, err := e.runOf(ctx, exp, cell); err != nil || run.candidate.Topos == nil || run.task.Name != "seeded" {
+		t.Fatalf("the run %+v %v", run, err)
+	}
+	external, _ := seed(t, st)
+	ext := mustExperiment(t, st, external)
+	cells, err := st.Experiments().AllCells(ctx, external)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.runOf(ctx, ext, cells[0]); err == nil || !strings.Contains(err.Error(), "not of kind topos") {
+		t.Fatalf("an external candidate's run: %v", err)
+	}
+	missing := cell
+	missing.Task = "sha256:" + strings.Repeat("0", 64)
+	if _, err := e.runOf(ctx, exp, missing); err == nil {
+		t.Fatal("a task with no version made a run")
+	}
+	missing = cell
+	missing.Candidate = "sha256:" + strings.Repeat("0", 64)
+	if _, err := e.runOf(ctx, exp, missing); err == nil {
+		t.Fatal("a candidate with no version made a run")
+	}
+	if err := (&Engine{Store: st}).RunTopos(ctx); err != nil {
+		t.Fatalf("an engine with no topos executor: %v", err)
+	}
+	// An agent version Topos no longer holds parks the cell naming it.
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c := mustCell(t, st, cid); c.State != objects.StateBlocked || c.ParkedReason != "topos_refused: not_found" {
+		t.Fatalf("a version Topos does not hold: cell %s %q", c.State, c.ParkedReason)
+	}
+}

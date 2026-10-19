@@ -140,16 +140,29 @@ func Event(typ, thread string, at time.Time, payload any) topos.Event {
 	return topos.Event{ID: "evt_" + strconv.FormatInt(at.UnixNano(), 36), Type: typ, Thread: thread, Time: at, Payload: raw}
 }
 
-func (st *Stub) refuse(w http.ResponseWriter, status int, code string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code}})
+// envelope is Topos's error answer.
+type envelope struct {
+	Error struct {
+		Code string `json:"code"`
+	} `json:"error"`
 }
 
+func (st *Stub) refuse(w http.ResponseWriter, status int, code string) {
+	var e envelope
+	e.Error.Code = code
+	st.reply(w, status, e)
+}
+
+// reply writes v as JSON with status; a value that does not encode is a
+// 500, so a test meets the stub's own mistake as an outage.
 func (st *Stub) reply(w http.ResponseWriter, status int, v any) {
+	b, err := json.Marshal(v)
+	if err != nil {
+		status, b = http.StatusInternalServerError, []byte(`{"error":{"code":"internal"}}`)
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(b)
 }
 
 func (st *Stub) serve(w http.ResponseWriter, r *http.Request) {
