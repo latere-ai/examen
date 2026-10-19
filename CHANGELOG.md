@@ -6,6 +6,29 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.4.1 - 2026-10-19
+
+### Security
+
+- A request about an object you may not see is answered exactly as a
+  request about one that does not exist, status, headers and body, on
+  every route that names a stored object by id, name, digest or
+  reference, in its path, its query or its body. The developer detail of
+  these `404` answers is reworded: it names the object as your request
+  named it.
+- `POST /trials/{id}/submit`, `POST /experiments/{id}/work/lease` and
+  `GET /suites/{suite}/taxonomies/{metric}/history` check the body, the
+  `candidate` reference and the page before they read the object the
+  path names, so a malformed request is refused `400` or `422` before
+  any `404`. A page link into a taxonomy's history is now issued for the
+  metric as the path names it, by name or by digest; one issued before
+  this release to a request that named the metric by name is refused
+  `400 invalid_cursor`, so start again from the first page.
+- `PUT /suites/{suite}/taxonomies/{metric}` asks `taxonomy.apply` before
+  it answers that the suite or its metric does not exist, with `owner`
+  and `name` alone: a caller the authorizer denies is answered `403
+  forbidden`, and one it allows `404 taxonomy_not_found`.
+
 ## v0.4.0 - 2026-10-18
 
 ### Added
