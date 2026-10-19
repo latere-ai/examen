@@ -112,6 +112,26 @@ func TestGeneralDeclarationsRefused(t *testing.T) {
 			t.Errorf("%s: the refusal names %q, want %q", c.name, field, c.field)
 		}
 	}
+	// The automatic pair declared with a metric of its own is a record of
+	// its own, beside the automatic comparison, its metric by digest.
+	created := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", create([]any{map[string]any{"candidate": d.low, "reference_candidate": d.high, "metric": "completed"}}, nil))
+	if m := created["comparisons"].([]any)[0].(map[string]any)["metric"]; m != "builtin:completed" {
+		t.Fatalf("the declared metric %v", m)
+	}
+	items := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+created["id"].(string)+"/comparisons", "t-alice", nil)["items"].([]any)
+	automatic := 0
+	for _, it := range items {
+		c := it.(map[string]any)
+		if c["automatic"] == true {
+			automatic++
+			if c["declared"] != nil {
+				t.Errorf("the automatic comparison took a declaration with its own metric: %v", c)
+			}
+		}
+	}
+	if len(items) != 2 || automatic != 1 {
+		t.Fatalf("comparisons %v", items)
+	}
 }
 
 // Declared comparisons of the general form and a test of independence

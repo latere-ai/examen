@@ -236,3 +236,35 @@ func TestServedCalibration(t *testing.T) {
 		t.Fatalf("a failing calibration read: %v", err)
 	}
 }
+
+// A declared comparison across tasks reads its primary metric, a label,
+// at task level with its label test once label tests are built, whatever
+// the weight of its tasks: a task of weight 0 is compared per task like
+// any other, and a workspace that also differs between the two tasks is
+// named as a confound.
+func TestDeclaredAcrossTasksTestsALabel(t *testing.T) {
+	w := labelWorld(t)
+	w.v.put(t, objects.KindSuite, "sui_lab", "sha256:suite-lab", objects.Suite{Name: "lab", Tasks: []string{taskA, taskB}, Metrics: []string{kind, rank}, PrimaryMetric: kind,
+		Graders: []string{judge, rankJudge}, Weights: map[string]float64{taskB: 0}})
+	for i, cl := range w.x.cells["exp_lab"] {
+		if cl.Task == taskB {
+			w.x.cells["exp_lab"][i].Tuple.WorkspaceRef = "origo:seed@0123"
+		}
+	}
+	e := w.x.exps["exp_lab"]
+	e.Comparisons = []objects.DeclaredComparison{{Candidate: candNew, Task: taskA, ReferenceTask: taskB}}
+	w.x.exps["exp_lab"] = e
+	zero := 0
+	c := objects.Comparison{ID: "cmp_t", Experiment: "exp_lab", Candidate: candNew, Task: taskA, ReferenceTask: taskB, DeclaredIndex: &zero, Final: true}
+	computed, _, err := Analysis{}.Compare(t.Context(), c, w.src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, found := primaryRow(objects.Comparison{Computed: computed}, kind, "task")
+	if !found || row.Task != "todo-app vs calculator" || row.Method != "fisher_freeman_halton" || row.P == nil || row.Q != nil || row.Verdict != "" {
+		t.Fatalf("the primary result %+v", row)
+	}
+	if !strings.Contains(string(row.Confounds), `"name":"workspace_ref"`) {
+		t.Fatalf("the workspace that also differs %s", row.Confounds)
+	}
+}
