@@ -22,7 +22,7 @@ code.
 | Who | What Examen commits to |
 |---|---|
 | a caller with no token, or a token of another issuer, another audience, an expired one or a forged one | the request is refused before anything is read or done, with the verifier's reason and no part of the token in the answer |
-| a caller with a valid token of another owner | every question is asked of the authorizer, or of the owner policy when none is configured, before anything is done; under the owner policy an owner reaches their own objects alone |
+| a caller with a valid token of another owner | every question is asked of the authorizer, or of the owner policy when none is configured, before anything is done; under the owner policy an owner reaches their own objects alone; a request about an object the caller may not see is answered exactly as one about an object that does not exist |
 | a caller when the authorizer cannot answer | a request with no well-formed decision does nothing and is refused; limits or a filter Examen cannot read count as no decision; an authorizer that allows the reserved probe stops the start |
 | a reader of responses and logs | an error never carries a token or the value of a variable that does not parse, and a configuration error names the variable alone |
 | a caller that tries to exhaust a replica | a request body past its bound is refused before it is read whole, and a subject past its request rate is refused with the time to wait |
