@@ -3158,7 +3158,7 @@ components:
           minLength: 1
           maxLength: 255
         comparisons:
-          description: "The comparisons the experiment declares it will make, at most MAX_DECLARED_COMPARISONS: a pair of candidates with an optional variable, or one candidate's two tasks by name or digest. Each is computed without being asked and is not exploratory, and their primary results are corrected together. Fixed at create."
+          description: "The comparisons the experiment declares it will make, at most MAX_DECLARED_COMPARISONS: a pair of candidates with an optional variable; one candidate's two tasks by name or digest; or the general form, a cell variable, its two levels, and optional where and by. Each form takes an optional metric. Each is computed without being asked and is not exploratory, and their primary results are corrected together. Fixed at create."
           type: "array"
           maxItems: 128
           items:
@@ -3197,7 +3197,7 @@ components:
                 type: "string"
             additionalProperties: false
         independence:
-          description: "The experiment's test of independence: a trial-level label metric of the suite against a cell variable, `candidate` when absent, stratified by the cell variables of `by`, `[\"task\"]` when absent, over the cells `where` selects. Fixed at create."
+          description: "The experiment's test of independence: a trial-level label metric of the suite, by name or digest, against a cell variable, `candidate` when absent, stratified by the cell variables of `by`, over the cells `where` selects. `by` is `[\"task\"]` when absent for a variable of the candidate and `[\"candidate\"]` for the task or a factor. Fixed at create."
           type: "object"
           properties:
             metric:
@@ -3264,7 +3264,7 @@ components:
         mode:
           type: "string"
         independence:
-          description: "The experiment's test of independence: a trial-level label metric of the suite against a cell variable, `candidate` when absent, stratified by the cell variables of `by`, `[\"task\"]` when absent, over the cells `where` selects. Fixed at create; absent when the experiment declares none."
+          description: "The experiment's test of independence, its metric by digest and its defaults filled. Fixed at create; absent when the experiment declares none."
           type: "object"
           properties:
             metric:
@@ -3323,7 +3323,7 @@ components:
                 items:
                   type: "string"
               metric:
-                description: "The metric whose result is the comparison's primary result, by name or digest; the suite's primary metric when absent."
+                description: "The metric whose result is the comparison's primary result, by digest; absent when it is the suite's primary metric."
                 type: "string"
             additionalProperties: false
         state:
@@ -3985,6 +3985,7 @@ components:
                 type: "string"
             metric:
               type: "string"
+          additionalProperties: false
         exploratory:
           type: "boolean"
         state:
@@ -4072,6 +4073,7 @@ components:
               - "final"
             additionalProperties: false
         independence:
+          description: "The experiment's test of independence when it declares one: its declaration, its levels, their summaries, its strata, the test and its p, verdict and reason; before any cell holds a finished trial, its declaration, levels and reason alone."
           type: "object"
         computed_at:
           type: "string"

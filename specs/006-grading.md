@@ -624,8 +624,9 @@ same trials.
   experiments, since agreement is a property of the judge version on the
   owner's work; the figure for one experiment is readable too.
 - **The people's value** of a trial is its one annotator's value, or
-  with several their consensus: the majority for `binary` and `label`,
-  a tie dropping the trial, and the median for the other types.
+  with several their consensus: the most frequent value for `binary` and
+  `label`, a tie for the most frequent dropping the trial, and the
+  median for the other types.
 - **The statistic** is Krippendorff's alpha between J and the people's
   value, with the nominal distance for `binary` and `label` and the
   interval distance for the other types, and its interval at

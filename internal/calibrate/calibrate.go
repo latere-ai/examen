@@ -63,8 +63,9 @@ func Of(pairs []Pair, nominal bool) (Calibration, error) {
 }
 
 // PeoplesValue is the people's value of one trial: its one person's, or
-// with several their consensus, the majority for a nominal metric, a tie
-// dropping the trial, and the median for the others. ok is false for a
+// with several their consensus, the most frequent value for a nominal
+// metric, a tie for the most frequent dropping the trial, and the median
+// for the others. ok is false for a
 // trial it drops or one no person answered.
 func PeoplesValue(values []any, nominal bool) (any, bool, error) {
 	switch {

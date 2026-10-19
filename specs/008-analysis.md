@@ -1125,7 +1125,18 @@ level, within or across whatever else the experiment varies:
   declaration names neither as its variable nor as a stratum, and a
   test that permutes within the stratum would read that difference as
   the variable's, so the variable that separates them belongs in `by`
-  or `where`. Every cell a side holds carries every variable of `by`.
+  or `where`. Every cell a side holds carries every variable of `by`,
+  and the two cells of a stratum differ in nothing but the variable and
+  what it implies: across a variable of the candidate, `candidate`,
+  `model` or `reasoning`, they are of one task; across a factor, they
+  are of one candidate and hold every other factor at one level; across
+  the task, they are of one candidate. A stratum whose cells also differ
+  in something else is refused at create, so a factor neither held in
+  `where` nor named in `by`, such as a seeded workspace paired with an
+  empty one under `object`, never reads as the variable; a candidate's
+  own fields that also differ, a model across a reasoning level, are
+  tuple fields and are named as confounds (Confounds and the variable,
+  above).
   The strata are the comparison's paired tasks: a stratum both sides
   hold gives one task-level result per metric, a stratum one side holds
   alone is listed in `unpaired_tasks`, and the suite-level result tests
@@ -1340,17 +1351,21 @@ cells are final.
 An experiment that declares `independence` (spec 002) names one
 trial-level label metric of its suite and a cell variable, `candidate`
 unless it names another, and the test asks whether that metric depends
-on the variable, stratified by the cell variables of `by`, `task`
-unless it names others, over the cells `where` keeps, every cell unless
-it names some. It is the stratified label test (above) with one side
+on the variable, stratified by the cell variables of `by`, over the
+cells `where` keeps, every cell unless it names some. Unless it names
+them, the strata are the task's for a variable of the candidate and the
+candidate's for the task or a factor; an empty `by` makes one stratum,
+named `all`. It is the stratified label test (above) with one side
 per level of the variable, `K` of them, at least two: for `candidate`
 the experiment's candidates in its order, and for any other variable
 its levels among the cells in ascending bytewise order. Its strata are
 the combinations of `by`'s levels, named as a declared comparison's
-strata are (Comparisons over cell variables, above), and each side
-holds at most one cell of a stratum, which is held at create. With the
-defaults it is the test of the metric against the candidate stratified
-by task, over every cell.
+strata are (Comparisons over cell variables, above), each side holds at
+most one cell of a stratum, the cells of a stratum differ in nothing but
+the variable and what it implies, as a declared comparison's, and some
+stratum holds two levels, which is held at create. With the defaults it
+is the test of the metric against the candidate stratified by task,
+over every cell.
 
 - **Strata.** A stratum's weight is the weight of the task of its cell
   on the first side that holds one. A stratum of weight above zero is
@@ -1641,7 +1656,7 @@ its experiment's declared family, which resolves its primary result's
 declaration, `{variable, levels, where, by, metric}`, the candidate
 suite's weights and primary metric, a declared comparison's own
 `metric` in its place, and
-for each side and each paired task, a stratum in the general form, the task name, the stratum's name in the general form, and digest, the
+for each side and each paired task, a stratum in the general form, the task's name, or in the general form the stratum's name, and the task's digest, the
 cell's tuple, the producing grader read per metric, each taxonomy
 record read with its digest and whether a bar pinned it, for each label
 metric a judge produces the calibration read, `{grader, pairs, alpha,
@@ -1826,7 +1841,7 @@ by v0.5.0; until annotations are built every judge is uncalibrated
 | The stratified label test matches the worked examples' exact p-values for two and three sides; a task of one label adds nothing and every task of one label gives p = 1; above `PERMUTATION_EXACT_MAX` relabelings it draws from its seed with sequential stopping, repeats bit for bit and lands near the exact p-value; a comparison's suite-level label result is its two-sided form, with the statistic `pearson_x2_sum`, and finds the opposite shifts a test of the weighted distributions misses | `analysis.TestStratifiedLabelTest`, `analysis.TestLabelResults`, `analysis.TestOppositeShiftsAreFound` |
 | A declared comparison's primary result is in no comparison's family, carries its `p` and no `q` or verdict, draws `PERMUTATION_RESAMPLES` resolved with `m = D` and reads its power floor at `FALSE_DISCOVERY_RATE / D`; a declared comparison across tasks is not exploratory and its primary result is the primary metric's task-level result; its inputs document carries `D` and one that is not declared is unchanged | `analysis.TestDeclaredComparison` |
 | The declared family corrects every declared comparison's primary p-value together over `D`, a missing one counted as 1, and matches the worked example; an insufficient primary result keeps its verdict and no `q`; a self-reported one keeps its `p` and no verdict; the declared analysis recomputed from the same comparisons is identical | `analysis.TestDeclaredFamily` |
-| The experiment's test of independence over three candidates matches the worked example; it includes the strata every level holds enough trials of and is `insufficient` below `MIN_SUITE_COVERAGE`, is tested alone with `q` equal to `p`, is `changed` or `within_noise`, has no verdict on self-reported values and no `p` before label tests are built, states its power floor, and recomputes bit for bit from its inputs document with the seed scope `experiment`; its sides are the levels of its cell variable, the candidates in the experiment's order by default, and its strata the combinations of `by`'s levels, task by default; before any cell holds a finished trial it answers its declaration with no figure | `analysis.TestIndependence`, `objects.TestSelectIndependence`, `compare.TestDeclaredIndependence`, `httpapi.TestGeneralDeclarationsAndIndependence` |
+| The experiment's test of independence over three candidates matches the worked example; it includes the strata every level holds enough trials of and is `insufficient` below `MIN_SUITE_COVERAGE`, is tested alone with `q` equal to `p`, is `changed` or `within_noise`, has no verdict on self-reported values and no `p` before label tests are built, states its power floor, and recomputes bit for bit from its inputs document with the seed scope `experiment`; its sides are the levels of its cell variable, the candidates in the experiment's order by default, and its strata the combinations of `by`'s levels, task by default, each weighted as its first side's task on every side; it is recomputed whenever a trial of its experiment reaches done, whatever comparisons the experiment keeps; before any cell holds a finished trial it answers its declaration with no figure | `analysis.TestIndependence`, `objects.TestSelectIndependence`, `compare.TestDeclaredIndependence`, `httpapi.TestGeneralDeclarationsAndIndependence` |
 | A repeat rate matches the worked examples, is tested by the exact permutation of its difference (12/252 for five equal labels against five distinct), has no interval and says why, and its suite-level figure is the weighted mean; `mode_share` and `distinct_count` carry no interval, `p`, `q` or verdict, and stay out of the family, `verdict_counts` and the headline | `analysis.TestRepeatRate`, `analysis.TestDescriptiveCellMeasures` |
 | A candidate-level result carries both values and no interval, `p`, `q` or verdict, and stays out of the family | `analysis.TestCandidateLevelIsDescriptive` |
 | An open-vocabulary metric is read at one taxonomy record on both sides, the suite's or the one a bar pins; an unmapped raw label counts as a label of its own, marked, and never as missing; a new record after a final comparison makes a new comparison | `analysis.TestTaxonomyReads` |
@@ -1855,7 +1870,7 @@ by v0.5.0; until annotations are built every judge is uncalibrated
 | Every figure of the console's grid, verdict tables and cost table is read from a stored comparison or the stored analysis; the console bundle contains no statistical routine | `analysis.TestEveryShownFigureIsStored`, `console.TestNoStatisticsInTheClient` |
 | The analysis calls no `exp`, `log`, `lgamma` or `erfinv` but `internal/analysis/mathx`'s, which holds no assembly | `analysis.TestUsesVendoredMath` |
 | Later steps: the golden comparison is byte-identical on amd64 and arm64; a trend over a lineage of three baselines shows three points and two step comparisons | `analysis.TestGoldenAcrossArchitectures`, run on both in CI; `analysis.TestTrend` |
-| A declared comparison of the general form takes as its sides the cells `where` keeps at each of its variable's two levels, pairs them by stratum, names each stratum by its task or by its levels, gives one task-level result per stratum and the stratified suite-level result over the strata, weighted as their candidate sides' tasks, and matches the stratified label test's worked example over two strata; without `by` it is one pair whose task-level result is its primary result; its logical variable follows its cell variable; a declaration whose variable or `where` or `by` no cell carries, whose level selects no cell, whose stratum holds two cells of one side, that pairs no stratum or names two strata alike, is refused at create naming the member; a comparison of no declaration keeps its inputs document | `objects.TestSelect`, `objects.TestSelectRefusals`, `analysis.TestGeneralDeclaration`, `analysis.TestGeneralDeclarationWithoutStrata`, `analysis.TestTaskVariableNeedsADeclaration`, `compare.TestGeneralInput`, `compare.TestGeneralInputWaitsAndFails`, `httpapi.TestGeneralDeclarationsRefused`, `httpapi.TestGeneralDeclarationsAndIndependence` |
+| A declared comparison of the general form takes as its sides the cells `where` keeps at each of its variable's two levels, pairs them by stratum, names each stratum by its task or by its levels, gives one task-level result per stratum and the stratified suite-level result over the strata, weighted as their candidate sides' tasks, and matches the stratified label test's worked example over two strata; without `by` it is one pair whose task-level result is its primary result; its logical variable follows its cell variable; a declaration whose variable or `where` or `by` no cell carries, whose level selects no cell, whose stratum holds two cells of one side or two cells that also differ in a variable it neither holds nor names, that pairs no stratum or names two strata alike, is refused at create naming the member; a comparison of no declaration keeps its inputs document | `objects.TestSelect`, `objects.TestSelectRefusals`, `analysis.TestGeneralDeclaration`, `analysis.TestGeneralDeclarationWithoutStrata`, `analysis.TestTaskVariableNeedsADeclaration`, `compare.TestGeneralInput`, `compare.TestGeneralInputWaitsAndFails`, `httpapi.TestGeneralDeclarationsRefused`, `httpapi.TestGeneralDeclarationsAndIndependence` |
 | A declaration's `metric` is its primary result's metric, in the comparison and in the declared family, and a pair of candidates that names one is a record of its own beside the automatic comparison | `compare.TestGeneralInput`, `httpapi.TestGeneralDeclarationsRefused` |
 | A comparison across batches names its confounds from the batches' provenance and is never `single_variable`; with a configuration that ran in both batches it carries that anchor's comparison across them, delta, interval and `p`; without one its reason says drift between the batches cannot be ruled out | not built |
 
@@ -1906,7 +1921,7 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 15 | Met (v0.3.0), served from v0.5.0 | `analysis.TestStratifiedLabelTest`, `analysis.TestOppositeShiftsAreFound`, `analysis.TestLabelResults`, `compare.TestServedLabelTestsAndCandidateValues` |
 | 16 | Met (v0.3.0) | `analysis.TestDeclaredComparison`, `httpapi.TestDeclaredComparisons`, `compare.TestDeclaredInput` |
 | 17 | Met (v0.3.0) | `analysis.TestDeclaredFamily`, `httpapi.TestDeclaredComparisons`, `work.TestComputeDeclares`, `postgres.TestDeclare` |
-| 18 | Met (v0.5.0) | `analysis.TestIndependence`, `objects.TestSelectIndependence`, `compare.TestDeclaredIndependence`, `httpapi.TestGeneralDeclarationsAndIndependence`, `work.TestComputeDeclaresIndependence` |
+| 18 | Met (v0.5.0) | `analysis.TestIndependence`, `analysis.TestIndependenceWeighsStrata`, `objects.TestSelectIndependence`, `objects.TestStrataDifferInTheVariableAlone`, `compare.TestDeclaredIndependence`, `httpapi.TestGeneralDeclarationsAndIndependence`, `work.TestComputeDeclaresIndependence` |
 | 19 | Met | `analysis.TestRepeatRate`, `analysis.TestDescriptiveCellMeasures`, `analysis.TestModeShareAgainstRepeatRate` |
 | 20 | Met; served from v0.5.0, though nothing writes a candidate-level value yet | `analysis.TestCandidateLevelIsDescriptive`, `compare.TestServedLabelTestsAndCandidateValues`, `compare.TestCandidateValuesPage`, `postgres.TestDeclarationsAndCandidateValues` |
 | 21 | Partly met: one taxonomy record is read on both sides, and an unmapped raw label counts as a label of its own; a record a bar pins waits on bars, and a record appended after a final comparison makes no new comparison | `analysis.TestTaxonomyReads` |
@@ -1934,7 +1949,7 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 43 | Met, not served | `analysis.TestRecomputeResultsTable` |
 | 45 | Met | `analysis.TestUsesVendoredMath`, `mathx.TestNoAssembly` |
 | 46 | Partly met: the golden comparison is held to a committed digest on whichever architecture runs it; no CI job runs it on both amd64 and arm64, and trends are not built | `analysis.TestGoldenAcrossArchitectures` |
-| 47 | Met (v0.5.0) | `objects.TestSelect`, `objects.TestSelectRefusals`, `analysis.TestGeneralDeclaration`, `analysis.TestGeneralDeclarationWithoutStrata`, `analysis.TestTaskVariableNeedsADeclaration`, `compare.TestGeneralInput`, `compare.TestGeneralInputWaitsAndFails`, `httpapi.TestGeneralDeclarationsRefused`, `httpapi.TestGeneralDeclarationsAndIndependence` |
+| 47 | Met (v0.5.0) | `objects.TestSelect`, `objects.TestSelectRefusals`, `objects.TestStrataDifferInTheVariableAlone`, `analysis.TestGeneralDeclaration`, `analysis.TestGeneralDeclarationWithoutStrata`, `analysis.TestTaskVariableNeedsADeclaration`, `compare.TestGeneralInput`, `compare.TestGeneralInputWaitsAndFails`, `httpapi.TestGeneralDeclarationsRefused`, `httpapi.TestGeneralDeclarationsAndIndependence` |
 | 48 | Met (v0.5.0) | `compare.TestGeneralInput`, `httpapi.TestGeneralDeclarationsRefused` |
 
 Not built: 44, since the grid's figures are computed when it is read

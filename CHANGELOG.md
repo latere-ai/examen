@@ -14,9 +14,8 @@ here is refused before it is pushed.
   tables are too many to enumerate, and at suite level the stratified
   label test, the chi-square summed over the tasks and permuted within
   each. A significant difference is `changed`, and the per-label
-  differences keep their intervals. A comparison still computing from
-  an earlier release is tested when it is next computed; one that was
-  final keeps its label results descriptive.
+  differences keep their intervals. A comparison that was final before
+  this release keeps its label results descriptive.
 - Place a task in a design with `factors`, such as
   `{"object": "build", "volition": "want"}`: names and levels of 1 to 63
   characters of `[a-z0-9._-]`, at most `MAX_TASK_FACTORS` (16), none
@@ -31,23 +30,31 @@ here is refused before it is pushed.
   by its levels, such as `volition=want`, or by its task for `by:
   ["task"]`, and the suite-level result tests over the strata; without
   it, each side is one cell and its one result per metric is the
-  primary one. The comparison answers its `declaration`, and its
+  primary one. The comparison answers its `declaration`, its `candidate`
+  is empty when its candidate side spans several candidates, and its
   primary result joins the one corrected family of every declared
-  comparison. A declaration whose variable no cell carries, whose level
-  selects no cell, or whose stratum holds two cells of one side is
-  refused at create, naming the member. The pair and task-pair forms
-  are unchanged.
-- Any declared comparison takes a `metric`, whose result is its primary
-  result in place of the suite's primary metric. A pair that names one
-  is a comparison of its own beside the automatic comparison.
+  comparison. In the experiment's `comparisons` such an entry carries
+  `variable`, `levels`, `where` and `by`, and no `candidate`. A
+  declaration whose variable no cell carries, whose level selects no
+  cell, whose stratum holds two cells of one side, or whose paired cells
+  also differ in a factor it neither holds nor names, is refused at
+  create, naming the member. The pair and task-pair forms are
+  unchanged.
+- Any declared comparison takes a `metric`, by name or digest and
+  answered by digest, whose result is its primary result in place of
+  the suite's primary metric. A pair that names one is a comparison of
+  its own beside the automatic comparison.
 - Declare a test of independence with `independence` on `POST
-  /experiments`: `{"metric": "sha256:…"}` tests whether a trial-level
-  label metric depends on the candidate, stratified by task, over every
-  cell; `variable`, `by` and `where` test it against any cell variable,
-  stratified by others, over the cells you keep. It is one planned
-  test, tested alone at 5%, and `GET /experiments/{id}/declared`
+  /experiments`: `{"metric": "kind"}` tests whether a trial-level label
+  metric depends on the candidate, stratified by task, over every cell;
+  `variable`, `by` and `where` test it against any cell variable,
+  stratified by others, over the cells you keep, by candidate unless you
+  name the strata when the variable is the task or a factor. It is one
+  planned test, tested alone at 5%: `GET /experiments/{id}/declared`
   answers it under `independence` with its levels, their summaries, its
-  strata and `p`.
+  strata and `p`, and the experiment answers its declaration. Over
+  values your harness reported itself it answers `p` without a verdict,
+  as every result on such values does.
 - A result read from a model or agent judge's labels carries
   `uncalibrated`, naming the judge, until the judge agrees with people
   on enough of your trials (Krippendorff's alpha of at least 0.67 over
@@ -60,13 +67,18 @@ here is refused before it is pushed.
 ### Changed
 
 - Run `examend migrate` before you roll `serve`: this release adds an
-  experiment's `independence` and a comparison's `declaration`, both
-  empty for what exists, so the release before it serves the migrated
-  schema with a warning.
-- Results your harness reported itself keep their `p` and get no
-  verdict, as before: in the declared family such a primary result
-  counts as `p = 1`, and a test of independence over such values
-  answers its `p` without a verdict.
+  experiment's `independence` and the mark that recomputes it, and a
+  comparison's `declaration`, all empty for what exists, so the release
+  before it serves the migrated schema with a warning. Do not roll back
+  once an experiment declares a comparison of the general form: the
+  release before reads it as a pair with no candidate.
+- A comparison still computing is computed with label tests from its
+  next computation, so its `inputs_digest` and seed change, and a
+  Monte Carlo `p` of any of its metrics may move within its sampling
+  error with no new trial.
+- One comparison declared twice is refused across forms too: a pair of
+  candidates and the general form of the same pair, two orders of one
+  `by`, or one metric named by name and by digest.
 
 ## v0.4.1 - 2026-10-19
 
