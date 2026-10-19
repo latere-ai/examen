@@ -6,6 +6,7 @@ package work
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
@@ -706,5 +707,75 @@ func TestARunWithNoMachineIsRetriedAfterAWait(t *testing.T) {
 	}
 	if c := mustCell(t, st, cid); c.State != objects.StateComplete {
 		t.Fatalf("the cell is %s", c.State)
+	}
+}
+
+// lineageStore answers trials by id from a map, and err for the ids it
+// names, for the reads of a retry's lineage.
+type lineageStore struct {
+	store.Store
+	trials map[string]objects.Trial
+	errs   map[string]error
+}
+
+func (s lineageStore) Experiments() store.Experiments {
+	return lineageTrials{trials: s.trials, errs: s.errs}
+}
+
+// lineageTrials is lineageStore's experiments: Trial alone is answered.
+type lineageTrials struct {
+	store.Experiments
+	trials map[string]objects.Trial
+	errs   map[string]error
+}
+
+func (s lineageTrials) Trial(_ context.Context, id string) (objects.Trial, error) {
+	if err := s.errs[id]; err != nil {
+		return objects.Trial{}, err
+	}
+	t, ok := s.trials[id]
+	if !ok {
+		return objects.Trial{}, store.ErrNotFound
+	}
+	return t, nil
+}
+
+// TestAMachineWaitReadsItsLineage: a retry waits only after a run that
+// found no machine free, MACHINE_WAIT doubled for each such retry its
+// lineage holds, counted from the end of the trial it retries; a lineage
+// read up to a trial the store no longer holds counts what it read; and a
+// store that fails the read is an error, not a start.
+func TestAMachineWaitReadsItsLineage(t *testing.T) {
+	now := time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC)
+	ended := func(d time.Duration) *time.Time { at := now.Add(-d); return &at }
+	noMachine := &objects.Failure{Code: objects.CodeMachineUnavailable}
+	trials := map[string]objects.Trial{
+		"p1":    {ID: "p1", Outcome: objects.OutcomeInfraFailed, Failure: noMachine, AutoRetry: true, RetryOf: "gone", EndedAt: ended(3 * time.Minute)},
+		"p2":    {ID: "p2", Outcome: objects.OutcomeInfraFailed, Failure: noMachine, AutoRetry: true, RetryOf: "p1", EndedAt: ended(45 * time.Second)},
+		"p3":    {ID: "p3", Outcome: objects.OutcomeInfraFailed, Failure: noMachine, AutoRetry: true, RetryOf: "broken", EndedAt: ended(10 * time.Second)},
+		"crash": {ID: "crash", Outcome: objects.OutcomeInfraFailed, Failure: &objects.Failure{Code: "harness_crashed"}, EndedAt: ended(time.Second)},
+		"first": {ID: "first", Outcome: objects.OutcomeInfraFailed, Failure: noMachine, EndedAt: ended(31 * time.Second)},
+	}
+	failed := errors.New("the store is down")
+	e := &Engine{Store: lineageStore{trials: trials, errs: map[string]error{"broken": failed, "down": failed}}, Now: func() time.Time { return now }}
+	retry := func(of string) objects.Trial { return objects.Trial{ID: "r-" + of, AutoRetry: true, RetryOf: of} }
+	for _, tc := range []struct {
+		name string
+		t    objects.Trial
+		wait bool
+		err  error
+	}{
+		{"no retry", objects.Trial{ID: "n"}, false, nil},
+		{"a retry of a crash", retry("crash"), false, nil},
+		{"the first wait, passed", retry("first"), false, nil},
+		{"a second wait, 60 seconds from 45 ago", retry("p2"), true, nil},
+		{"a retry of a trial the store lost", retry("lost"), false, nil},
+		{"a store that fails the first read", retry("down"), false, failed},
+		{"a store that fails a later read", retry("p3"), false, failed},
+	} {
+		wait, err := e.machineWait(t.Context(), tc.t)
+		if wait != tc.wait || !errors.Is(err, tc.err) {
+			t.Errorf("%s: wait %v, %v; want %v, %v", tc.name, wait, err, tc.wait, tc.err)
+		}
 	}
 }
