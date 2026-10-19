@@ -23,15 +23,6 @@ func (s *Store) Usage() store.Usage { return usageTable{s} }
 
 type usageTable struct{ s *Store }
 
-// now is the store's clock: a test's, or the database's.
-func (u usageTable) now(ctx context.Context) (time.Time, error) {
-	var now time.Time
-	if err := u.s.pool.QueryRow(ctx, `SELECT coalesce($1::timestamptz, now())`, u.s.at()).Scan(&now); err != nil {
-		return time.Time{}, fmt.Errorf("postgres: reading the clock: %w", err)
-	}
-	return now.UTC(), nil
-}
-
 // Hold records the experiment's Key, the newest the key source answered.
 func (u usageTable) Hold(ctx context.Context, experiment, owner, keyID string) error {
 	if _, err := u.s.pool.Exec(ctx, `INSERT INTO experiment_usage (experiment, owner, key_id, created_at)
@@ -160,7 +151,7 @@ func (u usageTable) Settle(ctx context.Context, experiment string, before time.T
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	x := experiments{u.s}
+	x := experiments(u)
 	settled := 0
 	err = x.begin(ctx, experiment, func(c *change) error {
 		for _, tid := range ids {

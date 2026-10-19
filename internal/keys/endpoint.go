@@ -159,7 +159,7 @@ func (e *Endpoint) Usage(ctx context.Context, r UsageRequest) (UsagePage, error)
 	for i, raw := range a.Records {
 		rec, err := ParseRecord(raw)
 		if err != nil {
-			return UsagePage{}, fmt.Errorf("%w: record %d: %v", ErrUnavailable, i, err)
+			return UsagePage{}, fmt.Errorf("%w: record %d: %w", ErrUnavailable, i, err)
 		}
 		page.Records = append(page.Records, rec)
 	}
@@ -205,12 +205,12 @@ func (e *Endpoint) call(ctx context.Context, method, path string, in, out any) e
 		if attempt == 0 && connectionFailure(err) && ctx.Err() == nil {
 			continue
 		}
-		return fmt.Errorf("%w: %s %s: %v", ErrUnavailable, method, path, scrub(err))
+		return fmt.Errorf("%w: %s %s: %w", ErrUnavailable, method, path, scrub(err))
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, answerLimit))
 	if err != nil {
-		return fmt.Errorf("%w: read the answer: %v", ErrUnavailable, err)
+		return fmt.Errorf("%w: read the answer: %w", ErrUnavailable, err)
 	}
 	switch resp.StatusCode {
 	case http.StatusOK:
