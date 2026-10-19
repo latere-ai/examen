@@ -97,13 +97,16 @@ func TestLeasesLapseAndRenew(t *testing.T) {
 	// A lapse found by the lease itself, without the ticker.
 	clk.advance(limits.ExternalLease + time.Second)
 	third := x.must(http.StatusOK, http.MethodPost, "/v1/experiments/"+eid+"/work/lease", "t-alice", map[string]any{"candidate": f.high})
-	out := x.must(http.StatusOK, http.MethodPost, "/v1/trials/"+tid+"/submit", "t-alice", run(third["lease"], "completed", nil))
+	// One body for the submit and its repeat: run stamps the times from
+	// the wall clock, and two bodies built a second apart are two submits.
+	submit := run(third["lease"], "completed", nil)
+	out := x.must(http.StatusOK, http.MethodPost, "/v1/trials/"+tid+"/submit", "t-alice", submit)
 	if out["state"] != "done" {
 		t.Fatalf("submitted %v", out)
 	}
 	// A repeat of the same submit answers the trial and changes nothing;
 	// another body under the same lease is not held.
-	if again := x.must(http.StatusOK, http.MethodPost, "/v1/trials/"+tid+"/submit", "t-alice", run(third["lease"], "completed", nil)); again["ended_at"] != out["ended_at"] {
+	if again := x.must(http.StatusOK, http.MethodPost, "/v1/trials/"+tid+"/submit", "t-alice", submit); again["ended_at"] != out["ended_at"] {
 		t.Fatalf("a repeat changed the trial %v", again)
 	}
 	x.refuse(409, apierr.CodeLeaseNotHeld, http.MethodPost, "/v1/trials/"+tid+"/submit", "t-alice", run(third["lease"], "declined", nil))
