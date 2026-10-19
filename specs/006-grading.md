@@ -1,6 +1,6 @@
 ---
 title: "Grading: the check contract, the built-in comparators, model judges, candidate-level judges, agent judges, annotation queues, generations and re-grading, the decline judge, open vocabularies and their taxonomies with the canonicalizer, and calibrating judges against people"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -11,7 +11,7 @@ depends_on:
 affects: [internal/grade/, internal/grade/check/, internal/grade/judge/, internal/grade/annotate/, internal/calibrate/, cmd/examen-compare/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -704,3 +704,40 @@ calibration (spec 010); the threats to judges (spec 012).
 | A canonicalizer runs once for an experiment of the suite's owner with unmapped labels, reads only the raw labels and their counts, of the experiment's trials and of its comparisons' reference sides, adds labels up to `MAX_LABELS_OPEN_VOCABULARY` and maps only unmapped ones, appends one record naming itself, and never runs for a grantee's experiment | `grade.TestCanonicalizer`, against the stub Lux |
 | Every check runs with network `none`, in a `topos` machine's check phase and in every check sandbox | `check.TestNoNetworkInTheCheckPhase`, e2e tier |
 | A candidate-level judge runs once per candidate after its cells are graded, bounds its input at `JUDGE_MAX_INPUT_BYTES` in equal shares per trial, appends one generation per candidate with no trial, and holds the experiment from completing until it ends | `grade.TestCandidateLevelJudge` |
+
+## Outcome
+
+In progress since v0.1.0, which grades with the built-ins alone. A
+grader of every kind is applied and checked at apply, and none runs:
+an experiment whose suite pins a task with checks is refused `422
+core_not_configured` with `core: cella`, and one whose graders,
+canonicalizers or decline judge are model judges with `core: lux`, or
+agent judges with `core: topos` (`httpapi.TestCreateRefusals`). What
+runs is the part of this spec that needs no core:
+
+- **The built-in decline judge.** `builtin:decline` writes `declined`
+  from a finished trial's outcome, with no model call, beside the
+  built-in metrics, whenever the suite lists `declined`.
+- **Open vocabularies.** A raw label is stored normalized, in Unicode
+  NFC, trimmed, each run of white space one space and in lower case,
+  and is never rewritten.
+- **Taxonomies.** Records append one lineage per suite and metric; a
+  new record keeps every raw label the one before it mapped; the raw
+  labels the current record does not map are served with their counts,
+  and the analysis counts each as a label of its own (spec 008).
+
+| # | Verdict | Held by |
+|---|---|---|
+| 5 | Partly met: a check `env` key beginning `EXAMEN_` and a `workdir` that leaves the workspace are refused at apply; an absolute `workdir` is refused by the same rule and has no case of its own | `objects.TestGraderRules` |
+| 20 | Partly met: `builtin:decline` fills `declined` from the outcome with no model call, and no grading changes an outcome; the suite's own `decline_judge` is refused at create until model judges run | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `postgres.TestMeasurementsAreAppendOnly` |
+| 24 | Partly met: a value is stored normalized and never rewritten; no grader run exists to end `malformed`, so a reported or imported label longer than `LABEL_MAX_BYTES` is refused `invalid_field` instead, and no test reaches that bound | `objects.TestValuesAndCurrent`, `httpapi.TestTaxonomies`, `postgres.TestMeasurementsAreAppendOnly` |
+| 25 | Met; the store's trigger that refuses changing a taxonomy row has no test of its own | `httpapi.TestTaxonomies`, `analysis.TestTaxonomyReads` |
+
+Every other criterion waits on what runs a grader: 1 to 4, 6, 22 and
+27 on the check sandbox and Topos's check phase (spec 005); 7 and 8 on
+the comparators and their image; 9 to 16 on model judges, which need a
+Key from the key source (spec 004); 17 on agent judges; 18 and 19 on
+annotation queues, which are stored and fill nothing; 21 on re-grading;
+23 on calibration; 26 on the canonicalizer; 28 on candidate-level
+judges. The criteria cite tests of packages not yet written; the table
+names the tests that hold the same behavior.

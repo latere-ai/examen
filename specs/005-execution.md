@@ -1,6 +1,6 @@
 ---
 title: "Execution: the executor contract, the topos, cella and external executors, a task's inputs and references, the HTTP runner, the check sandbox, smoke trials and the cost check, the work queue, retries and retrying a parked cell, timeouts, cancellation, adoption, imported trials and external past trials, and where cost and provenance are read"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -10,7 +10,7 @@ depends_on:
 affects: [internal/execute/, internal/execute/topos/, internal/execute/cella/, internal/execute/external/, internal/queue/, internal/luxread/, cmd/examen-trial/, cmd/examen-http/]
 effort: xlarge
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -1395,3 +1395,61 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 | A rollout's Key names the candidate's one surface, and, once Lux's Keys name one (L2), a request on another surface is refused | `cella.TestKeySurface`, against the stub Lux |
 | The trial driver runs the agent, stops every process the agent left before the replica is collected, runs no check, idles until it is collected, and marks every forwarded request with the trial's label | `cmd/examen-trial.TestDriver`, on the native Cella driver |
 | Each row of the `cella` outcome table maps as written, and a collected replica's evidence lands under its trial's folder with its SHA-256 | `cella.TestOutcomes`, `cella.TestExport` |
+
+## Outcome
+
+In progress. v0.1.0 runs the `external` executor of the v0.1 profile.
+Rollouts are rows on their cell, keyed `<cell>.smoke`, `<cell>.main`,
+`<cell>.retry.N` and `<cell>.smoke.N`. A cell's smoke trials run
+first, and its main trials follow a cost check whose estimate is zero.
+An `infra_failed` trial is retried with `retry_of` up to
+`MAX_INFRA_RETRIES`; a cell parks `blocked` or `over_budget`, and a
+parked cell is retried on request. Leases lapse and renew on
+`EXTERNAL_LEASE`. A cancel ends every unfinished trial `canceled`. An
+external harness's past runs import with their declared provenance.
+`completed` and `duration` are filled at done, and `declined` by the
+decline judge. Outputs are recorded as Arca paths with their digests
+and never read, and every trial's cost is `unknown`. v0.3.0 adds
+`interleaved` scheduling, a lease that names no candidate, and the
+bound that keeps a lease within the parallelism.
+
+The decisions are stateless functions in `internal/execute`, their
+transactions are in `internal/store/postgres`, and one engine in
+`internal/work` expires leases, advances rollouts and computes
+comparisons every `REPORT_INTERVAL`. The criteria cite tests of
+packages not yet written (`queue`, `external`, `topos`, `cella`,
+`luxread`); the table names the tests that hold the same behavior.
+
+Every row below shipped in v0.1.0 unless it names another release.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 4 | Partly met: a smoke trial `infra_failed` after its retries parks the cell `blocked` naming the trial and the code; a `malformed` check waits on checks, and that `timed_out` does not block is untested | `execute.TestInfraFailuresRetryThenBlock`, `httpapi.TestRetriesBlockAndResume` |
+| 6 | Partly met: a zero estimate is admitted with no lease, and an experiment of the profile runs from smoke to completion with no core client; the `cella` exception waits on that executor, a computed final comparison in mode `execute` is held only by the live tier, and no test reads back an output's path and digest or a trial's `unknown` cost | `execute.TestSmokePassesAndQueuesMain`, `httpapi.TestTheExternalFlow`, `live.TestLiveSmoke` |
+| 7 | Partly met: the cell parks `over_budget` naming the trial and the code, and the trial is excluded from analysis; ending the cell's open trials is asserted on the decision, not on the stored rows | `execute.TestOverBudgetParks`, `httpapi.TestOverBudgetParksAndRetryReopens`, `analysis.TestIncomplete` |
+| 8 | Partly met: a retry runs every index without a finished trial, with `retry_of` and outside `MAX_INFRA_RETRIES`, and a cell blocked by its smoke runs new smoke trials; the cost check it runs again is the zero estimate | `execute.TestRetryOfAParkedCell`, `httpapi.TestRetriesBlockAndResume`, `httpapi.TestOverBudgetParksAndRetryReopens` |
+| 10 | Met for the `external` executor (v0.3.0; the round robin dates from v0.1.0) | `execute.TestDeal`, `postgres.TestLeaseHoldsTheParallelism`, `postgres.TestLeaseWithoutCandidate` |
+| 11 | Met (v0.3.0) | `execute.TestInterleavedAcrossTasks`, `execute.TestBefore`, `postgres.TestLeaseInterleavesAcrossTasks` |
+| 12 | Met (v0.3.0) | `postgres.TestLeaseWithoutCandidate`, `postgres.TestLeaseHoldsTheParallelism`, `httpapi.TestLeaseWithoutCandidate` |
+| 13 | Met | `execute.TestInfraFailuresRetryThenBlock`, `httpapi.TestRetriesBlockAndResume`, `objects.TestValuesAndCurrent` |
+| 15 | Partly met: a cancel ends unfinished trials `canceled` and their leases and rollouts in one transaction; the tests assert the experiment's state and a refused lease rather than each trial, and the `cella` Key waits on that executor | `httpapi.TestTheExternalFlow`, `httpapi.TestExperimentReads`, `postgres.TestWritesFailWhole` |
+| 18 | Partly met: past times, the declared `harness_version` and image, `422 provenance_mismatch` for another version, and declared provenance; outputs written under the trial's folder and graded wait on the file store and the check sandbox | `httpapi.TestSubmitAndImportRefusals`, `httpapi.TestAnalyzedImport` |
+| 19 | Partly met: an external harness's `service_usage` is kept in `observed` and summed apart from the trial's cost; programs and the HTTP runner are not built, and no test reads the stored usage back through the API | `compare.TestCostOf`, `analysis.TestUnknownCostNeverZero` |
+| 23 | Partly met: `completed`, `duration` and `declined`; the cost, token, turn and tool-call metrics wait on Lux, and an unfinished trial's missing value is tested for pending trials alone | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `postgres.TestMeasurementsAreAppendOnly` |
+| 33 | Partly met: only smoke trials lease before the smoke passes, never past the share, and a lapsed lease returns its trials to pending with no retry spent; a submit's outputs and the check sandbox wait on the file store and Cella, and that a cancel ends every lease is untested | `httpapi.TestTheExternalFlow`, `httpapi.TestLeasesLapseAndRenew`, `postgres.TestLapsesLeasesAndReopensFailWhole` |
+| 34 | Partly met: self-reported values are stored with `self_reported` true; Lux is not read, so every trial's cost is `unknown` | `httpapi.TestAnalyzedImport`, `postgres.TestMeasurementsAreAppendOnly` |
+
+Not built: 1 to 3, the executor contract; 5 and 9, the cost check
+against a Budget's remainder, unpriced models and soft Budgets; 14,
+deadlines and `TRIAL_START_TIMEOUT`; 16, adoption; 17, 25 and 26, the
+`topos` executor; 20 and 28, the prepare job; 21 and 22, cost and the
+sent layer read from Lux; 24, labels; 27, 31 and 36 to 38, the `cella`
+executor and the trial driver; 29 and 30, the check sandbox; 32, the
+HTTP runner; 35, directory outputs.
+
+The work queue as built differs from the design above: there is no
+jobs table claimed by `EXAMEN_WORKERS` workers, a rollout has no
+`submitting` state, a rollout's stored `parallelism` is 1 while shares
+are dealt at each lease, and a parked cell's reason reads
+`smoke_infra_failed: <trial>: <code>` or `budget_exhausted: <trial>:
+<code>`.

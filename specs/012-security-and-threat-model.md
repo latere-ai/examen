@@ -1,6 +1,6 @@
 ---
 title: "Security and threat model: what Examen protects, who attacks it, the trust boundaries, each defense and the test that holds it, and what is not defended"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -15,7 +15,7 @@ depends_on:
 affects: [cmd/examend/, cmd/examen-trial/, internal/, SECURITY.md]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -295,3 +295,42 @@ Topos, Cella, Lux and Arca are their own threat models.
 | With a task whose inputs, references and HTTP runner config name hosts, examend's outbound requests reach only its configured endpoints | `TestExamendCallsNoNamedHost` |
 | A renewal or submit by a subject other than the lease's is `409 lease_not_held` | `external.TestForeignLease` |
 | A client address past `PUBLIC_REQUESTS_PER_MINUTE` public reads of one replica is `429 rate_limited` with `Retry-After`, and `X-Forwarded-For` is believed only from a proxy `EXAMEN_TRUSTED_PROXIES` names | `TestPublicRateLimit` |
+
+## Outcome
+
+In progress. v0.1.0 builds the boundary between callers and examend:
+bearer verification of issuer, audience and validity times, one
+question to the authorizer or the owner policy on every route with a
+deny answered as a missing object, the body bound and the rate limit
+per subject, idempotent creates, the bound on active experiments,
+measurements kept append-only by the database, canonical digests, the
+reserved `examen.` metadata prefix and the lease holder's check. v0.3.0
+adds the owner policy's rule that a share opens reads alone.
+`SECURITY.md` names the private channel. Nothing that rests on judges,
+checks, executors, Keys, program credentials, shares or public reads
+is built.
+
+Every row below shipped in v0.1.0. Of the tests the table of threats
+names, few exist under the cited name; the table below names the tests
+that hold the same behavior.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 2 | Partly met: `SECURITY.md` names a private channel; no test reads both files, and two of its commitments have no row in the table of threats | no test yet |
+| 8 | Partly met: no file of `examend` imports `os/exec` or starts a process; no test asserts it | no test yet |
+| 10 | Met | `httpapi.TestCreateLimits` |
+| 11 | Partly met: a read, a run and a cancel with another owner's token answer as a missing object; re-grade, annotation answers and evidence reads are not built, and that nothing changes is not asserted after each refusal | `httpapi.TestExperimentReads`, `httpapi.TestReadsAcrossOwnersAndOutages`, `httpapi.TestSubmitAndImportRefusals` |
+| 13 | Partly met: a model judge without a model is `400 missing_field`, and a suite pins only applied graders; no test shows that no default judge model exists | `objects.TestGraderRules` |
+| 15 | Met; the store, its tests and the migrations use one role, the one that owns the tables | `postgres.TestMeasurementsAreAppendOnly` |
+| 16 | Met | `id.TestCanonicalGolden`, `id.TestDigestIgnoresOrderAndSpace` |
+| 17 | Met | `access.TestWhatTheVerifierRefuses`, `httpapi.TestRoutesNeedABearer` |
+| 18 | Partly met: every route needs a bearer, and the routes served equal the contract, which holds no callback; no test asserts the absence | `httpapi.TestRoutes`, `api.TestDocumentMatchesTheRoutes` |
+| 19 | Met | `httpapi.TestIdempotency`, `httpapi.TestExperimentReads` |
+| 20 | Met | `httpapi.TestRequestTooLarge`, `httpapi.TestRateLimit` |
+| 21 | Met, on the `metadata` keys a client supplies | `objects.TestNamesAndRefs`, `httpapi.TestCreateRefusals` |
+| 23 | Partly met: examend calls the issuers and the authorizer alone; no test records its outbound requests | no test yet |
+| 24 | Partly met: the store answers `lease_not_held` to a renewal or submit by another subject; no HTTP test sends one from a second subject of the same owner | `postgres.TestStateRefusals` |
+
+Not built: 1, the test that holds the table's test names to the
+module; 3 to 7, judges, agent judges and checks; 9 and 14, key sources
+and Keys; 12, shares; 22, program credentials; 25, public reads.

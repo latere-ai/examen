@@ -1,6 +1,6 @@
 ---
 title: "Analysis: per-cell summaries and their intervals by metric type and level, Boschloo's exact test, studentized permutation tests with sequential stopping and the label tests, the stratified label test, the repeat rate, suite-level summaries with task weights and coverage, score intervals for weighted rates, the primary result, exploratory comparisons and the one corrected family, declared comparisons whose primary results are corrected together, the experiment-level test of independence, verdicts, reasons and the power floor, computed confounds and declared provenance, automatic and progressive comparisons, a benchmark's pair results over common tasks and simultaneous rank intervals, and trends, all computed deterministically and stored"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -11,7 +11,7 @@ depends_on:
 affects: [internal/analysis/, internal/analysis/mathx/, internal/store/, api/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -1708,3 +1708,87 @@ after publishing (spec 013).
 | Every figure of the console's grid, verdict tables and cost table is read from a stored comparison or the stored analysis; the console bundle contains no statistical routine | `analysis.TestEveryShownFigureIsStored`, `console.TestNoStatisticsInTheClient` |
 | The analysis calls no `exp`, `log`, `lgamma` or `erfinv` but `internal/analysis/mathx`'s, which holds no assembly | `analysis.TestUsesVendoredMath` |
 | Later steps: the golden comparison is byte-identical on amd64 and arm64; a trend over a lineage of three baselines shows three points and two step comparisons | `analysis.TestGoldenAcrossArchitectures`, run on both in CI; `analysis.TestTrend` |
+
+## Outcome
+
+In progress. v0.1.0 computes every served comparison with the analysis
+of this spec: per-task and suite-level summaries with their intervals
+by metric level, Boschloo's test and the studentized and sequential
+permutation tests, the Benjamini and Hochberg correction of a family
+beside the primary result tested alone, verdicts, reasons and the
+power floor, coverage and task weights, the confounds of the
+provenance tuple, declared provenance and declared images, comparisons
+across tasks, self-reported values, and the inputs digest, seeds and
+parameters that make a comparison reproduce bit for bit on vendored
+math. v0.3.0 adds declared comparisons and their family, served at
+`GET /experiments/{id}/declared`.
+
+Built in `internal/analysis` and not yet served: label tests, so a
+label result is descriptive; the stratified label test and the
+experiment's test of independence (v0.3.0), so a create's
+`independence` is `400 unknown_field`; the `uncalibrated` confound;
+candidate-level values; the layer confounds read from Lux's records;
+the stored analysis's spend and outcomes; and a benchmark's results
+table with Holm's correction and rank intervals. A grid's cell
+summaries are computed by the same procedures when the grid is read,
+and are not stored.
+
+Every row below shipped in v0.1.0 unless it names another release.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 1 | Met | `analysis.TestWilson`, `analysis.TestNewcombe`, `analysis.TestQuantileType7`, `analysis.TestBoschloo` |
+| 2 | Partly met: the interval `[m, m]`, an infinite `t*` kept, and the `no_interval` count; the skewed sample is checked for its shape and its repeat, not against a reference implementation | `analysis.TestBootstrapT`, `analysis.TestMeanResults` |
+| 3 | Met | `analysis.TestOrderStatisticInterval`, `analysis.TestReasons` |
+| 4 | Met | `analysis.TestStudentizedStatistics`, `analysis.TestPermutationExact`, `analysis.TestStudentizedLevel` |
+| 5 | Met | `analysis.TestPermutationExact`, `analysis.TestPermutationSequential`, `analysis.TestResamplesGrowWithTheFamily` |
+| 6 | Met | `analysis.TestResamplesGrowWithTheFamily` |
+| 7 | Met | `analysis.TestPowerFloor`, `analysis.TestPowerFloorThresholds` |
+| 8 | Met | `analysis.TestCountsUseTheirAggregate` |
+| 9 | Met; its label case runs with label tests on, which are not served | `analysis.TestEqualSidesAreWithinNoise` |
+| 10 | Met | `analysis.TestInsufficientBelowMinimum` |
+| 11 | Met | `analysis.TestCoverage` |
+| 12 | Partly met: Kish's, Wilson's and Agresti and Caffo's intervals match the worked examples; no test shows a comparison's suite-level rate uses them rather than the bootstrap-t | `analysis.TestSuiteRateIntervals` |
+| 13 | Met | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive` |
+| 14 | Partly met, not served: the Fisher, Freeman and Halton and the chi-square p-values; the chi-square's sequential stop, and the methods of the per-label intervals, are untested | `analysis.TestFisherFreemanHalton`, `analysis.TestChiSquarePermutation`, `analysis.TestLabelResults` |
+| 15 | Met, not served (v0.3.0) | `analysis.TestStratifiedLabelTest`, `analysis.TestOppositeShiftsAreFound`, `analysis.TestLabelResults` |
+| 16 | Met (v0.3.0) | `analysis.TestDeclaredComparison`, `httpapi.TestDeclaredComparisons`, `compare.TestDeclaredInput` |
+| 17 | Met (v0.3.0) | `analysis.TestDeclaredFamily`, `httpapi.TestDeclaredComparisons`, `work.TestComputeDeclares`, `postgres.TestDeclare` |
+| 18 | Met, not served (v0.3.0) | `analysis.TestIndependence` |
+| 19 | Met | `analysis.TestRepeatRate`, `analysis.TestDescriptiveCellMeasures`, `analysis.TestModeShareAgainstRepeatRate` |
+| 20 | Met, not served | `analysis.TestCandidateLevelIsDescriptive` |
+| 21 | Partly met: one taxonomy record is read on both sides, and an unmapped raw label counts as a label of its own; a record a bar pins waits on bars, and a record appended after a final comparison makes no new comparison | `analysis.TestTaxonomyReads` |
+| 22 | Met | `analysis.TestDeclaredImage` |
+| 23 | Met | `analysis.TestAppliesTo` |
+| 24 | Met | `analysis.TestCellMeasuresExcludeLabels` |
+| 25 | Met | `analysis.TestComparisonAcrossTasks`, `httpapi.TestAnalyzedImport`, `httpapi.TestComparisons` |
+| 26 | Met | `analysis.TestDeclaredReasoningIsSingleVariable`, `httpapi.TestAnalyzedImport` |
+| 27 | Met; the stored analysis's spend is not served | `analysis.TestUnknownCostNeverZero`, `compare.TestCostOf` |
+| 28 | Met | `analysis.TestVerdictRule`, `analysis.TestReasons` |
+| 29 | Partly met: `q` equals `p` for the primary result, an exploratory comparison corrects it within the family, and Benjamini and Hochberg match a reference; a reference changed, or a candidate added, after the start waits on changing an experiment | `analysis.TestPrimaryStandsAlone`, `analysis.TestExploratory`, `analysis.TestBenjaminiHochberg` |
+| 30 | Met | `analysis.TestSelfReported`, `httpapi.TestAnalyzedImport` |
+| 31 | Met | `analysis.TestSuiteWeights` |
+| 32 | Met; the `observed.model` layer confound needs Lux's records, which no served comparison reads | `analysis.TestModelComparisonIsSingleVariable`, `analysis.TestConfounds` |
+| 33 | Partly met: `incomplete` and `window` are served; `window` for adopted trials waits on adoption, and `uncalibrated` on calibration | `analysis.TestIncomplete`, `analysis.TestWindow`, `analysis.TestUncalibrated` |
+| 34 | Met; `program` candidates are refused at create, so their half is computed in the analysis package alone | `analysis.TestProgramConfigIsSingleVariable`, `analysis.TestServiceVersions`, `analysis.TestDeclaredProvenance` |
+| 35 | Met | `analysis.TestVariableIsOneLogicalVariable`, `httpapi.TestComparisonRequestRefusals` |
+| 36 | Met in the analysis package; re-grading is not built | `analysis.TestReferenceReadAtCandidatesGrader` |
+| 37 | Partly met: computed at the first finished trial, recomputed in place with `final` false, final at completion, and a retry adds a comparison beside the final one; a reference set after a cell left `pending` waits on changing an experiment | `httpapi.TestAnalyzedImport`, `httpapi.TestOverBudgetParksAndRetryReopens` |
+| 38 | Met | `analysis.TestRecomputeFromRecordedInputs`, `analysis.TestSeedScopes` |
+| 39 | Partly met, not served: entry ranking; that every pair result reads the common tasks alone is untested | `analysis.TestEntryRanking` |
+| 40 | Partly met, not served: pair results and their confounds; that the verdict follows `h` is untested, since two entries give `h` equal to `p` | `analysis.TestEntryPairs`, `analysis.TestEntryPairConfounds` |
+| 41 | Met, not served | `analysis.TestHolm`, `analysis.TestTableResamples` |
+| 42 | Met, not served | `analysis.TestRankIntervals` |
+| 43 | Met, not served | `analysis.TestRecomputeResultsTable` |
+| 45 | Met | `analysis.TestUsesVendoredMath`, `mathx.TestNoAssembly` |
+| 46 | Partly met: the golden comparison is held to a committed digest on whichever architecture runs it; no CI job runs it on both amd64 and arm64, and trends are not built | `analysis.TestGoldenAcrossArchitectures` |
+
+Not built: 44, since the grid's figures are computed when it is read
+and there is no cost table; and trends.
+
+Two behaviors differ from the text above: an automatic or declared
+comparison turns `final` when its experiment completes, rather than
+once both its sides are final; and cell-level metrics are accepted,
+pinned and computed in served comparisons, ahead of the label tests
+step of the build order, as are open vocabularies and their
+taxonomies.

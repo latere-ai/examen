@@ -1,6 +1,6 @@
 ---
 title: "Reports: what a console reads and shows for an experiment and its comparisons, the presentation rules every figure obeys, the frozen report document, narrative as a linted draft an owner releases, and JSON, CSV and static HTML exports"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -14,7 +14,7 @@ depends_on:
 affects: [internal/view/, internal/report/, internal/narrative/, api/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -438,3 +438,26 @@ languages other than English.
 | Spend includes smoke, failed and retried trials and judge gradings, and matches the sum of the Lux stub's records; service cost is shown beside it, labeled, and is in no other column | `view.TestCosts`, against the Lux stub |
 | A report's `document` matches its digest and never changes; a re-grade yields a new report; a report names only final comparisons | `report.TestReportIsFrozen` |
 | Later steps: the calibration column shows each judge's flag, alpha, interval and pair count; each linter code rejects its fixture claim and a compliant narrative passes, and a narrative with any finding cannot be released; the drafter reads only the document; a release stores its record; the CSV files have exactly their columns and read back; the HTML bundle is written under `files/evals/reports/<id>/<n>/` create-only with its manifest last and no other origin; the gap map marks every pair; a label table shows its verdict once label tests are built, and a candidate-level row is marked descriptive | `view.TestCalibrationShown`, `narrative.TestLinter`, `narrative.TestReleaseNeedsACleanLint`, `narrative.TestDrafterReadsOnlyTheDocument`, `narrative.TestReleaseRecord`, `report.TestCSVColumnsAndRoundTrip`, `report.TestHTMLBundle`, `view.TestGapMap`, `view.TestLevelsAndLabels` |
+
+## Outcome
+
+In progress. The reads of What a console reads are served since
+v0.1.0, through spec 003's routes: the grid, paged by task, with each
+column's verdicts from its candidate's automatic comparison; a
+comparison and its rows, provisional until `final`; the progress
+stream, whose events say what to read again; and trials with their
+current values, narrowed by a metric's value, with their measurements
+and their configured and observed layers. Nothing a console or a
+report shows is built: no reference console exists, and no report,
+narrative or export.
+
+No criterion is met yet: 1 to 8 wait on a console, 9 on reports, and
+the later steps on calibration, the narrative and its linter, the
+exports, label tests and the gap map.
+
+Two parts of the reads differ from the rules above: a grid cell's
+summary is computed by the analysis's own procedures when the grid is
+read rather than read from a stored figure, and the stored analysis's
+spend and outcome figures are not served, so a cost table has nothing
+to read yet; and a trial has no sent layer until Lux's records are
+read (spec 005).

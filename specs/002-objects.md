@@ -1,13 +1,13 @@
 ---
 title: "Objects: metric, grader, task, suite, candidate, experiment, cell, trial, measurement, taxonomy, baseline, comparison, bar, bar evaluation, share, dataset export, report, publication, submission and event; their fields, states, identifiers and limits"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
 affects: [api/, internal/store/, internal/id/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -990,3 +990,42 @@ statistics (008), bar evaluation (009), reports (010) and sharing (013).
   organization's experiment; both are stored and answered on every
   read, and neither changes.
 - The decline judge never changes a trial's outcome.
+
+## Outcome
+
+In progress. v0.1.0 builds the identifiers, the five versioned kinds
+with their canonical digests and version rows that never change, the
+rules each kind is held to at apply, the provenance tuple, measurement
+values and the current value, taxonomy records, and the limits table,
+which a test holds to this spec. v0.2.0 adds an experiment's
+`created_by` beside its `owner`, and v0.3.0 an experiment's
+`comparisons` and `scheduling`, a comparison's `declared` and the
+declared analysis. Not built: bars, shares, dataset exports, reports,
+publications, submissions, annotation items, re-grading,
+candidate-level measurements, an experiment's `independence`, and any
+change to an experiment after its create.
+
+Every row below shipped in v0.1.0 unless it names another release.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 1 | Met | `id.TestPrefixedAndOrdered`, `id.TestAClockThatStepsBackKeepsTheOrder`, `id.TestPrefixesAreTheSpecs` |
+| 2 | Met | `httpapi.TestApplyAndRead`, `postgres.TestMeasurementsAreAppendOnly` |
+| 3 | Partly met: a name alone, an image by tag and a workspace by branch are refused naming the field; a model alias is recognized only as a name ending in `latest` or holding white space | `objects.TestNamesAndRefs`, `objects.TestGraderRules`, `httpapi.TestApplyPreconditionsAndRefusals` |
+| 4 | Partly met: a task with no instruction applies, and an inline input over the bound, two inputs of one name and an absolute or `..` output are refused naming the field; two references of one name and an inline reference over the bound pass the same check and have no case of their own | `objects.TestTaskRules` |
+| 5 | Partly met: a value under `self:<harness>` reads back `self_reported`; that no other is rests on a table constraint no test exercises | `httpapi.TestAnalyzedImport` |
+| 6 | Met | `objects.TestMetricRules`, `objects.TestResolvedChecks` |
+| 7 | Partly met: a submit or import refuses a metric that is not trial-level, and the table admits a trial's or a candidate's row alone; no test submits a cell-level metric, and nothing writes candidate-level measurements yet | no test yet |
+| 8 | Partly met: a taxonomy change appends the next record; the trigger that refuses changing a record has no test, and published versions are not built | `httpapi.TestTaxonomies` |
+| 9 | Met | `objects.TestMetricRules`, `objects.TestTaskRules` |
+| 10 | Met | `objects.TestTuples`, `httpapi.TestAnalyzedImport` |
+| 11 | Met | `objects.TestResolvedChecks`, `httpapi.TestApplyPreconditionsAndRefusals` |
+| 12 | Partly met: a self-reported value for a metric the suite does not list, or one a grader produces, is refused; no other grader but the built-ins writes measurements yet | `httpapi.TestSubmitAndImportRefusals` |
+| 13 | Partly met: a core's audience is refused naming the credential, and a taxonomy over `MAX_LABELS_OPEN_VOCABULARY` labels is refused; Examen's own audience is reserved and has no case of its own | `objects.TestCandidateRules`, `httpapi.TestApplyPreconditionsAndRefusals`, `httpapi.TestTaxonomies` |
+| 14 | Partly met: the store refuses an update of a measurement; re-grading is not built | `postgres.TestMeasurementsAreAppendOnly` |
+| 15 | Partly met: every constant holds its table's value, and the limits of what is built answer `limit_exceeded` with `details.constant`, asserted by name for `MAX_ACTIVE_EXPERIMENTS_PER_OWNER` alone; most constants of what is not built are not yet read | `limits.TestEveryLimitIsTheSpecs`, `httpapi.TestCreateLimits`, `objects.TestSuiteRules` |
+| 16 | Met on tasks, candidates and experiments, the objects built that carry metadata | `objects.TestNamesAndRefs`, `objects.TestTaskRules`, `objects.TestCandidateRules`, `httpapi.TestCreateRefusals` |
+| 17 | Partly met: no route changes an experiment, so N cannot change; no test asserts it | no test yet |
+| 18 | Partly met (v0.3.0): `comparisons` and `scheduling` are set at create, and a pair named twice, more than `MAX_DECLARED_COMPARISONS` and a candidate or task the experiment does not hold are refused naming `comparisons[i]`; `independence` is not yet accepted, and no route changes an experiment | `httpapi.TestDeclaredComparisons`, `httpapi.TestDeclaredComparisonsRefused` |
+| 19 | Met (v0.2.0) | `httpapi.TestAnOrganizationsExperimentKeepsItsCreator` |
+| 20 | Partly met: the built-in decline judge derives `declined` from the outcome and writes only a measurement; no test reads the outcome after it ran, and a model decline judge is refused at create | `objects.TestValuesAndCurrent` |

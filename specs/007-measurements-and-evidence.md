@@ -1,6 +1,6 @@
 ---
 title: "Measurements and evidence: the append-only measurement store and its current values, the configured, sent and observed layers of a trial, evidence references into the owner's Arca space, where each kind of evidence lives, retention, and dataset export"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -12,7 +12,7 @@ depends_on:
 affects: [internal/store/, internal/evidence/, internal/export/, api/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -606,3 +606,45 @@ operator's.
 | An export above `MAX_EXPORT_RECORDS` and a filter with more than `MAX_EXPORT_CONDITIONS` conditions are refused before any file is written | `export.TestExportLimits` |
 | With `evidence=copy`, every ref in the records points into the export's folder and its digest matches the copy | `export.TestEvidenceCopy`, against the Arca stub |
 | A record of `examen.dataset/v1` validates against the committed schema, and a reader built against it accepts a record with an added field | `export.TestRecordSchema` |
+
+## Outcome
+
+In progress. v0.1.0 builds the measurement store: the `measurements`
+table with its value, scope and `self_reported` constraints and the
+trigger that keeps it append-only, the current value, and the
+gradings written when a trial is done (`builtin` for `completed` and
+`duration`, the built-in decline judge, and `self:<harness>` for the
+values an external harness reports, each checked against its metric).
+Of the provenance layers it fills the configured tuple, the declared
+layer, and the observed layer's duration, service versions, service
+usage and the Lux request ids as given; every cost is `unknown`.
+Evidence references are the Arca paths and digests a harness declares,
+recorded and never read. v0.2.0 to v0.4.0 add nothing to this spec.
+Not built: graders beyond the built-ins, so re-grading, annotator
+generations and candidate-level measurements; the sent layer and
+everything read from Lux; every write to the file store; retention;
+and dataset export.
+
+Every row below shipped in v0.1.0. The criteria cite tests of
+packages not yet written (`store`, `evidence`, `export`); the table
+names the tests that hold the same behavior.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 1 | Partly met: one grading's rows take one generation and are written in the transaction of the change that ends the trial; no test counts them, and no path makes two gradings of one trial by one grader | `postgres.TestWritesFailWhole` |
+| 2 | Partly met: the table admits a trial's row or a candidate's, with one generation sequence per experiment, candidate and grader; no test inserts a candidate-level row, and nothing writes one yet | no test yet |
+| 3 | Partly met: a value is stored normalized, read through the suite's current taxonomy record, and an unmapped label reads as a label of its own; export records wait on dataset export | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `analysis.TestTaxonomyReads` |
+| 4 | Partly met: `service_usage` is kept in `observed` and summed apart from the cost in USD; `cost_usd` waits on Lux, and no test reads stored usage back | `compare.TestCostOf`, `httpapi.TestSubmitAndImportRefusals` |
+| 5 | Met | `postgres.TestMeasurementsAreAppendOnly` |
+| 6 | Partly met: a wrong type, a score out of range, a label outside its labels, NaN, a fractional count and a negative duration are refused; infinity and a negative count have no case of their own, and the field named is not asserted | `objects.TestValuesAndCurrent`, `httpapi.TestSubmitAndImportRefusals` |
+| 7 | Met | `objects.TestValuesAndCurrent` |
+| 8 | Partly met: the suite is refused on `graders`, and annotation graders are exempt; that the refusal names both graders is not asserted | `objects.TestResolvedChecks`, `httpapi.TestApplyPreconditionsAndRefusals` |
+| 9 | Partly met: `declined` is never written under `builtin`; late Lux records, and the generation they would append, wait on Lux | `objects.TestValuesAndCurrent`, `postgres.TestMeasurementsAreAppendOnly` |
+| 11 | Partly met: one analysis input gives byte-identical results however it is ordered; re-grading is not built, a recompute reads the current measurements rather than the recorded `comparison_inputs`, and replacing a provisional comparison's recorded inputs is untested | `analysis.TestRecomputeFromRecordedInputs` |
+| 12 | Partly met: the configured layer is filled from the cell; the sent layer, and the observed layer read from Lux, are not built | `objects.TestTuples` |
+| 14 | Partly met: a value for a metric the suite does not list, or one a grader produces for the task, is refused, and an accepted one is the current value; other candidate kinds are refused at create, so that arm cannot be reached | `httpapi.TestSubmitAndImportRefusals`, `httpapi.TestTheExternalFlow` |
+| 17 | Partly met: a task's `evidence` path with `..` is refused; the experiment's folder layout and `topos` refs wait on the file store and the `topos` executor | `objects.TestTaskRules` |
+
+Not built: 10, annotations; 13, 15 and 16, the file store, with
+verification at intake and create-only writes; 18, deleting an
+experiment; 19 to 23, dataset export.

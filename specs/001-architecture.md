@@ -1,12 +1,12 @@
 ---
 title: "Architecture: a thin core that defines experiments on agents and on programs built on models, records measurements and decides what changed, while Topos, Cella or the owner's own external harness runs every trial, Lux meters it and Arca keeps the evidence"
-status: drafted
+status: in-progress
 track: core
 depends_on: []
 affects: [cmd/examend/, internal/, api/, authorizer/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -534,3 +534,35 @@ client and any console use the same API. Spec 011 covers distribution.
 None in the core. Which judge models an owner trusts with their data is
 the owner's choice, and the hosting installation states each model's
 data terms and may narrow the choice through `judge_models` (spec 004).
+
+## Outcome
+
+In progress. v0.1.0 builds the thin core for the v0.1 profile: the
+versioned objects, experiments of `external` candidates run through
+leases and submits or imported from past runs, the append-only
+measurement store, and the analysis that decides every comparison.
+`external` is the only executor: `topos` and `program` candidates are
+stored and refused at create, and examend holds no client of Topos,
+Cella, Lux, Arca or Origo, so no check, judge, sandbox, key source or
+owner token exists yet. v0.2.0 records an experiment's creator beside
+its owner, v0.3.0 adds declared comparisons and interleaved
+scheduling, and v0.4.0 passes a create's `sign_in` to the authorizer.
+
+Every row below shipped in v0.1.0.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 1 | Partly met: examend's only outbound clients fetch the issuers' keys and ask the authorizer, no file starts a process, and `external` is the only executor; no test asserts any of the three | no test yet |
+| 3 | Partly met: a create without a budget is refused `400 missing_field`, so no trial starts; the check of a Budget's remainder against a cell's estimate is not built | `httpapi.TestCreateRefusals` |
+| 5 | Partly met: an `execute` experiment runs through leases and submits to completion, and an `import` experiment to computed final comparisons, with no core configured; no test records the absence of requests to a core, and the hermetic `execute` runs compute no figures | `httpapi.TestRetriesBlockAndResume`, `httpapi.TestAnalyzedImport`, `httpapi.TestComparisons` |
+| 6 | Partly met: the analysis names `model` the single variable of two tuples on one agent version; no experiment holds agent candidates until the `topos` executor exists | `analysis.TestModelComparisonIsSingleVariable`, `objects.TestTuples` |
+| 7 | Met | `httpapi.TestAnalyzedImport`, `httpapi.TestComparisons` |
+| 8 | Met | `analysis.TestInsufficientBelowMinimum`, `httpapi.TestAnalyzedImport` |
+| 9 | Met | `analysis.TestPrimaryStandsAlone`, `analysis.TestBenjaminiHochberg`, `httpapi.TestAnalyzedImport` |
+| 11 | Partly met: no sandbox exists, and a lease answer has no member that could carry a reference; no test leases a task with references and reads the answer | no test yet |
+| 12 | Met; a report's headline waits on spec 010 | `analysis.TestSelfReported`, `analysis.TestDeclaredProvenance`, `httpapi.TestAnalyzedImport` |
+| 13 | Partly met: the analysis treats a program's `config` as one logical variable; `program` candidates are refused at create until the `cella` executor exists | `analysis.TestProgramConfigIsSingleVariable`, `objects.TestTuples` |
+| 15 | Partly met: a taxonomy change appends the next record naming the one before it; that measurements and final comparisons stay as they were is untested | `httpapi.TestTaxonomies`, `analysis.TestTaxonomyReads` |
+
+Not built: 2, checks; 4, the `endpoint` key source; 10, judges and
+re-grading; 14, publishing.

@@ -1,6 +1,6 @@
 ---
 title: "Distribution: the examend binary and its commands, configuration by environment, Postgres migrations, the image, probes, telemetry, versioning and release, upgrade and rollback, and a standalone installation"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -16,7 +16,7 @@ depends_on:
 affects: [cmd/examend/, internal/config/, internal/version/, internal/store/migrations/, test/stubs/, deploy/, docs/, Makefile, Dockerfile, .lateregate.yaml, .githooks/, .github/, CHANGELOG.md]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -549,3 +549,44 @@ log (spec 007). The text of `SECURITY.md` (spec 012).
   anything is copied.
 - No file of the repository names an installation's hostname, account
   or credential, by the gate's identity scan.
+
+## Outcome
+
+In progress. v0.1.0 ships the distribution of the v0.1 profile: the
+binary's three commands, every `EXAMEN_*` variable read once in
+`internal/config` and held to the table above by a test, the refusals
+at start, forward migrations under a session lock and the schema
+check, serving through a pooler in transaction mode, the probes, the
+drain on the stop signal, the image, and the changelog check before a
+tag. v0.2.0 adds a live smoke test against a deployed server.
+
+Every row below shipped in v0.1.0.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 1 | Met: the gate passes in CI, with `internal/store/postgres/pgtest` exempt from the coverage floor for the reason `.lateregate.yaml` gives | CI `verify`, job `gate` |
+| 2 | Met | `main.TestOneCommandAndNoFlag`, `main.TestVersionIsStamped` |
+| 3 | Met; the e2e tiers' test code reads `EXAMEN_E2E_*` variables, which the table does not list | `config.TestTableMatchesWhatIsRead`, `examen_test.TestOnlyConfigReadsTheEnvironment` |
+| 4 | Met | `config.TestErrorsNameTheVariableOnly`, `main.TestMigrateCommand` |
+| 5 | Met | `config.TestRefusals`, `main.TestServeRefuses`, `postgres.TestTheSchemaCheck` |
+| 6 | Met | `postgres.TestMigrate`, `main.TestMigrateCommand` |
+| 7 | Met | `postgres.TestTheSchemaCheck`, `main.TestServeRefuses`, `main.TestServeANewerSchema` |
+| 9 | Partly met: idempotency, one external flow and `serve`'s start run through a pooler in transaction mode; the rest of the store suite runs on the direct connection alone | `postgres.TestIdempotency`, `httpapi.TestTheExternalFlowThroughAPooler` |
+| 10 | Partly met: `/livez`, `/readyz` naming `database` or `draining`, `200` with the authorizer and an issuer down, and `/version`; `draining` after a real stop signal is untested, and the minter, the key endpoint and the cores have no client yet | `httpapi.TestProbes`, `main.TestServe`, `postgres.TestReady` |
+| 11 | Partly met: readiness fails while draining, and the process exits 0; open streams are not closed at the signal and hold the stop for `SHUTDOWN_GRACE`, and an open request finishing within it is untested | `main.TestServe`, `httpapi.TestProbes` |
+| 13 | Partly met: the image holds no shell, is under 40 MiB, and migrates and serves with a read-only root file system and no capability; its non-root user is set and not checked, and only the runner's platform is run | CI `verify`, job `image` |
+| 14 | Met, by `lateregate` in both places | `.githooks/pre-push`; CI `release`, job `build` |
+| 15 | Partly met: in process, with the owner policy and a test authenticator, an `execute` experiment runs through leases and submits to completion and an `import` experiment to computed final comparisons; the binary's run with the stub issuer is skipped in CI, no test records the absence of requests to a core, and one experiment cannot both lease and import, since an import into an `execute` experiment is `409 wrong_mode` | `httpapi.TestRetriesBlockAndResume`, `httpapi.TestAnalyzedImport`, `goalless_test.TestGoallessStudy` |
+| 17 | Partly met: bearers, the authorizer's token and the configuration's secrets stay out of every log line and error; spans are not captured, no metric is emitted, and Keys, link tokens and `prepare` jobs do not exist yet | `main.TestServe`, `httpapi.TestRoutesNeedABearer`, `config.TestSecretsDoNotPrint` |
+| 19 | Met; the identity scan reads code, documents and manifests, and leaves `specs/` out by design | CI `verify`, job `gate` |
+
+Not built: 8, the previous minor's e2e tier against a migrated
+database; 12, a rolling restart; 16, the profile after v0.1 with token
+files and stub cores; 18, publications.
+
+The release differs from the design above in a few places: with
+`EXAMEN_KEYS_URL` unset the key source reads `lux` rather than none;
+the start log does not say whether `serve` serves the v0.1 profile; no
+metric of the telemetry table is emitted; and the layout's `docs/`,
+`deploy/` and `test/stubs/`, and every binary but `examend`, do not
+exist.

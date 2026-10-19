@@ -1,6 +1,6 @@
 ---
 title: "Identity and authorization: verifying a caller, the action vocabulary, the authorizer with its limits and filters, the built-in owner policy, share grants and readers who do not sign in, acting as the owner toward Topos, Cella, Lux, Arca and Origo, and the key source that leases model Keys and reads budgets"
-status: drafted
+status: in-progress
 track: core
 depends_on:
   - specs/001-architecture.md
@@ -9,7 +9,7 @@ depends_on:
 affects: [authorizer/, internal/access/, internal/owner/, internal/keys/, internal/httpapi/, internal/execute/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-18
+updated: 2026-10-19
 author: changkun
 ---
 
@@ -998,3 +998,52 @@ object's content beyond the fields sent.
   files, a refreshed file is read within `OWNER_TOKEN_RENEWAL`, and any
   other owner's request that needs a core is `503
   owner_tokens_unavailable` with reason `sole_owner`.
+
+## Outcome
+
+In progress. v0.1.0 builds verification against the configured
+issuers, the public package `authorizer` with the actions that release
+asks, the authorizer client with its caching and its refusal when no
+decision arrives, the limits and filters of an allow, the owner policy
+and the start-up probe, denies answered as `403`, `404` or `503`,
+`grader_kinds` on `experiment.create`, `experiment.run` asked before
+unattended work, and the reserved credential audiences at apply.
+v0.2.0 records a creator apart from the owner in an organization's
+context, and the owner policy denies a grantee every action that runs
+an experiment. v0.3.0 makes a share open reads alone and runs an
+experiment only on its owner's suite and baseline. v0.4.0 passes a
+create's `sign_in` to the authorizer and keeps it nowhere.
+
+Every row below shipped in v0.1.0 unless it names another release.
+
+| # | Verdict | Held by |
+|---|---|---|
+| 1 | Partly met (v0.4.0): `sign_in` reaches `experiment.create` alone, verbatim, is in no answer, event or log line, and an invalid value is refused before any question; its absence from spans and from the stored row is untested | `httpapi.TestCreatePassesSignInToTheAuthorizerAlone` |
+| 2 | Met | `access.TestVerifierConformance`, `access.TestAVerifiedTokenBecomesACaller` |
+| 3 | Met | `access.TestWhatTheVerifierRefuses`, `httpapi.TestRoutesNeedABearer` |
+| 4 | Met | `config.TestRefusals`, `config.TestErrorsNameTheVariableOnly`, `access.TestAVerifierNeedsAnIssuerAndAnAudience` |
+| 5 | Partly met: the package's actions are the table's rows in order, with their kinds, id flags and fields, less `benchmark` and `adopt` on `experiment.create`; the table of routes is not checked against the routes served | `authorizer.TestTheVocabularyIsTheSpecs`, `authorizer.TestVocabulary` |
+| 6 | Partly met: every route served asks before it acts, a list question comes before a name is resolved, and a deny or an outage does nothing; public routes are not built | `httpapi.TestARouteAsks`, `httpapi.TestReadsAcrossOwnersAndOutages` |
+| 7 | Partly met: a deny about a stored object answers that object's `404` code, and a denied create or apply `403 forbidden`; the two `404` bodies are not yet identical, and shares, exports, submissions, `suite.use` and `baseline.use` are not built | `httpapi.TestExperimentReads`, `httpapi.TestARouteAsks`, `apierr.TestDenied` |
+| 8 | Partly met: each failure listed is `503` with nothing done; a label filter is refused outside the task, candidate and experiment lists, as Filters above says, rather than on every list but tasks | `access.TestNoDecisionFailsClosed`, `access.TestTheLimitsOfAnAllow`, `authorizer.TestDecodeLimits` |
+| 9 | Partly met: an allow is held for its `ttl`, an outage never, and a question with no id is asked each time; the deny's `authz.DenyTTL` and the one retry belong to `latere.ai/x/pkg/authz` and are not tested here | `access.TestWhatTheClientRemembers`, `access.TestNoDecisionFailsClosed` |
+| 10 | Partly met: `owner`, `max_parallelism`, `max_trials`, `max_active_experiments`, `executors` and `budget` each change an outcome, and a limit above its constant is held to it; `judge_models`, `credential_audiences` and `attribution` are decoded and not yet enforced | `httpapi.TestCreateLimits`, `httpapi.TestNamesResolveInTheListsOwner`, `access.TestTheLimitsOfAnAllow` |
+| 11 | Met | `access.TestFilters`, `httpapi.TestListsAndFilters` |
+| 12 | Partly met: neither subject reads, lists, cancels, retries, imports into, leases or submits to the other's experiments, shown through the handler with a stub authenticator rather than verified tokens against a running server; exports, annotations and changes are not built | `httpapi.TestExperimentReads`, `httpapi.TestReadsAcrossOwnersAndOutages`, `httpapi.TestSubmitAndImportRefusals` |
+| 13 | Met | `httpapi.TestCreateLimits`, `apierr.TestDenied` |
+| 15 | Met in the owner policy (v0.2.0); no share exists yet, so every route sends `shared` false, and a denied `cell.retry` or `trial.submit` answers the `404` of the cell or trial it names | `access.TestASharedExperimentDoesNotRun` |
+| 16 | Partly met (v0.3.0): every action that is not a read is denied when `shared` is true, and a create, change or pin naming another owner's suite or baseline is denied; `suite.use` and `baseline.use` are not in the vocabulary | `access.TestAShareOpensReadsAlone`, `access.TestAnExperimentRunsOnItsOwnersSuite` |
+| 17 | Met (v0.2.0) | `httpapi.TestAnOrganizationsExperimentKeepsItsCreator` |
+| 18 | Partly met: an allow's `budget` becomes a capped experiment's Budget, and an empty or overlong `attribution` is no decision; `attribution` does not yet replace a version's name, the key sources are not built, and a cap with no Budget is refused rather than recorded | `httpapi.TestCreateLimits`, `authorizer.TestDecodeLimits` |
+| 19 | Partly met: `grader_kinds` is sent, and an `external` experiment runs to its comparisons with no minter, token file or key source configured; no recording stub shows the absence of requests | `httpapi.TestCreateSendsGraderKinds`, `httpapi.TestTheExternalFlow` |
+| 21 | Met | `access.TestOwnerPolicyConformance`, `access.TestOwnerPolicyNarrowsByTheGrants`, `access.TestNewAndTheProbe` |
+| 26 | Partly met: the owner policy allows `cell.retry`, `trial.lease` and `trial.submit` to the owner alone; the fields each question carries are sent and not asserted | `access.TestOwnerPolicy`, `access.TestASharedExperimentDoesNotRun`, `work.TestAdvanceDenied` |
+| 28 | Partly met: a core audience is refused at apply before any question; Examen's own audience is reserved and has no case of its own | `httpapi.TestApplyPreconditionsAndRefusals`, `objects.TestCandidateRules` |
+| 30 | Met | `httpapi.TestRunDeniedAndUnavailable`, `work.TestAdvanceDenied` |
+
+Not built: 14 and 27, the publication actions and questions with no
+subject; 20, Budget status from a key source; 22 to 25, the minter,
+owner tokens on core requests and the `endpoint` key source; 29,
+`credential_audiences` and the `cella` executor; 31, the Key owner
+check; 32, owner token files under `EXAMEN_SOLE_OWNER`, a variable
+`serve` reads and announces and nothing else uses.
