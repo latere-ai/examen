@@ -29,6 +29,24 @@ here is refused before it is pushed.
   `input_tokens`, `output_tokens` and `reasoning_tokens`. A call with no
   label that names none of your trials counts toward the experiment and no
   trial.
+- Candidates of kind `topos` run. With Topos's address
+  (`EXAMEN_TOPOS_URL`) and the minter (`EXAMEN_MINTER_URL`), each trial
+  of a `topos` candidate is one unattended session of the candidate's
+  agent version, on its model and reasoning level, created at Topos as
+  the experiment's owner on behalf of the person who created it. The
+  task's instruction is the session's one message, an `origo` workspace
+  is the repository at its commit, cloned from `EXAMEN_ORIGO_URL`, and
+  the session ends when its turn ends. A question it asks is answered at
+  once, since nobody attends it. Its log, the model requests it made and
+  the files it kept in its own folder are the trial's evidence; the
+  requests give its `sent` layer, its cost and the built-in metrics, with
+  `turns` and `tool_calls`. A cancel stops the sessions of the trials it
+  ends. A create checks, as you, that Topos holds each candidate's agent
+  version (`422 unresolved_reference`) and that your sign-in is kept for
+  work that runs after you leave (`403 sign_in_not_kept`), and refuses
+  what a session cannot carry yet: a candidate's `tools`, a task's
+  `environment` or `arca` workspace, a task with no `instruction`, and an
+  `origo` workspace with no Origo address.
 - `GET /experiments/{id}` carries the budget's `cap_usd_micro`,
   `spent_usd_micro` and `remaining_usd_micro` when the key source answers
   them, and `usage`: the calls made with the experiment's key, their cost,
@@ -42,6 +60,10 @@ here is refused before it is pushed.
 - A lease is refused `403 forbidden`, `422 budget_refused` or `503
   owner_tokens_unavailable` when the key source refuses the experiment's
   key, has no money left on it, or does not answer, and takes no trial.
+- A `topos` candidate on an installation that does not start Topos
+  sessions is refused `422 core_not_configured` naming `topos`, in place
+  of `executor_unavailable`. `examend migrate` adds the column that marks
+  a session to stop after its trial was canceled.
 
 ## v0.5.0 - 2026-10-19
 
