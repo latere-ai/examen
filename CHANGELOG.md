@@ -6,6 +6,15 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Fixed
+
+- A topos trial whose session met `machine_unavailable`, or another
+  error spec 005 counts as the infrastructure's, is `infra_failed` and
+  retried, though the agent went on without a machine and the session
+  ended `completed`. A session that got a new, empty machine in place of
+  a lost one is `infra_failed` with `replaced`. A full sandbox ceiling no
+  longer records a run with no machine as the agent's own outcome.
+
 ## v0.6.1 - 2026-10-19
 
 ### Fixed
