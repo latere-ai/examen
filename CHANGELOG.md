@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.6.1 - 2026-10-19
+
 ### Fixed
 
 - A topos trial whose session two replicas created at once runs as the
