@@ -191,4 +191,30 @@ func TestASettledTrialKeepsItsLabelsRun(t *testing.T) {
 	if u, _ := st.Usage().Summary(ctx, eid); u.Unattributed.Requests != 0 {
 		t.Fatalf("a record its submitted id names counts apart: %+v", u)
 	}
+	// A run that failed to start gets its layers from its records and no
+	// built-in values: it is no finished trial.
+	again, err := st.Experiments().Lease(ctx, store.LeaseRequest{Experiment: eid, Subject: owner, Max: 1, Cells: cells})
+	if err != nil || len(again.Trials) == 0 {
+		t.Fatalf("lease: %+v %v", again, err)
+	}
+	failed := again.Trials[0]
+	src.AddRecord(eid, callRecord(t, "req_c", clk.since(time.Minute), failed.ID, 40))
+	sub = store.Submission{Trial: failed.ID, Lease: again.Lease, Subject: owner, Digest: "sha256:" + strings.Repeat("1", 64), Outcome: store.Outcome{
+		Outcome: objects.OutcomeInfraFailed, Failure: &objects.Failure{Code: "harness_exit"}, StartedAt: clk.since(2 * time.Minute), AgentEndedAt: clk.since(time.Minute),
+		Observed: objects.Observed{CostState: objects.CostUnknown}}}
+	if _, err := st.Experiments().Submit(ctx, sub); err != nil {
+		t.Fatal(err)
+	}
+	clk.add(limits.UsageEvery + limits.UsageSettleDelay)
+	if err := e.Usage(ctx); err != nil {
+		t.Fatal(err)
+	}
+	got, err = st.Experiments().Trial(ctx, failed.ID)
+	if err != nil || got.Observed.CostState != objects.CostKnown || got.Observed.CostUSD == nil || *got.Observed.CostUSD != 0.00004 {
+		t.Fatalf("a failed run's layers: %+v %v", got.Observed, err)
+	}
+	ms, err := st.Experiments().Measurements(ctx, store.MeasurementFilter{Trial: failed.ID}, store.Page{Limit: 10})
+	if err != nil || len(ms) != 0 {
+		t.Fatalf("a failed run's measurements: %+v %v", ms, err)
+	}
 }
