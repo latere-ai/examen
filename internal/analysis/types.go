@@ -295,7 +295,14 @@ type Input struct {
 	// AcrossTasks is true for a comparison whose variable is task: each side
 	// holds one cell of one candidate, and they are two tasks.
 	AcrossTasks bool `json:"across_tasks,omitempty"`
-	Exploratory bool `json:"exploratory"`
+	// Declaration is, for a declared comparison of the general form, its
+	// declaration (spec 008, Comparisons over cell variables): each side's
+	// cells are named by their strata, which pair them, and the suite's
+	// tasks are the strata, each with its candidate side's task digest.
+	// Without strata each side holds one cell and the comparison has the
+	// shape of one across tasks. Variable may then be task.
+	Declaration *Declaration `json:"declaration,omitempty"`
+	Exploratory bool         `json:"exploratory"`
 	// Declared is, for a comparison its experiment declared, D: the number
 	// of comparisons the experiment declared, whose primary results are
 	// corrected together. Its primary result is then in no comparison's
@@ -311,6 +318,18 @@ type Input struct {
 	// is read at, on both sides.
 	Taxonomies   map[string]Taxonomy `json:"taxonomies,omitempty"`
 	Calibrations []Calibration       `json:"calibrations,omitempty"`
+}
+
+// Declaration is a declared comparison of the general form, as its
+// inputs document records it: the cell variable it varies, its two
+// levels, the candidate side's first, the cell variables Where holds to
+// one level, those By stratifies, and the metric of its primary result.
+type Declaration struct {
+	Variable string            `json:"variable"`
+	Levels   []string          `json:"levels"`
+	Where    map[string]string `json:"where"`
+	By       []string          `json:"by"`
+	Metric   string            `json:"metric"`
 }
 
 // Summary is spec 002's summary of one metric over one set of trials.

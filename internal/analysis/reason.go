@@ -164,6 +164,10 @@ const reasonNotComputed = "not computed yet: the candidate has no finished trial
 // record failed, or holds no primary result: its p counts as 1.
 const ReasonDeclaredFailed = "not computed: the comparison could not be computed"
 
+// ReasonIndependenceNotComputed is the reason of a declared test of
+// independence before any cell it reads holds a finished trial.
+const ReasonIndependenceNotComputed = "not computed yet: no cell has a finished trial"
+
 func reasonSelfReported(p float64) string {
 	return pValue("p", p) + " on values the external harness reported itself: not a finding, and outside the corrected family"
 }

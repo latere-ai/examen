@@ -92,7 +92,7 @@ func (c *computer) plan() {
 		for _, pt := range c.tasks {
 			c.plans = append(c.plans, &plan{level: LevelTask, metric: m, task: pt})
 		}
-		if c.in.AcrossTasks {
+		if c.singlePair() {
 			continue
 		}
 		if pl := c.suitePlan(m); pl != nil {
@@ -177,10 +177,10 @@ func (c *computer) classify() {
 			}
 			pl.primary = m.Digest == c.in.Suite.PrimaryMetric && !c.in.Exploratory
 		}
-		if pl.level == LevelTask && c.in.AcrossTasks && c.in.Declared > 0 {
-			// A declared comparison across tasks has no suite-level
-			// result: its primary result is the primary metric's one
-			// task-level result.
+		if pl.level == LevelTask && c.singlePair() && c.in.Declared > 0 {
+			// A declared comparison across tasks, or of the general form
+			// without strata, has no suite-level result: its primary
+			// result is the primary metric's one task-level result.
 			pl.primary = m.Digest == c.in.Suite.PrimaryMetric
 		}
 		pl.descriptive = m.Aggregate == AggModeShare || m.Aggregate == AggDistinctCount ||

@@ -66,19 +66,35 @@ func validate(in Input) error {
 			return err
 		}
 	}
-	if in.AcrossTasks {
+	if in.AcrossTasks || unstratified(in) {
 		if len(in.Candidate.Cells) != 1 || len(in.Reference.Cells) != 1 {
-			return fmt.Errorf("%w: a comparison across tasks holds one cell per side", ErrInput)
+			return fmt.Errorf("%w: a comparison across tasks or without strata holds one cell per side", ErrInput)
 		}
-		return nil
+		if in.AcrossTasks {
+			return nil
+		}
 	}
 	if in.Variable != "" {
-		if _, ok := VariableFields(in.Variable); !ok || in.Variable == "task" {
+		// A declaration of the general form may vary a task or one of its
+		// factors, whose logical variable is task.
+		if _, ok := VariableFields(in.Variable); !ok || (in.Variable == "task" && in.Declaration == nil) {
 			return fmt.Errorf("%w: %q", ErrVariable, in.Variable)
 		}
 	}
 	return nil
 }
+
+// unstratified reports whether an input is a declaration of the general
+// form without strata: one cell per side, one task-level result per
+// metric and no suite-level result.
+func unstratified(in Input) bool {
+	return in.Declaration != nil && len(in.Declaration.By) == 0
+}
+
+// singlePair reports whether a comparison pairs one cell per side and has
+// no suite-level result: one across tasks, or a declaration of the general
+// form without strata.
+func (c *computer) singlePair() bool { return c.in.AcrossTasks || unstratified(c.in) }
 
 // validMetric checks that a metric's aggregate fits its type and level.
 func validMetric(m Metric, byDigest map[string]Metric) error {

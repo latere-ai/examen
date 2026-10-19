@@ -11,14 +11,24 @@ import (
 
 // IndependenceInput is everything the experiment-level test of
 // independence reads (spec 008): the experiment's suite, the label metric
-// it declared, and one side per candidate, in the experiment's candidate
-// order, each holding the candidate's cells.
+// it declared, and one side per level of the cell variable it tests the
+// metric against, in order, each holding its cells, named by their
+// strata. The suite's tasks are then the strata, each with the task digest
+// of its cell on the first side that holds one; with the default
+// declaration, the candidate stratified by task, a side is a candidate's
+// cells and a stratum a task.
 type IndependenceInput struct {
 	Parameters Parameters `json:"parameters"`
 	Suite      Suite      `json:"suite"`
 	// Metric is the digest of a trial-level label metric of the suite.
 	Metric string `json:"metric"`
-	Sides  []Side `json:"sides"`
+	// Variable, By and Where are the declaration: the cell variable whose
+	// levels are the sides, those the strata are made of, and those held
+	// to one level.
+	Variable string            `json:"variable"`
+	By       []string          `json:"by"`
+	Where    map[string]string `json:"where,omitempty"`
+	Sides    []Side            `json:"sides"`
 	// LabelTests is true once label tests are built; until then the
 	// result carries its summaries and no p-value or verdict.
 	LabelTests   bool                `json:"label_tests,omitempty"`
@@ -49,7 +59,10 @@ type IndependenceConfound struct {
 type IndependenceResult struct {
 	Metric          string                 `json:"metric"`
 	MetricName      string                 `json:"metric_name"`
-	Candidates      []string               `json:"candidates"`
+	Variable        string                 `json:"variable"`
+	By              []string               `json:"by"`
+	Where           map[string]string      `json:"where,omitempty"`
+	Levels          []string               `json:"levels"`
 	Summaries       []Summary              `json:"summaries"`
 	Tasks           int                    `json:"tasks"`
 	Coverage        float64                `json:"coverage"`
@@ -78,6 +91,9 @@ type independenceDocument struct {
 	LabelTests      bool               `json:"label_tests"`
 	Test            string             `json:"test"`
 	Metric          string             `json:"metric"`
+	Variable        string             `json:"variable"`
+	By              []string           `json:"by"`
+	Where           map[string]string  `json:"where,omitempty"`
 	Weights         map[string]float64 `json:"weights"`
 	Sides           []docSide          `json:"sides"`
 }
@@ -113,15 +129,16 @@ func Independence(in IndependenceInput) (IndependenceResult, error) {
 	tax := c.taxonomy(m)
 	cells := make([]map[string]indepCell, len(in.Sides))
 	out := IndependenceResult{
-		Metric: m.Digest, MetricName: m.Name, Candidates: make([]string, len(in.Sides)), LeftOut: []IndependenceLeftOut{},
+		Metric: m.Digest, MetricName: m.Name, Variable: in.Variable, By: in.By, Where: in.Where, Levels: make([]string, len(in.Sides)), LeftOut: []IndependenceLeftOut{},
 		Confounds: []IndependenceConfound{}, Final: true, AnalysisVersion: Version, Parameters: p,
 		Method: methodStratified, Statistic: statPearsonX2Sum,
 	}
 	doc := independenceDocument{AnalysisVersion: Version, Parameters: p, LabelTests: in.LabelTests, Test: "independence", Metric: m.Digest,
+		Variable: in.Variable, By: in.By, Where: in.Where,
 		Weights: map[string]float64{}, Sides: make([]docSide, len(in.Sides))}
 	for s := range in.Sides {
 		side := &in.Sides[s]
-		out.Candidates[s] = side.Candidate
+		out.Levels[s] = side.Candidate
 		cells[s] = map[string]indepCell{}
 		doc.Sides[s] = docSide{Candidate: side.Candidate, Tasks: []docTask{}, Values: []docMeasurement{}}
 		for j := range side.Cells {
