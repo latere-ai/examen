@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"latere.ai/x/examen/authorizer"
 	"latere.ai/x/examen/internal/access"
@@ -20,7 +21,9 @@ import (
 	"latere.ai/x/examen/internal/id"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
+	ownertoken "latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store"
+	"latere.ai/x/examen/internal/topos"
 )
 
 // experimentRoutes are the routes of experiments and what they hold.
@@ -569,19 +572,49 @@ func createMembers(r *http.Request, in createBody, suiteDigest string, candDiges
 }
 
 // unbuilt refuses what this release cannot run (CHANGELOG): a candidate
-// whose executor is not built, a grader that needs a core this release
-// does not reach, inputs that need Arca to be delivered, and a cap that
-// needs a Budget made at Lux when no authorizer answered one.
-func unbuilt(in createBody, p plan, budgetAssigned bool) error {
-	for i, c := range p.candBodies {
-		if c.Kind != objects.CandidateExternal {
-			return apierr.OnField(apierr.CodeExecutorUnavailable, "candidates["+itoa(i)+"]", "the "+objects.ExecutorOf(c.Kind)+" executor that runs a candidate of kind "+c.Kind+" is not part of this release")
-		}
-	}
+// whose executor is not built or not configured, what a topos candidate's
+// session cannot carry yet, a grader that needs a core this release does
+// not reach, inputs that need Arca to be delivered, and a cap that needs a
+// Budget made at Lux when no authorizer answered one. toposOn is whether
+// this server runs topos trials, and origoOn whether it clones an origo
+// workspace's repository for them.
+func unbuilt(in createBody, p plan, budgetAssigned, toposOn, origoOn bool) error {
 	core := func(name, field, why string) error {
 		return &apierr.Error{Code: apierr.CodeCoreNotConfigured, Core: name, Field: field, Detail: why}
 	}
+	toposCandidates := false
+	for i, c := range p.candBodies {
+		f := "candidates[" + itoa(i) + "]"
+		switch {
+		case c.Kind == objects.CandidateTopos && !toposOn:
+			return core("topos", f, "a candidate of kind topos runs as a Topos session, which this installation does not start: it names no Topos address or no minter")
+		case c.Kind == objects.CandidateTopos && len(c.Topos.Tools) > 0:
+			// Topos's sessions offer every tool of the agent version until
+			// a rollout can narrow them (spec 005, R4).
+			return apierr.OnField(apierr.CodeExecutorUnavailable, f+".topos.tools", "Topos cannot narrow an agent version's tools for a session yet")
+		case c.Kind == objects.CandidateTopos:
+			toposCandidates = true
+		case c.Kind != objects.CandidateExternal:
+			return apierr.OnField(apierr.CodeExecutorUnavailable, f, "the "+objects.ExecutorOf(c.Kind)+" executor that runs a candidate of kind "+c.Kind+" is not part of this release")
+		}
+	}
 	su := p.resolved.Suite
+	for i, td := range su.Tasks {
+		if !toposCandidates {
+			break
+		}
+		t, f := p.resolved.Tasks[td], "suite.tasks["+itoa(i)+"]"
+		switch {
+		case strings.TrimSpace(t.Instruction) == "":
+			return apierr.OnField(apierr.CodeMissingField, f+".instruction", "a task a topos candidate runs gives its instruction, the session's first message")
+		case t.Environment != nil:
+			return apierr.OnField(apierr.CodeExecutorUnavailable, f+".environment", "a Topos session runs in its agent's machine until a rollout can name another (spec 005, R5)")
+		case t.Workspace != nil && t.Workspace.Kind == objects.WorkspaceArca:
+			return apierr.OnField(apierr.CodeExecutorUnavailable, f+".workspace", "a Topos session starts in an Arca folder only once a rollout can name one (spec 005, R6)")
+		case t.Workspace != nil && t.Workspace.Kind == objects.WorkspaceOrigo && !origoOn:
+			return core("origo", f+".workspace", "an origo workspace is cloned from the installation's Origo, which it names no address for")
+		}
+	}
 	for i, td := range su.Tasks {
 		t := p.resolved.Tasks[td]
 		if len(t.Checks) > 0 {
@@ -617,6 +650,46 @@ func unbuilt(in createBody, p plan, budgetAssigned bool) error {
 	}
 	if in.Budget.CapUSDMicro != nil && !budgetAssigned {
 		return core("lux", "budget.cap_usd_micro", "a cap is a Budget made at Lux as the owner, which this release does not do; name a Budget, or let the authorizer assign one")
+	}
+	return nil
+}
+
+// resolveAgents checks, as the caller and with the purpose resolve, that
+// Topos holds the agent version each topos candidate pins (spec 003): a
+// version it does not hold is unresolved_reference, and a minter that
+// keeps no sign-in for the caller refuses the create before the
+// experiment exists, so its later work is never unattributed.
+func (s *Server) resolveAgents(r *http.Request, c access.Caller, eid string, p plan) error {
+	for i, cb := range p.candBodies {
+		if cb.Kind != objects.CandidateTopos {
+			continue
+		}
+		f := "candidates[" + itoa(i) + "].topos.agent"
+		tp := s.Engine.Topos
+		token, err := tp.Tokens.Token(r.Context(), ownertoken.Request{Owner: p.owner, Subject: c.Subject, Audience: tp.Audience, Experiment: eid, Purpose: ownertoken.PurposeResolve})
+		var mint *ownertoken.RefusedError
+		switch {
+		case errors.As(err, &mint) && mint.Reason == ownertoken.ReasonSignInNotKept:
+			return &apierr.Error{Code: apierr.CodeSignInNotKept, Detail: "experiment.create: the minter keeps no sign-in of the caller for this experiment"}
+		case errors.As(err, &mint):
+			return &apierr.Error{Code: apierr.CodeForbidden, Reason: ownertoken.ReasonRefused, Detail: "experiment.create: the minter refused an owner token for Topos"}
+		case err != nil:
+			return &apierr.Error{Code: apierr.CodeOwnerTokensUnavailable, Detail: "experiment.create: " + err.Error()}
+		}
+		name, digest, err := objects.ParseRef(f, cb.Topos.Agent)
+		if err != nil {
+			return err
+		}
+		_, err = tp.Client.Version(r.Context(), token, name, digest)
+		var refused *topos.RefusedError
+		switch {
+		case errors.As(err, &refused) && (refused.Status == http.StatusNotFound || refused.Status == http.StatusForbidden):
+			return apierr.OnField(apierr.CodeUnresolvedReference, f, "Topos holds no version "+digest+" of an agent "+name+" the caller may run")
+		case errors.As(err, &refused):
+			return &apierr.Error{Code: apierr.CodeCoreUnavailable, Core: "topos", Field: f, Detail: "reading the agent's versions: " + refused.Error()}
+		case err != nil:
+			return &apierr.Error{Code: apierr.CodeCoreUnavailable, Core: "topos", Field: f, Detail: "reading the agent's versions: " + err.Error()}
+		}
 	}
 	return nil
 }
@@ -702,7 +775,11 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	case in.Budget.Name != nil:
 		budget = *in.Budget.Name
 	}
-	if err := unbuilt(in, p, l.Budget != ""); err != nil {
+	toposOn := s.Engine != nil && s.Engine.Topos != nil
+	if err := unbuilt(in, p, l.Budget != "", toposOn, toposOn && s.Engine.Topos.OrigoURL != ""); err != nil {
+		return err
+	}
+	if err := s.resolveAgents(r, c, eid, p); err != nil {
 		return err
 	}
 	design := p.resolved.Design(candDigests, p.candBodies)
@@ -775,7 +852,7 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 				ID: id.New(id.Cell), Task: td, Candidate: candDigests[ci], Tuple: tuple,
 				TaskID: p.resolved.TaskIDs[td], CandidateID: p.candidates[ci].ID, TaskPos: ti, CandidatePos: ci,
 			}
-			smoke := execute.Smoke(cell.ID, trials)
+			smoke := execute.Smoke(cell.ID, trials, objects.ExecutorOf(cb.Kind))
 			nc := store.NewCell{Cell: cell, Smoke: &store.Rollout{Rollout: smoke.Rollout}}
 			for _, t := range smoke.Trials {
 				nc.Smoke.Trials = append(nc.Smoke.Trials, store.RolloutTrial{Index: t.Index})

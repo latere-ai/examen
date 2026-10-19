@@ -24,7 +24,9 @@ import (
 	"latere.ai/x/examen/internal/httpapi"
 	"latere.ai/x/examen/internal/keys"
 	"latere.ai/x/examen/internal/limits"
+	"latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store/postgres"
+	"latere.ai/x/examen/internal/topos"
 	"latere.ai/x/examen/internal/version"
 	"latere.ai/x/examen/internal/work"
 )
@@ -128,6 +130,19 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	if s.KeySource() == config.KeySourceEndpoint {
 		src := keys.NewEndpoint(s.KeysURL, s.KeysToken.Reveal, &http.Client{Transport: otel.Transport(nil)})
 		engine.Keys, api.Keys = src, src
+	}
+	// With Topos's address and the minter, candidates of kind topos run as
+	// Topos sessions created as each experiment's owner. Owner token files
+	// are not built, so without the minter no topos trial runs.
+	switch {
+	case s.ToposURL != "" && s.TokenSource() == config.TokenSourceMinter:
+		engine.Topos = &work.Topos{
+			Client:   topos.New(s.ToposURL, &http.Client{Transport: otel.Transport(nil)}),
+			Tokens:   owner.NewMinter(s.MinterURL, s.MinterToken.Reveal, &http.Client{Transport: otel.Transport(nil)}),
+			Audience: s.ToposAudience, OrigoURL: s.OrigoURL,
+		}
+	case s.ToposURL != "":
+		log.WarnContext(ctx, "EXAMEN_TOPOS_URL is set and EXAMEN_MINTER_URL is not: no owner token reaches Topos, so no topos candidate runs")
 	}
 	httpSrv := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: readHeaderTimeout, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	failed := make(chan error, 1)

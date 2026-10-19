@@ -159,7 +159,7 @@ func (w *world) experiment(p plan, mode string, n int) (store.NewExperiment, []s
 	if mode == objects.ModeExecute {
 		for i, c := range []objects.Version{p.a, p.b} {
 			cell := objects.Cell{ID: id.New(id.Cell), Task: p.task.Digest, TaskID: p.task.ID, Candidate: c.Digest, CandidateID: c.ID, CandidatePos: i}
-			smoke := execute.Smoke(cell.ID, n)
+			smoke := execute.Smoke(cell.ID, n, objects.ExecutorExternal)
 			ne.Cells = append(ne.Cells, store.NewCell{Cell: cell, Smoke: &store.Rollout{Rollout: smoke.Rollout, Trials: []store.RolloutTrial{{Index: 0}}}})
 			cells = append(cells, cell.ID)
 		}

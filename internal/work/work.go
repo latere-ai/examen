@@ -41,7 +41,9 @@ type Engine struct {
 	// Keys is the key source an ended experiment's Key is released at and
 	// its Key's records are read from. Nil releases and reads nothing.
 	Keys keys.Source
-	Log  *slog.Logger
+	// Topos runs the trials of topos candidates; nil runs none.
+	Topos *Topos
+	Log   *slog.Logger
 	// Now is the clock of the usage reads; time.Now when nil.
 	Now func() time.Time
 }
@@ -53,14 +55,14 @@ func (e *Engine) log() *slog.Logger {
 	return slog.Default()
 }
 
-// run asks experiment.run for one step of a cell's work, as the
-// experiment's created_by with no claims: true for an allow, false for a
-// deny, and access.ErrUnavailable when no decision came.
-func (e *Engine) run(ctx context.Context, exp, owner, createdBy, state, budget, cell string) (bool, error) {
+// run asks experiment.run for one step of a cell's work on its executor,
+// as the experiment's created_by with no claims: true for an allow, false
+// for a deny, and access.ErrUnavailable when no decision came.
+func (e *Engine) run(ctx context.Context, exp, owner, createdBy, state, budget, cell, executor string) (bool, error) {
 	res := access.Resource(authorizer.ActionExperimentRun, exp, map[string]any{
 		authorizer.FieldOwner: owner, authorizer.FieldCreatedBy: createdBy, authorizer.FieldState: state,
 		authorizer.FieldPurpose: authorizer.PurposeTrial, authorizer.FieldCell: cell,
-		authorizer.FieldExecutor: objects.ExecutorExternal, authorizer.FieldBudget: budget,
+		authorizer.FieldExecutor: executor, authorizer.FieldBudget: budget,
 	})
 	d, err := e.Authz.Authorize(ctx, access.Unattended(createdBy), access.Question{Action: authorizer.ActionExperimentRun, Resource: res})
 	if err != nil {
@@ -80,7 +82,7 @@ func (e *Engine) Advance(ctx context.Context, experiment string) error {
 	}
 	var errs []error
 	for _, q := range queued {
-		allow, err := e.run(ctx, q.Experiment, q.Owner, q.CreatedBy, q.State, q.Budget, q.Cell)
+		allow, err := e.run(ctx, q.Experiment, q.Owner, q.CreatedBy, q.State, q.Budget, q.Cell, q.Executor)
 		switch {
 		case errors.Is(err, access.ErrUnavailable):
 			e.log().WarnContext(ctx, "the authorizer gave no decision on a rollout; it waits", "experiment", q.Experiment, "cell", q.Cell, "error", apierr.LogText(err))
@@ -102,23 +104,7 @@ func (e *Engine) Advance(ctx context.Context, experiment string) error {
 // canceled with run_denied; a cell the authorizer gave no decision on is
 // left out, and its trials wait.
 func (e *Engine) Allowed(ctx context.Context, exp objects.Experiment, cells []objects.Cell) ([]string, error) {
-	var out []string
-	for _, c := range cells {
-		allow, err := e.run(ctx, exp.ID, exp.Owner, exp.CreatedBy, exp.State, exp.Budget.Name, c.ID)
-		switch {
-		case errors.Is(err, access.ErrUnavailable):
-			e.log().WarnContext(ctx, "the authorizer gave no decision on handing out a cell's trials; they wait", "experiment", exp.ID, "cell", c.ID, "error", apierr.LogText(err))
-		case err != nil:
-			return nil, err
-		case !allow:
-			if err := e.Store.Experiments().Park(ctx, c.ID, objects.StateCanceled, ReasonRunDenied); err != nil {
-				return nil, err
-			}
-		default:
-			out = append(out, c.ID)
-		}
-	}
-	return out, nil
+	return e.allowed(ctx, exp, cells, objects.ExecutorExternal)
 }
 
 // Compute computes the comparisons whose inputs changed. A comparison the
@@ -177,12 +163,13 @@ func (e *Engine) Compute(ctx context.Context) error {
 }
 
 // Tick takes one round of every kind of work: lapsed leases back to
-// pending, queued rollouts submitted, the records of the experiments'
-// Keys read and their trials' cost settled, comparisons computed, and the
-// Keys of ended experiments released.
+// pending, queued rollouts submitted, the sessions of topos trials
+// started, followed and stopped, the records of the experiments' Keys read
+// and their trials' cost settled, comparisons computed, and the Keys of
+// ended experiments released.
 func (e *Engine) Tick(ctx context.Context) error {
 	_, err := e.Store.Experiments().ExpireLeases(ctx)
-	return errors.Join(err, e.Advance(ctx, ""), e.Usage(ctx), e.Compute(ctx), e.Release(ctx, ""))
+	return errors.Join(err, e.Advance(ctx, ""), e.RunTopos(ctx), e.Usage(ctx), e.Compute(ctx), e.Release(ctx, ""))
 }
 
 // Loop ticks every interval until ctx ends, logging a round that failed;

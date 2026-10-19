@@ -119,7 +119,7 @@ func seedWith(t *testing.T, st store.Store, change func(*store.NewExperiment)) (
 	var cells []string
 	for i, c := range []objects.Version{a, b} {
 		cell := objects.Cell{ID: id.New(id.Cell), Task: task.Digest, TaskID: task.ID, Candidate: c.Digest, CandidateID: c.ID, CandidatePos: i}
-		smoke := execute.Smoke(cell.ID, e.Trials)
+		smoke := execute.Smoke(cell.ID, e.Trials, objects.ExecutorExternal)
 		nc := store.NewCell{Cell: cell, Smoke: &store.Rollout{Rollout: smoke.Rollout, Trials: []store.RolloutTrial{{Index: 0}}}}
 		ne.Cells = append(ne.Cells, nc)
 		cells = append(cells, cell.ID)

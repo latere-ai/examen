@@ -74,7 +74,7 @@ func TestCreateRefusals(t *testing.T) {
 	}
 	// What this release does not run is refused by name.
 	topos := x.apply("candidates", "agent", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "sha256:" + strings.Repeat("1", 64), "model": "claude-haiku-5-5"}})
-	if d := x.refuse(422, apierr.CodeExecutorUnavailable, http.MethodPost, "/v1/experiments", "t-alice", ok(map[string]any{"candidates": []string{topos}})); d["field"] != "candidates[0]" {
+	if d := x.refuse(422, apierr.CodeCoreNotConfigured, http.MethodPost, "/v1/experiments", "t-alice", ok(map[string]any{"candidates": []string{topos}})); d["field"] != "candidates[0]" || d["core"] != "topos" {
 		t.Fatalf("topos %v", d)
 	}
 	program := x.apply("candidates", "runner", map[string]any{"kind": "program", "program": map[string]any{"image": "ghcr.io/x/runner@sha256:" + strings.Repeat("2", 64)}})

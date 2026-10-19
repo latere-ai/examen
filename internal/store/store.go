@@ -357,6 +357,14 @@ type Outcome struct {
 	// the suite lists declined, which the built-in decline judge fills.
 	Harness  string
 	Declined bool
+	// Sent is the trial's sent layer, and Builtin the built-in values
+	// beside completed and duration, both read from the records of the
+	// core that ran it, for a trial whose executor reads them at its end
+	// (the `topos` executor). Settled marks its cost read, so the reads of
+	// an experiment's external Key leave its layers as they are.
+	Sent    *objects.Sent
+	Builtin map[string]any
+	Settled bool
 }
 
 // Submission is a submit of a leased trial.
@@ -386,6 +394,8 @@ type QueuedRollout struct {
 	Budget     string
 	Cell       string
 	Key        string
+	// Executor is the executor the rollout runs on.
+	Executor string
 }
 
 // Experiments keeps experiments, their cells, trials, measurements, event
@@ -431,6 +441,29 @@ type Experiments interface {
 	// Leasable are the cells of a candidate with pending trials in
 	// submitted rollouts, or of every candidate when it names none.
 	Leasable(ctx context.Context, experiment, candidate string) ([]objects.Cell, error)
+
+	// Driven are the experiments, at most limit, with work for an
+	// executor that starts its runs at a core itself (the `topos`
+	// executor): an unfinished trial in a submitted rollout of that
+	// executor, or a trial whose run waits to be stopped.
+	Driven(ctx context.Context, executor string, limit int) ([]string, error)
+	// Claim marks pending trials of the cells running, as many as the
+	// experiment's parallelism deals them in its scheduling's order, for
+	// an executor that starts their runs itself. A claimed trial holds no
+	// lease and names no run until Started records one.
+	Claim(ctx context.Context, experiment string, cells []string) ([]objects.Trial, error)
+	// Started records the run a claimed trial's executor started at its
+	// core, by the core's ref, and when; true when the trial already ended,
+	// as at a cancel while its run was created, so the run is stopped.
+	Started(ctx context.Context, trial, ref string, at time.Time) (bool, error)
+	// End ends a running trial its executor ran with o, as a submit ends
+	// an external one, and with stop marks its run to be stopped. A trial
+	// already done is answered as it stands.
+	End(ctx context.Context, trial string, o Outcome, stop bool) (objects.Trial, error)
+	// Stopping are an experiment's trials whose run waits to be stopped.
+	Stopping(ctx context.Context, experiment string) ([]objects.Trial, error)
+	// Stopped records that a trial's run stopped.
+	Stopped(ctx context.Context, trial string) error
 
 	Comparisons(ctx context.Context, f ComparisonFilter, p Page) ([]objects.Comparison, error)
 	Comparison(ctx context.Context, id string) (objects.Comparison, error)

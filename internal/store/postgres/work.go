@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -177,7 +178,10 @@ func (c *change) endOpen(ctx context.Context, cid, code, detail string) error {
 	if err != nil {
 		return err
 	}
-	rows, err := c.tx.Query(ctx, `UPDATE trials SET state = 'done', outcome = 'canceled', failure = $2, ended_at = $3, lease_expires_at = NULL, updated_at = $3
+	// A trial whose run an executor started at a core keeps running there
+	// until the executor stops it, so the trial marks it to be stopped.
+	rows, err := c.tx.Query(ctx, `UPDATE trials SET state = 'done', outcome = 'canceled', failure = $2, ended_at = $3, lease_expires_at = NULL, updated_at = $3,
+			stop_pending = (executor_ref <> '')
 		WHERE cell = $1 AND state <> 'done' RETURNING `+trialColumns, cid, failure, c.now)
 	if err != nil {
 		return fmt.Errorf("postgres: canceling a cell's trials: %w", err)
@@ -299,6 +303,7 @@ func (c *change) measure(ctx context.Context, t objects.Trial, o store.Outcome) 
 	}
 	var builtin []store.Measured
 	values := objects.BuiltinValues(t)
+	maps.Copy(values, o.Builtin)
 	for _, m := range objects.Builtins() {
 		if v, ok := values[objects.BuiltinDigest(m.Name)]; ok {
 			builtin = append(builtin, store.Measured{Metric: objects.BuiltinDigest(m.Name), Value: v})
@@ -360,6 +365,9 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 	}
 	t.EndedAt = &ended
 	t.ExecutorRef, t.Observed, t.Declared, t.Lease = o.Ref, o.Observed, o.Declared, nil
+	if o.Sent != nil {
+		t.Sent = o.Sent
+	}
 	if o.Evidence != nil {
 		t.Evidence = o.Evidence
 	}
@@ -390,11 +398,21 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 	if submitLease != "" {
 		lease, digest = &submitLease, &submitDigest
 	}
+	sent, err := marshalNullable(t.Sent)
+	if err != nil {
+		return t, err
+	}
+	var settled *time.Time
+	if o.Settled {
+		settled = &c.now
+	}
 	if _, err := c.tx.Exec(ctx, `UPDATE trials SET state = 'done', outcome = $2, failure = $3, started_at = $4, agent_ended_at = $5, ended_at = $6,
 			executor_ref = $7, observed = $8, declared = $9, evidence = $10, outputs = $11, imported = $12,
-			lease_id = NULL, lease_subject = NULL, lease_expires_at = NULL, submit_lease = $13, submit_digest = $14, updated_at = $15
+			lease_id = NULL, lease_subject = NULL, lease_expires_at = NULL, submit_lease = $13, submit_digest = $14, updated_at = $15,
+			sent = $16, usage_settled_at = coalesce($17, usage_settled_at)
 		WHERE id = $1`,
-		t.ID, t.Outcome, failure, started, agentEnded, ended, t.ExecutorRef, observed, declared, evidence, outputs, t.Imported, lease, digest, c.now); err != nil {
+		t.ID, t.Outcome, failure, started, agentEnded, ended, t.ExecutorRef, observed, declared, evidence, outputs, t.Imported, lease, digest, c.now,
+		sent, settled); err != nil {
 		return t, fmt.Errorf("postgres: recording a trial's outcome: %w", err)
 	}
 	if err := c.trialState(ctx, t); err != nil {
@@ -919,7 +937,7 @@ func (x experiments) ExpireLeases(ctx context.Context) (int, error) {
 }
 
 func (x experiments) Queued(ctx context.Context, experiment string, limit int) ([]store.QueuedRollout, error) {
-	rows, err := x.s.pool.Query(ctx, `SELECT e.id, e.owner, e.created_by, e.state, e.budget, c.id, r->>'key'
+	rows, err := x.s.pool.Query(ctx, `SELECT e.id, e.owner, e.created_by, e.state, e.budget, c.id, r->>'key', coalesce(r->>'executor', 'external')
 		FROM cells c JOIN experiments e ON e.id = c.experiment, jsonb_array_elements(c.rollouts) r
 		WHERE r->>'state' = 'queued' AND e.state NOT IN ('complete', 'canceled') AND c.state NOT IN ('blocked', 'over_budget', 'canceled')
 			AND ($2 = '' OR e.id = $2)
@@ -931,7 +949,7 @@ func (x experiments) Queued(ctx context.Context, experiment string, limit int) (
 	var out []store.QueuedRollout
 	for rows.Next() {
 		var q store.QueuedRollout
-		if err := rows.Scan(&q.Experiment, &q.Owner, &q.CreatedBy, &q.State, &q.Budget, &q.Cell, &q.Key); err != nil {
+		if err := rows.Scan(&q.Experiment, &q.Owner, &q.CreatedBy, &q.State, &q.Budget, &q.Cell, &q.Key, &q.Executor); err != nil {
 			return nil, fmt.Errorf("postgres: reading a queued rollout: %w", err)
 		}
 		out = append(out, q)

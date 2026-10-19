@@ -204,9 +204,20 @@ func retriesUsed(t objects.Trial, byID map[string]objects.Trial) int {
 	return n
 }
 
-// rollout is a queued rollout of the external executor.
-func rollout(key, kind string) objects.Rollout {
-	return objects.Rollout{Key: key, Kind: kind, Executor: objects.ExecutorExternal, Handle: key, Parallelism: 1, State: objects.RolloutQueued}
+// rollout is a queued rollout of an executor. Its handle is its key: an
+// external harness leases its trials by it, and the `topos` executor's
+// sessions carry it, since Topos keeps no rollout of its own.
+func rollout(key, kind, executor string) objects.Rollout {
+	return objects.Rollout{Key: key, Kind: kind, Executor: executor, Handle: key, Parallelism: 1, State: objects.RolloutQueued}
+}
+
+// executorOf is the executor a cell's trials run on: its rollouts', which
+// are all one executor's, the cell's candidate's.
+func executorOf(c Cell) string {
+	if len(c.Rollouts) > 0 && c.Rollouts[0].Executor != "" {
+		return c.Rollouts[0].Executor
+	}
+	return objects.ExecutorExternal
 }
 
 // Advance decides what a cell does once one of its trials, just, reached
@@ -262,7 +273,7 @@ func Advance(c Cell, just objects.Trial) Step {
 	rollouts := slices.Clone(c.Rollouts)
 	if len(retries) > 0 {
 		key := c.ID + ".retry." + strconv.Itoa(count(c.Rollouts, objects.RolloutRetry)+1)
-		r := NewRollout{Rollout: rollout(key, objects.RolloutRetry), Trials: retries}
+		r := NewRollout{Rollout: rollout(key, objects.RolloutRetry, executorOf(c)), Trials: retries}
 		s.Queue = append(s.Queue, r)
 		rollouts = append(rollouts, r.Rollout)
 	}
@@ -294,7 +305,7 @@ func Advance(c Cell, just objects.Trial) Step {
 			}
 		}
 		if c.N > smoke(c.N) && count(c.Rollouts, objects.RolloutMain) == 0 {
-			main := NewRollout{Rollout: rollout(c.ID+".main", objects.RolloutMain)}
+			main := NewRollout{Rollout: rollout(c.ID+".main", objects.RolloutMain, executorOf(c))}
 			for i := smoke(c.N); i < c.N; i++ {
 				main.Trials = append(main.Trials, NewTrial{Index: i})
 			}
@@ -328,7 +339,7 @@ func Retry(c Cell) (Step, bool) {
 	attempts := last(c.Trials, nil)
 	if count(c.Rollouts, objects.RolloutMain) == 0 {
 		round := count(c.Rollouts, objects.RolloutSmoke)
-		r := NewRollout{Rollout: rollout(c.ID+".smoke."+strconv.Itoa(round), objects.RolloutSmoke)}
+		r := NewRollout{Rollout: rollout(c.ID+".smoke."+strconv.Itoa(round), objects.RolloutSmoke, executorOf(c))}
 		for i := range smoke(c.N) {
 			nt := NewTrial{Index: i}
 			if t, ok := attempts[i]; ok {
@@ -340,7 +351,7 @@ func Retry(c Cell) (Step, bool) {
 		s.Queue, s.State = []NewRollout{r}, objects.StateSmoking
 		return s, true
 	}
-	r := NewRollout{Rollout: rollout(c.ID+".retry."+strconv.Itoa(count(c.Rollouts, objects.RolloutRetry)+1), objects.RolloutRetry)}
+	r := NewRollout{Rollout: rollout(c.ID+".retry."+strconv.Itoa(count(c.Rollouts, objects.RolloutRetry)+1), objects.RolloutRetry, executorOf(c))}
 	for i := range c.N {
 		t, ok := attempts[i]
 		if ok && t.Finished() {
@@ -361,10 +372,10 @@ func Retry(c Cell) (Step, bool) {
 	return s, true
 }
 
-// Smoke is the smoke rollout an experiment's cell starts with, and its
-// trials.
-func Smoke(cell string, n int) NewRollout {
-	r := NewRollout{Rollout: rollout(cell+".smoke", objects.RolloutSmoke)}
+// Smoke is the smoke rollout an experiment's cell starts with on its
+// executor, and its trials.
+func Smoke(cell string, n int, executor string) NewRollout {
+	r := NewRollout{Rollout: rollout(cell+".smoke", objects.RolloutSmoke, executor)}
 	for i := range smoke(n) {
 		r.Trials = append(r.Trials, NewTrial{Index: i})
 	}
