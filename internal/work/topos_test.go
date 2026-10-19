@@ -96,11 +96,11 @@ func seedTopos(ctx context.Context, t *testing.T, st store.Store, n int) (string
 }
 
 // toposEngine is an engine whose topos executor reaches stub with m's
-// tokens.
+// tokens, on a clock five minutes past the stub's first session, so no
+// run is past its deadline whatever day the test runs.
 func toposEngine(st store.Store, stub *topostest.Stub, m *minter, g access.Authorizer) *Engine {
-	return &Engine{Store: st, Authz: g, Analyzer: figures{mode: "none"}, Topos: &Topos{
-		Client: topos.New(stub.URL, stub.Client()), Tokens: m, Audience: "topos", OrigoURL: "https://code.example/",
-	}}
+	return &Engine{Store: st, Authz: g, Analyzer: figures{mode: "none"}, Now: func() time.Time { return time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC) },
+		Topos: &Topos{Client: topos.New(stub.URL, stub.Client()), Tokens: m, Audience: "topos", OrigoURL: "https://code.example/"}}
 }
 
 // trialsOf are an experiment's trials, oldest first.
@@ -297,7 +297,24 @@ func TestToposRefusalsParkAndOutagesWait(t *testing.T) {
 		t.Fatalf("a refused create: cell %s %q", c.State, c.ParkedReason)
 	}
 
-	eid, _ := seedTopos(ctx, t, st, 1)
+	// A create under a key whose first request is still being answered,
+	// another replica's, waits for it rather than parking the cell.
+	eid, cid := seedTopos(ctx, t, st, 1)
+	stub.Refuse(http.StatusConflict, "conflict")
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if c := cellOf(cid); objects.Parked(c.State) {
+		t.Fatalf("a create in flight parked the cell %s %q", c.State, c.ParkedReason)
+	}
+	if err := e.Tick(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if tr := trialsOf(t, st, eid); tr[0].ExecutorRef == "" {
+		t.Fatalf("after the create in flight the trial is %+v", tr[0])
+	}
+
+	eid, _ = seedTopos(ctx, t, st, 1)
 	stub.Down(true)
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)

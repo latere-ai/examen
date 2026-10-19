@@ -50,6 +50,9 @@ func toposAPI(t *testing.T, stub *topostest.Stub, m *mint, origo string) *client
 	t.Helper()
 	return newAPI(t, func(s *Server) {
 		s.Engine.Topos = &work.Topos{Client: topos.New(stub.URL, stub.Client()), Tokens: m, Audience: "topos", OrigoURL: origo}
+		// Five minutes past the stub's first session, so no run is past its
+		// deadline whatever day the test runs.
+		s.Engine.Now = func() time.Time { return time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC) }
 	})
 }
 

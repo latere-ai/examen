@@ -239,6 +239,12 @@ func (e *Engine) startRun(ctx context.Context, run toposRun, t objects.Trial) er
 		return err
 	}
 	s, err := e.Topos.Client.Create(ctx, token, t.ID, body)
+	if inFlight(err) {
+		// Another replica's create under the trial's key is still being
+		// answered; the next tick reads the session it made.
+		e.log().InfoContext(ctx, "a session's create under the trial's key is still being answered; the run waits", "trial", t.ID)
+		return nil
+	}
 	if err != nil {
 		_, err = e.refusal(ctx, run.cell.ID, err)
 		return err
@@ -346,6 +352,14 @@ func (e *Engine) followRun(ctx context.Context, run toposRun, t objects.Trial) e
 	}
 	_, err = x.End(ctx, t.ID, outcomeOf(run, s, r), false)
 	return err
+}
+
+// inFlight is Topos's answer to a create under a key whose first request
+// is still being answered, as a second replica's create of one claimed
+// trial meets: no refusal of the run, which the first request makes.
+func inFlight(err error) bool {
+	var core *topos.RefusedError
+	return errors.As(err, &core) && core.Status == http.StatusConflict && core.Code == "conflict"
 }
 
 // conflict is Topos's answer to an end of a session that ended already.
