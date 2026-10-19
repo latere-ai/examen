@@ -183,6 +183,12 @@ type Failure struct {
 	Detail string `json:"detail"`
 }
 
+// CodeMachineUnavailable is the failure code of a trial whose run found no
+// machine free to work on, such as when its owner already runs as many
+// sandboxes as their plan allows: its retry waits for one and spends none
+// of MAX_INFRA_RETRIES (specs/005-execution.md, "Retries and lineage").
+const CodeMachineUnavailable = "machine_unavailable"
+
 // ServiceUsage is what an API reported its own usage of a trial to be.
 type ServiceUsage struct {
 	CostUSDMicro int64              `json:"cost_usd_micro"`
@@ -298,6 +304,12 @@ type Trial struct {
 	Rollout   string `json:"-"`
 	Retried   bool   `json:"-"`
 	AutoRetry bool   `json:"-"`
+}
+
+// NoMachine reports whether the trial ended infra_failed because its run
+// found no machine free.
+func (t Trial) NoMachine() bool {
+	return t.Outcome == OutcomeInfraFailed && t.Failure != nil && t.Failure.Code == CodeMachineUnavailable
 }
 
 // Finished reports whether the trial is a finished trial: done, with an

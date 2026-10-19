@@ -17,6 +17,7 @@ import (
 
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
+	"latere.ai/x/examen/internal/execute"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
 	tokens "latere.ai/x/examen/internal/owner"
@@ -226,8 +227,13 @@ func cmpOr(a, b string) string {
 // startRun creates a claimed trial's session under the trial's id, so a
 // repeat after an outage or a restart answers the session the first
 // created, and records it on the trial. A session created for a trial
-// that ended meanwhile is stopped.
+// that ended meanwhile is stopped. The retry of a run that found no machine
+// free starts once its wait passed, holding its place in the parallelism
+// until then.
 func (e *Engine) startRun(ctx context.Context, run toposRun, t objects.Trial) error {
+	if wait, err := e.machineWait(ctx, t); err != nil || wait {
+		return err
+	}
 	token, err := e.token(ctx, run.exp)
 	if err != nil {
 		_, err = e.refusal(ctx, run.cell.ID, err)
@@ -257,6 +263,47 @@ func (e *Engine) startRun(ctx context.Context, run toposRun, t objects.Trial) er
 		e.log().InfoContext(ctx, "a trial ended while its session was created; the session is stopped", "trial", t.ID, "session", s.ID)
 	}
 	return nil
+}
+
+// machineWait reports whether a trial waits before its run starts: the
+// retry of a trial whose run found no machine free starts
+// execute.MachineWait after that trial ended, the wait doubling with each
+// such retry before it in its lineage (specs/005-execution.md, "Retries
+// and lineage"), so a machine the owner's other sandboxes hold has time to
+// come free.
+func (e *Engine) machineWait(ctx context.Context, t objects.Trial) (bool, error) {
+	if !t.AutoRetry || t.RetryOf == "" {
+		return false, nil
+	}
+	x := e.Store.Experiments()
+	byID := map[string]objects.Trial{t.ID: t}
+	prev, err := x.Trial(ctx, t.RetryOf)
+	switch {
+	case errors.Is(err, store.ErrNotFound):
+		return false, nil
+	case err != nil:
+		return false, err
+	case !prev.NoMachine() || prev.EndedAt == nil:
+		return false, nil
+	}
+	// The lineage is read back as far as its waits and retries count.
+	for p, n := prev, 0; n <= limits.MaxMachineWaits+limits.MaxInfraRetries; n++ {
+		byID[p.ID] = p
+		if !p.AutoRetry || p.RetryOf == "" {
+			break
+		}
+		if p, err = x.Trial(ctx, p.RetryOf); errors.Is(err, store.ErrNotFound) {
+			break
+		} else if err != nil {
+			return false, err
+		}
+	}
+	wait := execute.MachineWait(execute.RetriesOf(t, byID).Waits)
+	if left := prev.EndedAt.Add(wait).Sub(e.now()); left > 0 {
+		e.log().DebugContext(ctx, "a run that found no machine free is retried after a wait", "trial", t.ID, "retry_of", prev.ID, "wait_left", left.String())
+		return true, nil
+	}
+	return false, nil
 }
 
 // sessionOf is a trial's session: the candidate's agent version on its

@@ -17,6 +17,7 @@ import (
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/execute"
 	"latere.ai/x/examen/internal/id"
+	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
 	tokens "latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store"
@@ -645,5 +646,65 @@ func TestARunReadsItsCellsVersions(t *testing.T) {
 	}
 	if c := mustCell(t, st, cid); c.State != objects.StateBlocked || c.ParkedReason != "topos_refused: not_found" {
 		t.Fatalf("a version Topos does not hold: cell %s %q", c.State, c.ParkedReason)
+	}
+}
+
+// TestARunWithNoMachineIsRetriedAfterAWait: a session whose every tool
+// call found no machine free ends its trial infra_failed with
+// machine_unavailable, though the agent ended its turn; the cell's retry
+// spends none of MAX_INFRA_RETRIES and holds its place without a session
+// until MACHINE_WAIT has passed since the trial ended; then its run starts
+// and completes the cell.
+func TestARunWithNoMachineIsRetriedAfterAWait(t *testing.T) {
+	clock := time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC)
+	now := func() time.Time { return clock }
+	st := pgtest.Open(t, false, postgres.Options{Now: now})
+	stub := topostest.New(t)
+	stub.Agent("helper", topostest.Version{Version: 1, Digest: agentDigest})
+	e := toposEngine(st, stub, &minter{}, &toposGate{})
+	e.Now = now
+	ctx := t.Context()
+	eid, cid := seedTopos(ctx, t, st, 1)
+	tick := func() {
+		t.Helper()
+		if err := e.Tick(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tick()
+	first := stub.Sessions()
+	if len(first) != 1 {
+		t.Fatalf("%d sessions, want the smoke trial's", len(first))
+	}
+	at := clock.Add(-time.Minute)
+	stub.Set(first[0], topos.StatusEnded, topos.StopCompleted,
+		topostest.Event(topos.EventSessionStatus, "", at, map[string]any{"status": "running"}),
+		topostest.Event(topos.EventSessionError, "", at.Add(5*time.Second), map[string]any{"code": "machine_unavailable", "message": "the owner runs 4 sandboxes of a ceiling of 4"}),
+		topostest.Event(topos.EventAgentMessage, "", at.Add(10*time.Second), map[string]any{"stop_reason": "end_turn"}),
+		topostest.Event(topos.EventSessionStatus, "", at.Add(11*time.Second), map[string]any{"status": "ended", "stop_reason": "completed"}),
+	)
+	for range 3 {
+		tick()
+	}
+	trials := trialsOf(t, st, eid)
+	if len(trials) != 2 || !trials[0].NoMachine() || trials[1].RetryOf != trials[0].ID || trials[1].ExecutorRef != "" || len(stub.Sessions()) != 1 {
+		t.Fatalf("before the wait passed: %d sessions, trials %+v", len(stub.Sessions()), trials)
+	}
+	clock = clock.Add(limits.MachineWait)
+	tick()
+	sessions := stub.Sessions()
+	if len(sessions) != 2 || stub.Body(sessions[1])["rollout"] != cid+".retry.1" {
+		t.Fatalf("once the wait passed: sessions %v", sessions)
+	}
+	finish(stub, sessions[1], topos.StopCompleted, 500)
+	for range 2 {
+		tick()
+	}
+	trials = trialsOf(t, st, eid)
+	if len(trials) != 2 || trials[1].Outcome != objects.OutcomeCompleted || trials[1].ExecutorRef != sessions[1] {
+		t.Fatalf("the retry: %+v", trials)
+	}
+	if c := mustCell(t, st, cid); c.State != objects.StateComplete {
+		t.Fatalf("the cell is %s", c.State)
 	}
 }

@@ -161,6 +161,7 @@ else. The last column names the spec that explains its use.
 | `MIN_SUITE_COVERAGE` | 0.8 | the share of the suite's weight a suite-level result must include before a verdict other than `insufficient` | 008 |
 | `MIN_TRIALS_FOR_P90_INTERVAL` | 29 | valued trials below which a `p90` summary carries no interval: the fewest for which a pair of order statistics covers the 90th percentile at a `CONFIDENCE_LEVEL` of 0.95, since below it every value lies under that percentile with probability 0.9^n, above 5%; a suite-level `p90` needs it of every task it includes | 008 |
 | `MAX_INFRA_RETRIES` | 2 | retries of a trial that failed for an infrastructure reason | 005 |
+| `MAX_MACHINE_WAITS` | 8 | retries of one index whose run found no machine free, which spend none of `MAX_INFRA_RETRIES`; a run past them that finds none spends one | 005 |
 | `MAX_CELLS_PER_EXPERIMENT` | 2000 | tasks × candidates in one experiment | 003 |
 | `MAX_TASKS_PER_SUITE` | 1000 | tasks in one suite version | 002 |
 | `MAX_METRICS_PER_SUITE` | 64 | metrics in one suite version | 002 |
@@ -175,6 +176,8 @@ else. The last column names the spec that explains its use.
 | `TRIAL_GRACE` | 10 minutes | a trial's time past its `timeout` and `CHECK_TIMEOUT` before examend cancels it as `deadline_passed` | 005 |
 | `TRIAL_START_TIMEOUT` | 1 hour | how long a trial may stay pending while its rollout runs fewer trials than its parallelism | 005 |
 | `EXTERNAL_LEASE` | 10 minutes | how long one lease of an external trial, or one renewal of it, holds the trial before it returns to pending | 005 |
+| `MACHINE_WAIT` | 30 seconds | how long the retry of a trial whose run found no machine free waits after that trial ended before its run starts, doubled for each such retry before it in its lineage, up to `MACHINE_WAIT_MAX` | 005 |
+| `MACHINE_WAIT_MAX` | 5 minutes | the longest one wait of `MACHINE_WAIT` grows to | 005 |
 | `REPORT_INTERVAL` | 15 seconds | how often an open rollout is reported | 005 |
 | `USAGE_SETTLE_DELAY` | 2 minutes | the wait after a trial ends before Lux's records of it are read | 005 |
 | `USAGE_EVERY` | 1 minute | how often the records of the calls made with one experiment's external Key are read | 005 |

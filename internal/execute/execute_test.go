@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
@@ -175,6 +176,76 @@ func TestInfraFailuresRetryThenBlock(t *testing.T) {
 	s = Advance(c, chain[len(chain)-1])
 	if s.State != objects.StateBlocked || len(s.Queue) != 0 || s.Reason != "smoke_infra_failed: "+prev+": harness_crashed" {
 		t.Fatalf("blocked: %+v", s)
+	}
+}
+
+// noMachineChain is a smoking cell whose smoke index ran n times and found
+// no machine free each time: the first trial and n-1 automatic retries,
+// each in its own rollout, the last just done.
+func noMachineChain(n int) (Cell, objects.Trial) {
+	var chain []objects.Trial
+	rollouts := []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}
+	prev := ""
+	for i := range n {
+		key := "c.smoke"
+		if i > 0 {
+			key = "c.retry." + strconv.Itoa(i)
+			rollouts = append(rollouts, submitted(key, objects.RolloutRetry))
+		}
+		tr := trial("t"+strconv.Itoa(100+i), 0, key, objects.StateDone, objects.OutcomeInfraFailed)
+		tr.RetryOf, tr.AutoRetry, tr.Failure = prev, i > 0, &objects.Failure{Code: objects.CodeMachineUnavailable}
+		if i < n-1 {
+			tr.Retried = true
+			rollouts[len(rollouts)-1].State = objects.RolloutEnded
+		}
+		chain = append(chain, tr)
+		prev = tr.ID
+	}
+	return Cell{ID: "c", State: objects.StateSmoking, N: 1, Rollouts: rollouts, Trials: chain}, chain[n-1]
+}
+
+// TestANoMachineRunWaitsWithoutSpendingRetries: a run that found no
+// machine free is retried MAX_MACHINE_WAITS times without spending
+// MAX_INFRA_RETRIES, then spends them, and then the smoking cell parks; an
+// infrastructure failure after waits spends a retry of its own; and each
+// wait doubles from MACHINE_WAIT up to MACHINE_WAIT_MAX.
+func TestANoMachineRunWaitsWithoutSpendingRetries(t *testing.T) {
+	most := limits.MaxMachineWaits + limits.MaxInfraRetries
+	for n := 1; n <= most+1; n++ {
+		c, last := noMachineChain(n)
+		s := Advance(c, last)
+		if n <= most {
+			if s.State != "" || len(s.Queue) != 1 || !s.Queue[0].Trials[0].Auto || s.Queue[0].Trials[0].RetryOf != last.ID {
+				t.Fatalf("run %d that found no machine: %+v, want a retry", n, s)
+			}
+			continue
+		}
+		if s.State != objects.StateBlocked || len(s.Queue) != 0 || s.Reason != "smoke_infra_failed: "+last.ID+": "+objects.CodeMachineUnavailable {
+			t.Fatalf("run %d past every wait and retry: %+v, want blocked", n, s)
+		}
+	}
+	c, last := noMachineChain(limits.MaxMachineWaits + 1)
+	byID := map[string]objects.Trial{}
+	for _, tr := range c.Trials {
+		byID[tr.ID] = tr
+	}
+	if r := RetriesOf(last, byID); r != (Retries{Waits: limits.MaxMachineWaits}) {
+		t.Fatalf("a chain of waits spent %+v", r)
+	}
+	crashed := trial("t999", 0, "c.retry.x", objects.StateDone, objects.OutcomeInfraFailed)
+	crashed.RetryOf, crashed.AutoRetry, crashed.Failure = c.Trials[1].ID, true, &objects.Failure{Code: "harness_crashed"}
+	if r := RetriesOf(crashed, byID); r != (Retries{Waits: 2}) {
+		t.Fatalf("a crash after a wait counts %+v, want the waits before it", r)
+	}
+	orphan := trial("t998", 0, "c.retry.y", objects.StateDone, objects.OutcomeInfraFailed)
+	orphan.RetryOf, orphan.AutoRetry = "t_gone", true
+	if r := RetriesOf(orphan, byID); r != (Retries{Infra: 1}) {
+		t.Fatalf("a retry of a trial the cell does not hold counts %+v", r)
+	}
+	for waits, want := range map[int]time.Duration{0: 30 * time.Second, 1: 30 * time.Second, 2: time.Minute, 4: 4 * time.Minute, 5: limits.MachineWaitMax, 8: limits.MachineWaitMax} {
+		if got := MachineWait(waits); got != want {
+			t.Errorf("wait %d is %v, want %v", waits, got, want)
+		}
 	}
 }
 

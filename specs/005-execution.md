@@ -208,7 +208,7 @@ A trial ends `done` with one outcome. The rules both executors follow:
 | `timed_out` | the task's `timeout` passed while the agent ran | no |
 | `turn_limit` | the harness stopped the agent at a bound other than time or money: `max_turns`, the model's output limit, or a stop for repeating a failing call | no |
 | `over_budget` | Lux refused a request for spend (`budget_exhausted`, `spend_exceeded`): a Budget the trial's Key draws on, or the wallet behind it, ran out | not automatically: the cell parks `over_budget` (below), and its retry runs the index again |
-| `infra_failed` | the trial could not be run to an outcome for a reason outside the agent: the machine could not start or was lost, the gateway did not answer or rejected the request, the workspace could not be delivered, the machine was lost during the checks, evidence could not be written, the deadline below passed | yes, up to `MAX_INFRA_RETRIES` |
+| `infra_failed` | the trial could not be run to an outcome for a reason outside the agent: the machine could not start or was lost, the gateway did not answer or rejected the request, the workspace could not be delivered, the machine was lost during the checks, evidence could not be written, the deadline below passed | yes, up to `MAX_INFRA_RETRIES`; a run that found no machine free, `machine_unavailable`, first up to `MAX_MACHINE_WAITS` times after a wait, spending none of them |
 | `canceled` | the experiment was canceled, or the trial's cell parked, before the trial ended | not automatically: a cell's retry runs the index again |
 
 The executor sets the outcome once and examend never changes it (rule
@@ -400,7 +400,21 @@ outcomes and lineage.
 When a rollout has ended, every trial of it that ended `infra_failed`
 whose index has had fewer than `MAX_INFRA_RETRIES` retries gets a new
 trial: a new `tri_` id, the same `index`, `retry_of` naming it. They go
-in the cell's next retry rollout. The retried trial stays, with its
+in the cell's next retry rollout.
+
+A trial that ended `infra_failed` with `machine_unavailable` found no
+machine free to work on: its owner already runs as many sandboxes as
+their plan allows, their own sessions' and the experiment's together,
+or the core had none to give. That says nothing of the agent or of the
+run's setup, and a machine frees up when another run or session ends,
+so the trial gets a new trial while its index has had fewer than
+`MAX_MACHINE_WAITS` such retries, which spend none of
+`MAX_INFRA_RETRIES`. Its run does not start at once: the retry holds
+its place in the parallelism with no session until `MACHINE_WAIT` has
+passed since the trial it retries ended, the wait doubling with each
+such retry before it in the lineage, up to `MACHINE_WAIT_MAX`. A run
+past those waits that again finds no machine spends a retry as any
+infrastructure failure does. The retried trial stays, with its
 outcome, failure code and evidence, and is excluded from analysis; the
 chain of `retry_of` is its lineage. A trial whose index has used its
 retries stays `infra_failed`, is also excluded from analysis, and
@@ -1372,7 +1386,8 @@ an external trial whose request ids Lux holds still has cost
 ### Limits
 
 The constants of spec 002 this spec holds: `SMOKE_TRIALS`,
-`MAX_INFRA_RETRIES`, `DEFAULT_PARALLELISM`, `MAX_PARALLELISM`,
+`MAX_INFRA_RETRIES`, `MAX_MACHINE_WAITS`, `MACHINE_WAIT`,
+`MACHINE_WAIT_MAX`, `DEFAULT_PARALLELISM`, `MAX_PARALLELISM`,
 `DEFAULT_TRIAL_TIMEOUT`, `MAX_TRIAL_TIMEOUT`, `CHECK_TIMEOUT`,
 `CHECK_MAX_OUTPUT_BYTES`, `ADOPTION_MAX_AGE`, `COST_ESTIMATE_MARGIN`,
 `TRIAL_GRACE`, `TRIAL_START_TIMEOUT`, `EXTERNAL_LEASE`,
@@ -1479,6 +1494,7 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 11 | Met (v0.3.0) | `execute.TestInterleavedAcrossTasks`, `execute.TestBefore`, `postgres.TestLeaseInterleavesAcrossTasks` |
 | 12 | Met (v0.3.0) | `postgres.TestLeaseWithoutCandidate`, `postgres.TestLeaseHoldsTheParallelism`, `httpapi.TestLeaseWithoutCandidate` |
 | 13 | Met | `execute.TestInfraFailuresRetryThenBlock`, `httpapi.TestRetriesBlockAndResume`, `objects.TestValuesAndCurrent` |
+| 13 | Met for a run that found no machine free (v0.6.3): its retries wait from `MACHINE_WAIT`, doubling up to `MACHINE_WAIT_MAX`, and spend none of `MAX_INFRA_RETRIES` for `MAX_MACHINE_WAITS` of them, and a `topos` retry starts its session only once its wait passed | `execute.TestANoMachineRunWaitsWithoutSpendingRetries`, `work.TestARunWithNoMachineIsRetriedAfterAWait` |
 | 15 | Partly met: a cancel ends unfinished trials `canceled` and their leases and rollouts in one transaction; the tests assert the experiment's state and a refused lease rather than each trial, and the `cella` Key waits on that executor | `httpapi.TestTheExternalFlow`, `httpapi.TestExperimentReads`, `postgres.TestWritesFailWhole` |
 | 15 | Partly met (v0.6.0 adds the external Key): a cancel releases the experiment's external Key at once, and a completion within `REPORT_INTERVAL` | `httpapi.TestTheExperimentKey` |
 | 18 | Partly met: past times, the declared `harness_version` and image, `422 provenance_mismatch` for another version, and declared provenance; outputs written under the trial's folder and graded wait on the file store and the check sandbox | `httpapi.TestSubmitAndImportRefusals`, `httpapi.TestAnalyzedImport` |

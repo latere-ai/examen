@@ -14,6 +14,7 @@ import (
 	"cmp"
 	"slices"
 	"strconv"
+	"time"
 
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
@@ -190,18 +191,69 @@ func count(rollouts []objects.Rollout, kind string) int {
 	return n
 }
 
-// retriesUsed is how many automatic retries the chain ending in t holds.
-func retriesUsed(t objects.Trial, byID map[string]objects.Trial) int {
-	n := 0
+// lineage is the chain of automatic retries ending in t, oldest first: t
+// and each trial it retries, back to the first that is no automatic
+// retry or whose retried trial the cell does not hold.
+func lineage(t objects.Trial, byID map[string]objects.Trial) []objects.Trial {
+	chain := []objects.Trial{t}
 	for t.AutoRetry {
-		n++
 		prev, ok := byID[t.RetryOf]
 		if !ok {
 			break
 		}
-		t = prev
+		chain, t = append(chain, prev), prev
 	}
-	return n
+	slices.Reverse(chain)
+	return chain
+}
+
+// Retries is what the chain of automatic retries ending in t has spent:
+// Waits, the retries of a trial whose run found no machine free, up to
+// MAX_MACHINE_WAITS of them, and Infra every other, which
+// MAX_INFRA_RETRIES bounds.
+type Retries struct{ Waits, Infra int }
+
+// RetriesOf is the retries the chain ending in t has spent. A retry whose
+// retried trial the map does not hold counts as one of the others.
+func RetriesOf(t objects.Trial, byID map[string]objects.Trial) Retries {
+	var r Retries
+	chain := lineage(t, byID)
+	for i, c := range chain {
+		if !c.AutoRetry {
+			continue
+		}
+		if i > 0 && chain[i-1].NoMachine() && r.Waits < limits.MaxMachineWaits {
+			r.Waits++
+		} else {
+			r.Infra++
+		}
+	}
+	return r
+}
+
+// retryable reports whether an infra_failed trial gets an automatic
+// retry: one whose run found no machine free waits for one while its index
+// has had fewer than MAX_MACHINE_WAITS such retries, and every other, and
+// one past those waits, while its index has had fewer than
+// MAX_INFRA_RETRIES of the others.
+func retryable(t objects.Trial, byID map[string]objects.Trial) bool {
+	r := RetriesOf(t, byID)
+	return (t.NoMachine() && r.Waits < limits.MaxMachineWaits) || r.Infra < limits.MaxInfraRetries
+}
+
+// MachineWait is how long the retry of a trial whose run found no machine
+// free waits after that trial ended before its own run starts: MACHINE_WAIT
+// for the first such retry of its index, doubled for each one before it,
+// up to MACHINE_WAIT_MAX. waits is how many retries of a run that found no
+// machine the chain holds, this one included.
+func MachineWait(waits int) time.Duration {
+	d := limits.MachineWait
+	for range max(waits, 1) - 1 {
+		if d *= 2; d >= limits.MachineWaitMax {
+			return limits.MachineWaitMax
+		}
+	}
+	return min(d, limits.MachineWaitMax)
 }
 
 // rollout is a queued rollout of an executor. Its handle is its key: an
@@ -223,9 +275,10 @@ func executorOf(c Cell) string {
 // Advance decides what a cell does once one of its trials, just, reached
 // done (specs/005-execution.md). An over_budget trial parks the cell and
 // ends its open trials canceled. A rollout whose every trial is done
-// ends, and each of its infra_failed trials whose index has had fewer than
-// MAX_INFRA_RETRIES automatic retries gets a new trial in the cell's next
-// retry rollout. A smoking cell whose last attempt at every smoke index is
+// ends, and each of its infra_failed trials that is retryable gets a new
+// trial in the cell's next retry rollout: one whose run found no machine
+// free while its index has had fewer than MAX_MACHINE_WAITS such retries,
+// and any while it has had fewer than MAX_INFRA_RETRIES of the others. A smoking cell whose last attempt at every smoke index is
 // done parks blocked when one ended infra_failed, and otherwise passes its
 // cost check and queues its main rollout: the estimate is the smoke
 // trials' grading cost plus the cost Lux holds of them, and no grader of
@@ -263,7 +316,7 @@ func Advance(c Cell, just objects.Trial) Step {
 		}
 		s.Ended = append(s.Ended, r.Key)
 		for _, t := range c.Trials {
-			if t.Rollout == r.Key && t.Outcome == objects.OutcomeInfraFailed && !t.Retried && retriesUsed(t, byID) < limits.MaxInfraRetries {
+			if t.Rollout == r.Key && t.Outcome == objects.OutcomeInfraFailed && !t.Retried && retryable(t, byID) {
 				retries = append(retries, NewTrial{Index: t.Index, RetryOf: t.ID, Auto: true})
 				retried[t.ID] = true
 				s.Retried = append(s.Retried, t.ID)

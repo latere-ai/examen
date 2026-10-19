@@ -38,14 +38,14 @@ const (
 // ended as if the turn were whole: the agent then worked without the
 // machine or a service its run needs, so the outcome is not the agent's.
 var infraErrors = map[string]bool{
-	"machine_lost":           true,
-	"machine_unavailable":    true,
-	"model_unavailable":      true,
-	"model_busy":             true,
-	"model_error":            true,
-	"files_unavailable":      true,
-	"authorizer_unavailable": true,
-	"agent_identity_missing": true,
+	"machine_lost":                 true,
+	objects.CodeMachineUnavailable: true,
+	"model_unavailable":            true,
+	"model_busy":                   true,
+	"model_error":                  true,
+	"files_unavailable":            true,
+	"authorizer_unavailable":       true,
+	"agent_identity_missing":       true,
 }
 
 // machineReplaced is the session.machine reason of a new, empty machine in

@@ -23,6 +23,7 @@ const (
 	MinSuiteCoverage              = 0.8
 	MinTrialsForP90Interval       = 29
 	MaxInfraRetries               = 2
+	MaxMachineWaits               = 8
 	MaxCellsPerExperiment         = 2000
 	MaxTasksPerSuite              = 1000
 	MaxMetricsPerSuite            = 64
@@ -79,6 +80,8 @@ const (
 	TrialGrace                    = 10 * time.Minute
 	TrialStartTimeout             = time.Hour
 	ExternalLease                 = 10 * time.Minute
+	MachineWait                   = 30 * time.Second
+	MachineWaitMax                = 5 * time.Minute
 	ReportInterval                = 15 * time.Second
 	UsageSettleDelay              = 2 * time.Minute
 	UsageEvery                    = time.Minute
