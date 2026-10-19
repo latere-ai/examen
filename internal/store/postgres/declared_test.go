@@ -166,6 +166,19 @@ func TestDeclarationsAndCandidateValues(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The import marks the test of independence for recomputation, and
+	// Declare clears the mark.
+	if marked, err := w.st.Experiments().DeclaredDirty(ctx, 10); err != nil || !slices.Contains(marked, eid) {
+		t.Fatalf("marked %v %v", marked, err)
+	}
+	if err := w.st.Experiments().Declare(ctx, eid, func(e objects.Experiment, family []objects.Comparison) (objects.DeclaredAnalysis, error) {
+		return objects.DeclaredAnalysis{Experiment: e.ID, Comparisons: []objects.DeclaredResult{}}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if marked, err := w.st.Experiments().DeclaredDirty(ctx, 10); err != nil || slices.Contains(marked, eid) {
+		t.Fatalf("still marked %v %v", marked, err)
+	}
 	vals, err := w.st.Experiments().Measurements(ctx, store.MeasurementFilter{Experiment: eid, Candidate: p.a.Digest, CandidateLevel: true}, store.Page{Limit: 10})
 	if err != nil || len(vals) != 1 || vals[0].Value != 0.75 || vals[0].Trial != "" {
 		t.Fatalf("candidate-level values %+v %v", vals, err)

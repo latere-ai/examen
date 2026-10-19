@@ -126,9 +126,6 @@ func (e *Engine) Compute(ctx context.Context) error {
 	src := compare.Source{Experiments: x, Versions: e.Store.Versions(), Baselines: e.Store.Baselines(), Taxonomies: e.Store.Taxonomies()}
 	var errs []error
 	var declared []string
-	// declares holds, per experiment of a comparison computed, whether it
-	// declared comparisons or a test of independence.
-	declares := map[string]bool{}
 	for _, c := range dirty {
 		computed, inputs, err := e.Analyzer.Compare(ctx, c, src)
 		switch {
@@ -141,23 +138,26 @@ func (e *Engine) Compute(ctx context.Context) error {
 		default:
 			errs = append(errs, x.Computed(ctx, c.ID, objects.ComparisonComplete, computed, inputs))
 		}
-		if _, read := declares[c.Experiment]; !read {
-			e, err := x.Get(ctx, c.Experiment)
-			if err != nil {
-				errs = append(errs, err)
-				continue
-			}
-			declares[c.Experiment] = len(e.Comparisons) > 0 || e.Independence != nil
-		}
-		if declares[c.Experiment] && !slices.Contains(declared, c.Experiment) {
+		if c.DeclaredIndex != nil && !slices.Contains(declared, c.Experiment) {
 			declared = append(declared, c.Experiment)
 		}
 	}
+	// A test of independence reads every cell, so an experiment that
+	// declares one is marked whenever a trial of it reaches done or it
+	// ends, whatever comparisons it keeps.
+	marked, err := x.DeclaredDirty(ctx, batch)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	for _, eid := range marked {
+		if !slices.Contains(declared, eid) {
+			declared = append(declared, eid)
+		}
+	}
 	// A declared comparison's primary result is corrected with every
-	// other declared comparison's, and a test of independence reads every
-	// cell, so each experiment that declared either and whose comparisons
-	// changed, which a trial finishing or a grading arriving marks, has its
-	// declared analysis recomputed, under its row lock, from what they
+	// other declared comparison's, so each experiment whose declared
+	// comparisons changed, or whose test of independence is marked, has
+	// its declared analysis recomputed, under its row lock, from what they
 	// store and its cells hold now.
 	for _, eid := range declared {
 		err := x.Declare(ctx, eid, func(exp objects.Experiment, family []objects.Comparison) (objects.DeclaredAnalysis, error) {

@@ -254,7 +254,7 @@ func (c *change) settle(ctx context.Context) error {
 	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET final = true, dirty = true, updated_at = $2 WHERE experiment = $1 AND `+keptComparisons+` AND NOT final`, c.e.ID, c.now); err != nil {
 		return fmt.Errorf("postgres: finalizing comparisons: %w", err)
 	}
-	return nil
+	return c.markDeclared(ctx)
 }
 
 // keptComparisons selects the comparisons Examen keeps of an experiment
@@ -263,10 +263,23 @@ func (c *change) settle(ctx context.Context) error {
 const keptComparisons = `(automatic OR declared IS NOT NULL)`
 
 // dirty marks the experiment's comparisons that are not final, whose
-// inputs a trial reaching done changed.
+// inputs a trial reaching done changed, and its test of independence.
 func (c *change) dirty(ctx context.Context) error {
 	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET dirty = true, updated_at = $2 WHERE experiment = $1 AND `+keptComparisons+` AND NOT final`, c.e.ID, c.now); err != nil {
 		return fmt.Errorf("postgres: marking comparisons: %w", err)
+	}
+	return c.markDeclared(ctx)
+}
+
+// markDeclared marks the declared analysis of an experiment that declares
+// a test of independence for recomputation: the test reads every cell,
+// whatever comparisons the experiment keeps.
+func (c *change) markDeclared(ctx context.Context) error {
+	if c.e.Independence == nil {
+		return nil
+	}
+	if _, err := c.tx.Exec(ctx, `UPDATE experiments SET declared_dirty = true WHERE id = $1`, c.e.ID); err != nil {
+		return fmt.Errorf("postgres: marking a declared analysis: %w", err)
 	}
 	return nil
 }
@@ -879,7 +892,7 @@ func (c *change) reopen(ctx context.Context) error {
 			return err
 		}
 	}
-	return nil
+	return c.markDeclared(ctx)
 }
 
 func (x experiments) ExpireLeases(ctx context.Context) (int, error) {

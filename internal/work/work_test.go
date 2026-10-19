@@ -196,19 +196,37 @@ func (d independent) Declared(_ context.Context, e objects.Experiment, family []
 		Comparisons: []objects.DeclaredResult{}, Independence: json.RawMessage(`{"p":0.5}`)}, nil
 }
 
-// An experiment that declares a test of independence and no comparison has
-// its declared analysis recomputed whenever one of its comparisons is, and
-// one that declares neither is never asked for one.
+// An experiment that declares a test of independence and keeps no
+// comparison, one candidate's, has its declared analysis recomputed once a
+// trial of it marks it, and the mark is cleared; one that declares nothing
+// is never asked for one.
 func TestComputeDeclaresIndependence(t *testing.T) {
-	st := pgtest.Open(t, false, postgres.Options{})
-	eid, _ := seedWith(t, st, func(ne *store.NewExperiment) {
-		ne.Experiment.Independence = &objects.Independence{Metric: "builtin:completed", Variable: "candidate", By: []string{"task"}}
+	direct, _ := pgtest.Database(t)
+	st, _, err := postgres.Open(t.Context(), direct, postgres.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := st.Close(); err != nil {
+			t.Error(err)
+		}
 	})
-	if e, err := st.Experiments().Get(t.Context(), eid); err != nil || e.Independence == nil || e.Independence.Variable != "candidate" {
+	eid, _ := seedWith(t, st, func(ne *store.NewExperiment) {
+		ne.Experiment.Independence = &objects.Independence{Metric: "builtin:completed", Variable: "object", By: []string{"volition"}}
+		ne.Comparisons = nil
+	})
+	if e, err := st.Experiments().Get(t.Context(), eid); err != nil || e.Independence == nil || e.Independence.Variable != "object" {
 		t.Fatalf("the stored test %+v %v", e.Independence, err)
 	}
 	asked := 0
 	e := &Engine{Store: st, Authz: &gate{}, Analyzer: independent{asked: &asked}}
+	if err := e.Compute(t.Context()); err != nil || asked != 0 {
+		t.Fatalf("an unmarked test was computed %d times: %v", asked, err)
+	}
+	// A trial reaching done marks it, as the store's change does.
+	if err := pgtest.Exec(t.Context(), direct, `UPDATE experiments SET declared_dirty = true WHERE id = $1`, eid); err != nil {
+		t.Fatal(err)
+	}
 	if err := e.Compute(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -216,10 +234,12 @@ func TestComputeDeclaresIndependence(t *testing.T) {
 	if err != nil || !found || string(a.Independence) != `{"p": 0.5}` || asked != 1 {
 		t.Fatalf("the declared analysis %s %v %v, asked %d", a.Independence, found, err, asked)
 	}
+	if err := e.Compute(t.Context()); err != nil || asked != 1 {
+		t.Fatalf("a cleared mark was computed again, %d times: %v", asked, err)
+	}
 	plain, _ := seed(t, st)
-	asked = 0
-	if err := e.Compute(t.Context()); err != nil || asked != 0 {
-		t.Fatalf("an experiment that declares nothing was asked %d times: %v", asked, err)
+	if err := e.Compute(t.Context()); err != nil || asked != 1 {
+		t.Fatalf("an experiment that declares nothing was asked: %d, %v", asked, err)
 	}
 	if _, found, err := st.Experiments().DeclaredAnalysis(t.Context(), plain); err != nil || found {
 		t.Fatalf("an experiment that declares nothing has a declared analysis: %v %v", found, err)

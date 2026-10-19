@@ -444,6 +444,10 @@ type Experiments interface {
 	// stored analysis. Serialized with every comparison's store, the last
 	// recomputation reads every comparison stored before it.
 	Declare(ctx context.Context, experiment string, correct func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error)) error
+	// DeclaredDirty are the experiments whose test of independence reads a
+	// cell that changed since their declared analysis was computed, which
+	// Declare clears.
+	DeclaredDirty(ctx context.Context, limit int) ([]string, error)
 	// DeclaredAnalysis reads an experiment's stored declared analysis;
 	// false when none is computed yet.
 	DeclaredAnalysis(ctx context.Context, experiment string) (objects.DeclaredAnalysis, bool, error)

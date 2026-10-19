@@ -261,11 +261,23 @@ func (x experiments) Declare(ctx context.Context, eid string, correct func(objec
 		if err != nil {
 			return err
 		}
-		if _, err := ch.tx.Exec(ctx, `UPDATE experiments SET declared = $2 WHERE id = $1`, ch.e.ID, raw); err != nil {
+		if _, err := ch.tx.Exec(ctx, `UPDATE experiments SET declared = $2, declared_dirty = false WHERE id = $1`, ch.e.ID, raw); err != nil {
 			return fmt.Errorf("postgres: storing a declared analysis: %w", err)
 		}
 		return nil
 	})
+}
+
+func (x experiments) DeclaredDirty(ctx context.Context, limit int) ([]string, error) {
+	rows, err := x.s.pool.Query(ctx, `SELECT id FROM experiments WHERE declared_dirty ORDER BY updated_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: reading declared analyses to compute: %w", err)
+	}
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		return nil, fmt.Errorf("postgres: reading declared analyses to compute: %w", err)
+	}
+	return ids, nil
 }
 
 func (x experiments) DeclaredAnalysis(ctx context.Context, eid string) (objects.DeclaredAnalysis, bool, error) {
