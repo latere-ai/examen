@@ -227,6 +227,7 @@ else. The last column names the spec that explains its use.
 | `OWNER_TOKEN_MAX_LIFETIME` | 15 minutes | the lifetime Examen asks of the minter, and the longest it uses any owner token after obtaining it | 004 |
 | `OWNER_TOKEN_RENEWAL` | 2 minutes | how long before its expiry a cached owner token is replaced, and how long a token file's read is reused | 004 |
 | `METADATA_MAX_PAIRS` | 16 | pairs in the `metadata` of any object, and in an external candidate's `flags` | 002 |
+| `MAX_TASK_FACTORS` | 16 | factors one task declares | 002 |
 | `MAX_INLINE_INPUT_BYTES` | 64 KiB | the text of one inline input or reference of a task | 002 |
 | `MAX_OUTPUT_FILES` | 10,000 | files one trial's outputs may hold, every file of a directory output counted | 005 |
 | `MAX_OUTPUT_BYTES` | 1 GiB | bytes of the output files one trial keeps | 005 |
@@ -343,6 +344,7 @@ One versioned unit of work.
 | `timeout` | duration | the trial's wall time, at most `MAX_TRIAL_TIMEOUT`; `DEFAULT_TRIAL_TIMEOUT` when unset |
 | `max_turns` | int | optional bound on the model responses of the agent's own thread; the `topos` executor needs a step bound Topos does not have today (spec 005, requirement R7), and the `cella` and `external` executors pass it on as advice |
 | `evidence` | []path | files of the workspace kept as evidence besides the transcript |
+| `factors` | map | the task's place in a design: each factor's name to the task's level of it, at most `MAX_TASK_FACTORS` pairs, such as `{"object": "build", "volition": "want"}`; declared comparisons and a test of independence select and stratify cells by them (Cell, below; spec 008) |
 | `metadata` | map | at most `METADATA_MAX_PAIRS` |
 
 An input or reference name is 1 to 63 characters of `[a-z0-9._-]`,
@@ -351,6 +353,13 @@ path and an Origo `path` are relative and contain no `..`. The task's
 digest covers its inputs and references as declared, a pinned digest or
 commit and inline text included, and is its `task_hash` in the
 provenance tuple.
+
+A factor's name and its level are each 1 to 63 characters of
+`[a-z0-9._-]`, starting with a letter or a digit, and a name is none of
+the cell variables Examen defines itself: `candidate`, `task`, `model`,
+`reasoning` and `batch` (Cell, below). Factors are part of the task's
+content, so changing one makes a new task version; a task that declares
+none has the digest it had before factors existed.
 
 ## Suite
 
@@ -432,8 +441,8 @@ One execution of a suite against candidates.
 | `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset. The reference set before any cell leaves `pending` is the declared one; a reference set later makes exploratory comparisons (spec 008) |
 | `adopt` | bool | reuse finished trials of identical cells no older than `ADOPTION_MAX_AGE`; after v0.1, a later build step (spec 005) |
 | `mode` | enum | `execute` (the default): Examen runs every cell; `import`: Examen runs no trial, and each cell is made from the resolved provenance tuple of the first trial imported into it (below) |
-| `comparisons` | []object | the comparisons the experiment declares it will make, at most `MAX_DECLARED_COMPARISONS`, set at create and never changed: each either `{candidate, reference_candidate, variable}`, two different candidates of the experiment and optionally one logical variable of spec 008 other than `task`, or `{candidate, task, reference_task}`, one candidate and two different tasks of the suite, by digest; no pair twice, in either orientation. Each is computed without being asked and is not exploratory, and the primary results of all of them are corrected together (spec 008). Empty when the experiment declares none |
-| `independence` | object | `{metric}`: one trial-level label metric of the suite, by digest, whose dependence on the candidate the experiment declares it will test over all its candidates, at least two, as the experiment-level test of independence (spec 008); set at create and never changed; accepted from the release that builds label tests |
+| `comparisons` | []object | the comparisons the experiment declares it will make, at most `MAX_DECLARED_COMPARISONS`, set at create and never changed, each in one of three forms: `{candidate, reference_candidate, variable}`, two different candidates of the experiment and optionally one logical variable of spec 008 other than `task`; `{candidate, task, reference_task}`, one candidate and two different tasks of the suite, by digest; or the general form `{variable, levels, where, by}`: the cell variable it varies (Cell, below), its two `levels`, the candidate side's first, `where`, cell variables each held to one level, and `by`, the cell variables it is stratified by (spec 008). Each form takes an optional `metric`, a metric of the suite of level `trial` or `cell` whose result is the comparison's primary result, the suite's `primary_metric` when absent. No comparison twice, a pair in either orientation. Each is computed without being asked and is not exploratory, and the primary results of all of them are corrected together (spec 008). Empty when the experiment declares none |
+| `independence` | object | `{metric, variable, by, where}`: one trial-level label metric of the suite, by digest, whose dependence on one cell variable, `variable` (`candidate` when absent), the experiment declares it will test, stratified by the cell variables `by` (`["task"]` when absent), over the cells `where` selects (every cell when absent), as the experiment-level test of independence (spec 008); the variable holds at least two levels among those cells; set at create and never changed |
 | `scheduling` | enum | how the cells take the experiment's `parallelism` and its external trials are leased, set at create and never changed: `task_by_task` (the default), a task's cells before the next task's, or `interleaved`, every cell of every task in turn, so trial `i` of every cell runs in one window whatever its task (spec 005) |
 | `state` | enum | below |
 | `created_by` | subject | the person who created it (spec 004), which may differ from `owner`: an experiment created in an organization's context is owned by the organization and created by the member. Set at create from the caller, never changed, and answered on every read |
@@ -491,6 +500,17 @@ and `canceled`. A cell parked `blocked` or `over_budget` resumes only
 through a retry (`cell.retry`, spec 003); a `canceled` cell never
 resumes. A cell of an experiment in mode `import` starts `running` and
 has no `smoking`.
+
+**Cell variables.** A declared comparison of the general form and a
+test of independence (spec 008) name the cells they read by variables
+every cell carries: `candidate`, its candidate's digest; `task`, its
+task, named by name or digest; `model` and `reasoning`, its tuple's,
+carried when not empty; and each factor its task declares, by the
+factor's name. `batch` is reserved for comparisons across experiments
+(spec 008). The tuple's other fields, an agent or image digest, a
+program, a tool set, an environment and a workspace, are digests and
+sets rather than levels a person names, and select no cell; a task
+factor names what differs between tasks, such as `workspace: seeded`.
 
 ## Trial
 
@@ -621,16 +641,17 @@ true it never changes, and computing again makes a new comparison.
 | Field | Type | Meaning |
 |---|---|---|
 | `experiment` | experiment id | the candidate's experiment |
-| `candidate` | candidate digest | |
+| `candidate` | candidate digest | the candidate side's candidate; for a declared comparison of the general form, the one candidate every cell of its candidate side belongs to, and empty when they belong to several |
 | `baseline` | baseline id | the reference, when it is a baseline |
 | `reference_candidate` | candidate digest | the reference, when it is another candidate of the same experiment |
-| `task`, `reference_task` | task digest | for a comparison whose variable is `task`: the candidate's task, and the task of the same experiment whose cell of the same candidate is the reference (spec 008), whose `unpaired_tasks` and `candidate_suite` are then empty; exactly one of `baseline`, `reference_candidate` and `reference_task` is set |
+| `task`, `reference_task` | task digest | for a comparison whose variable is `task`: the candidate's task, and the task of the same experiment whose cell of the same candidate is the reference (spec 008), whose `unpaired_tasks` and `candidate_suite` are then empty; exactly one of `baseline`, `reference_candidate`, `reference_task` and `declaration` is set |
+| `declaration` | object | for a declared comparison of the general form: its declaration as the experiment's `comparisons` hold it, `{variable, levels, where, by, metric}`, whose two levels select its two sides' cells (spec 008); absent otherwise |
 | `automatic` | bool | true for the comparison Examen keeps of a candidate against its experiment's `reference`; false for one computed on request (spec 003) and for a declared one that is not that pair |
 | `declared` | int | for a comparison its experiment declared: its position in the experiment's `comparisons`, from 0; absent otherwise. A declared comparison is computed without being asked, as the automatic one is, and its primary result is corrected with the other declared comparisons' in the experiment's declared analysis (spec 008) |
 | `exploratory` | bool | true for a comparison computed on request, and for an automatic one against a reference set after a cell left `pending`: it is never headlined, and its primary metric's suite-level result is corrected in the family (spec 008); false for the automatic comparison against the declared reference and for a declared comparison |
 | `state` | enum | `computing`, `complete`, `failed` |
 | `final` | bool | true once both sides are final: every declared trial of each side is `done` and graded; false while a figure can still change |
-| `variable` | []tuple field | what the comparison intends to vary: the tuple fields of one logical variable, `task_hash` for a comparison across tasks (spec 008) |
+| `variable` | []tuple field | what the comparison intends to vary: the tuple fields of one logical variable, `task_hash` for a comparison across tasks and for a declared comparison whose cell variable is `task` or a task factor (spec 008) |
 | `single_variable` | bool | no tuple field besides `variable` differs on any paired task (spec 008); layer confounds, missing, self-reported and excluded values, differing time windows and an uncalibrated judge are scoped to the results they affect and leave it unchanged |
 | `declared_provenance` | []string | the sides, `candidate` and `reference`, whose candidate is of kind `external`, so whose tuple its external harness declared rather than an executor observed; empty otherwise (spec 008) |
 | `confounds` | []string | the name of every confound of its results, computed: the union of its results' `confounds` names |
@@ -653,7 +674,7 @@ A **result** is one row of `results`:
 |---|---|
 | `level` | `task`, over one task's cells; `suite`, over the paired tasks it includes; or `candidate`, a candidate-level metric's one value per side, which is descriptive (spec 008) |
 | `metric`, `metric_name`, `direction` | the metric's digest, name and direction |
-| `task`, `task_digests` | on a `task` result: the task's name, and each side's task digest; for a comparison across tasks, both tasks' names joined by ` vs ` |
+| `task`, `task_digests` | on a `task` result: the task's name, and each side's task digest; for a comparison across tasks, both tasks' names joined by ` vs `; for a declared comparison of the general form, its stratum's name (spec 008) |
 | `candidate`, `reference` | the two sides' summaries, below |
 | `delta`, `delta_kind` | the change, candidate less reference, and its kind: `difference`, or for a `label` metric `per_label`, an object from each label to the difference of its proportions |
 | `delta_interval` | the delta's interval at `CONFIDENCE_LEVEL`, for `per_label` an object from each label to its interval; absent where spec 008 computes none |
@@ -715,7 +736,7 @@ newest record.
 | `experiment` | experiment id | |
 | `final` | bool | true once every declared comparison's newest record is final and every cell the test of independence reads is final |
 | `family` | object | `{method, size, level}`: `benjamini_hochberg`; `D`, the number of comparisons the experiment declared, every one of which counts; and `FALSE_DISCOVERY_RATE` as the declared comparisons recorded it |
-| `comparisons` | []object | per declared comparison, in the experiment's order: `{index, comparison, metric, p, q, verdict, reason, final}`, its position, the id of its newest comparison, absent until one is computed, the primary metric's digest, its primary result's `p` and the `q` the declared family gives it, absent when it has no usable `p`, which counts as 1, the verdict from that `q` by spec 008's rule, `insufficient` for an insufficient result and absent for a descriptive or self-reported one, its reason, and whether that comparison is final |
+| `comparisons` | []object | per declared comparison, in the experiment's order: `{index, comparison, metric, p, q, verdict, reason, final}`, its position, the id of its newest comparison, absent until one is computed, the digest of its primary result's metric, its declaration's `metric` or the suite's primary metric, its primary result's `p` and the `q` the declared family gives it, absent when it has no usable `p`, which counts as 1, the verdict from that `q` by spec 008's rule, `insufficient` for an insufficient result and absent for a descriptive or self-reported one, its reason, and whether that comparison is final |
 | `independence` | object | the experiment's independence result when it declares one: `metric`, `metric_name`, `candidates` (the experiment's, in its order), `summaries` (each candidate's suite-level summary over the included tasks, in that order), `tasks`, `coverage`, `left_out` (each task of weight above zero left out, `{task, why, counts}`, `why` `unpaired` or `too_few_trials`, `counts` each candidate's valued trials), `method`, `statistic`, `exact`, `resamples`, `seed`, `p`, `q` (equal to `p`), `verdict` (`changed`, `within_noise` or `insufficient`; absent on self-reported values and before label tests are built), `reason`, `confounds`, `final`, `analysis_version`, `parameters`, `inputs_digest` (spec 008) |
 | `computed_at` | time | |
 
@@ -982,14 +1003,22 @@ statistics (008), bar evaluation (009), reports (010) and sharing (013).
 - An experiment's `comparisons`, `independence` and `scheduling` are
   set at create and never change; a declared pair named twice, in
   either orientation, more than `MAX_DECLARED_COMPARISONS` of them, a
-  candidate or task the experiment does not hold, and an `independence`
-  metric that is not a trial-level label metric of the suite are
-  refused at create, naming the member.
+  candidate or task the experiment does not hold, a declaration of the
+  general form whose variable no cell carries, whose level or `where`
+  selects no cell, whose stratum holds two cells of one side, or that
+  pairs no stratum, a declared `metric` the suite does not list at
+  level `trial` or `cell`, and an `independence` metric that is not a
+  trial-level label metric of the suite, or whose variable holds fewer
+  than two levels, are refused at create, naming the member.
 - An experiment's `created_by` is the caller of its create and its
   `owner` the context the create resolved, the two different for an
   organization's experiment; both are stored and answered on every
   read, and neither changes.
 - The decline judge never changes a trial's outcome.
+- A task's `factors` with more than `MAX_TASK_FACTORS` pairs, a name
+  or level outside the name rule, or a name Examen reserves, are
+  refused at apply naming the field; a task without factors keeps the
+  digest it had before factors existed.
 
 ## Outcome
 

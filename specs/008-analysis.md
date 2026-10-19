@@ -204,7 +204,7 @@ sides' `valued`, and `N = n_x + n_y`.
 | `binary` | `k_x / n_x - k_y / n_y` (`difference`) | Newcombe's hybrid score interval, clamped to [-1, 1] | `boschloo_exact`, `fisher_p`; two-sided |
 | `score`, `count`, `duration`, `cost` with aggregate `mean` | `mean(x) - mean(y)` (`difference`) | bootstrap-t interval of the difference; none when a quantile it needs is infinite | `permutation`, `welch_t` |
 | `score`, `count`, `duration`, `cost` with aggregate `median` or `p90` | `Q(x) - Q(y)` (`difference`) | the difference of two order-statistic intervals at the level `sqrt(CONFIDENCE_LEVEL)`; none when either side has none at that level | `permutation`, `studentized_quantile` |
-| `label` | per label `l`, `p_x(l) - p_y(l)` (`per_label`) | Newcombe's hybrid score interval per label | `fisher_freeman_halton` with `table_probability`, or `chi_square_permutation` with `pearson_x2` when its tables are too many, once label tests are built (Label metrics, below) |
+| `label` | per label `l`, `p_x(l) - p_y(l)` (`per_label`) | Newcombe's hybrid score interval per label | `fisher_freeman_halton` with `table_probability`, or `chi_square_permutation` with `pearson_x2` when its tables are too many (Label metrics, below) |
 | `repeat_rate` (level `cell`) | `R(x) - R(y)` (`difference`) | none | `permutation`, `difference` |
 | `mode_share`, `distinct_count` (level `cell`) | `A(x) - A(y)` (`difference`), `A` the statistic | none | none: descriptive (Cell-level and candidate-level metrics, below) |
 
@@ -409,12 +409,12 @@ proportions with Newcombe's interval, and at suite level the difference
 of the weighted proportions with Agresti and Caffo's interval (below).
 These per-label figures are descriptive: the verdict is one test of
 whether the two distributions differ, so many labels never make many
-chances at a finding. Until label tests are built, a label result
-carries no `p`, `q` or `verdict` and takes no part in the family. Label
-tests, the build step after the built-in comparators, add the tests
-below; a
-significant difference in a label metric, whose direction is `none`, is
-`changed`.
+chances at a finding. Label tests are built from v0.5.0, and every
+comparison computed since carries the tests below, a provisional one of
+an earlier release included when it is next computed; a comparison
+final before then keeps its label results descriptive, with no `p`,
+`q` or `verdict` and no part in the family. A significant difference in
+a label metric, whose direction is `none`, is `changed`.
 
 **The task-level test.** The table is the 2 by k table of label
 counts, the candidate's row and the reference's, over the labels with a
@@ -785,7 +785,7 @@ verdict is what it is, built from fixed templates with numbers in spec
 | a declared comparison's primary result | "p = 0.012 for the primary metric of a declared comparison; corrected with the primary results of 11 declared comparisons in the experiment's declared analysis" |
 | a declared comparison's primary result whose exact test cannot reach `FALSE_DISCOVERY_RATE / D` | "with 5 trials per side, no difference can be shown among 11 declared comparisons" |
 | a declared comparison in the declared analysis | "p = 0.012; q = 0.044 after correcting the primary results of 11 declared comparisons at 5%"; one not computed yet, "not computed yet: the candidate has no finished trial"; one whose newest comparison failed, "not computed: the comparison could not be computed"; otherwise its comparison's own reason |
-| the experiment's test of independence | "p = 0.004 for the experiment's declared test of independence, tested alone without correction"; with a power floor, "with 4 tasks of 5 trials per candidate, no difference can be shown at 5%"; a statistic of 0, "no difference between the candidates" |
+| the experiment's test of independence | "p = 0.004 for the experiment's declared test of independence, tested alone without correction"; with a power floor, "with 4 tasks of 5 trials per candidate, no difference can be shown at 5%"; a statistic of 0, "no difference between the candidates"; before its first computation, "not computed yet: no cell has a finished trial" |
 | a mode share | "descriptive: a mode share depends on the number of trials, so it is not tested" |
 | a count of distinct labels | "descriptive: a count of distinct labels depends on the number of trials, so it is not tested" |
 | a label result, before label tests are built | "descriptive: label tests are not built yet" |
@@ -877,16 +877,20 @@ how many tasks and metrics the suite happens to list.
 
 **Declared comparisons.** An experiment may declare, when it is
 created, the comparisons it will make (spec 002, `comparisons`): pairs
-of its candidates, each optionally with a variable, and pairs of tasks
-for one of its candidates, the comparison across tasks of Confounds and
-the variable, below. Each is computed without being asked, as the
-automatic comparison is, progressively and a last time when both sides
-are final (Comparisons, below), with `declared` its position in the
-experiment's list and `exploratory` false. A declared comparison is
-read like any other, with one difference: its primary result, the
-suite-level result of the primary metric for a pair of candidates and
-the task-level result of the primary metric for a pair of tasks, is in
-no comparison's family. The primary results of all the experiment's
+of its candidates, each optionally with a variable, pairs of tasks for
+one of its candidates, the comparison across tasks of Confounds and the
+variable, below, and comparisons of the general form, which name a cell
+variable and two of its levels (Comparisons over cell variables,
+below). Each is computed without being asked, as the automatic
+comparison is, progressively and a last time when both sides are final
+(Comparisons, below), with `declared` its position in the experiment's
+list and `exploratory` false. Each may name its own `metric`, whose
+result is then its primary result in place of the suite's primary
+metric's. A declared comparison is read like any other, with one
+difference: its primary result, the suite-level result of its metric
+for a pair of candidates and for the general form with strata, and the
+task-level result of its metric for a pair of tasks and for the general
+form without strata, is in no comparison's family. The primary results of all the experiment's
 declared comparisons form one family of their own, corrected together
 by Benjamini and Hochberg's procedure at `FALSE_DISCOVERY_RATE`, and
 every other result of a declared comparison is in its own comparison's
@@ -913,10 +917,12 @@ family, as in any comparison that is not exploratory.
   there.
 - **The automatic pair.** A declared pair of candidates that is the
   automatic comparison's pair, the same candidate against the
-  experiment's reference candidate, in that orientation, is that
-  comparison: one record, `automatic` true and `declared` set, whose
-  primary result is in the declared family and not tested alone. In
-  the other orientation it is a comparison of its own.
+  experiment's reference candidate, in that orientation, with no
+  `variable` and no `metric` of its own, is that comparison: one
+  record, `automatic` true and `declared` set, whose primary result is
+  in the declared family and not tested alone. In the other
+  orientation, with a `metric` of its own, or in the general form, it
+  is a comparison of its own.
 
 Why one family across declared comparisons, when the family is
 otherwise one comparison: the family is one comparison so that adding a
@@ -934,9 +940,10 @@ hundreds of others, so each comparison's other results keep their own
 family.
 
 **The experiment's test of independence.** An experiment may also
-declare, when it is created, one label metric whose dependence on the
-candidate it tests over all its candidates at once (spec 002,
-`independence`): the experiment-level test of independence (below). It
+declare, when it is created, one label metric whose dependence on a
+cell variable, the candidate unless it names another, it tests over
+every level of that variable at once (spec 002, `independence`): the
+experiment-level test of independence (below). It
 is one planned test, tested alone at `FALSE_DISCOVERY_RATE`, its `q`
 equal to its `p`, and in no family, for the reason the declared
 primary result of a comparison that is not exploratory stands alone.
@@ -1092,6 +1099,82 @@ observe (spec 005). In a comparison it changes no verdict and no
 confound. A console and a report show it beside the comparison (spec
 010).
 
+### Comparisons over cell variables
+
+A declared comparison of the general form (spec 002, `comparisons`)
+names what it varies as a cell variable (spec 002, Cell) and two of its
+levels, so one shape holds a pair of candidates, two tasks of one
+candidate, two levels of a task factor, of a model or of a reasoning
+level, within or across whatever else the experiment varies:
+
+```
+{ "variable": "object", "levels": ["build", "do"],
+  "where": { "candidate": "sha256:41ab…" }, "by": ["volition"] }
+```
+
+- **Sides.** The cells `where` keeps are those carrying each of its
+  variables at the level it names; every cell when it names none. Of
+  them, the cells carrying `variable` at the first of `levels` are the
+  candidate side and those at the second the reference side; a cell at
+  neither level is on neither side. The delta is the candidate side
+  less the reference side, as in every comparison.
+- **Strata.** `by` names the cell variables the comparison is
+  stratified by. A stratum is one combination of their levels, and
+  each side holds at most one cell of it, which is held at create:
+  two cells of one side in one stratum differ in something the
+  declaration names neither as its variable nor as a stratum, and a
+  test that permutes within the stratum would read that difference as
+  the variable's, so the variable that separates them belongs in `by`
+  or `where`. Every cell a side holds carries every variable of `by`.
+  The strata are the comparison's paired tasks: a stratum both sides
+  hold gives one task-level result per metric, a stratum one side holds
+  alone is listed in `unpaired_tasks`, and the suite-level result tests
+  and summarizes over the strata by Suite-level summaries, above, with
+  each stratum weighted as its candidate side's cell's task is, and
+  `left_out` and `coverage` read over the strata.
+- **A stratum's name** is its task's name when `by` is `["task"]`, and
+  otherwise `name=level` for each variable of `by` in its order, joined
+  by `,`, a candidate's level written as its digest: `volition=want`,
+  `model=m-1,task=build`. It is the result's `task`, its seed scope is
+  `"task:"` and the name (Determinism, below), and a declaration whose
+  two strata would take one name is refused at create. A name of spec
+  003 holds no `=` or `,`, so no stratum named by levels takes a task's
+  name.
+- **Without `by`.** Each side is one cell, and the comparison has the
+  shape of a comparison across tasks (Confounds and the variable,
+  above): one task-level result per metric, named by the two cells'
+  task names joined by ` vs `, or by the one task's name when both
+  cells are of it, and no suite-level result.
+- **Its logical variable** follows from its cell variable: `model` and
+  `reasoning` are their own; `task` and every task factor are `task`,
+  whose field is `task_hash`; and `candidate` is the one logical
+  variable whose fields differ on the paired strata, or none, as for a
+  pair of candidates that declares none. So two tasks that differ in a
+  factor and also in environment or workspace name the field that also
+  differs, as a comparison across tasks does.
+- **Its primary result** is the suite-level result of its `metric`, or
+  without `by` that metric's one task-level result, corrected in the
+  declared family (Multiple comparisons, above).
+
+Examples, for a study whose tasks declare the factors `object`,
+`volition` and `workspace`: object at one volition for one candidate,
+`{variable: object, levels: [build, do], where: {candidate: C,
+volition: none}}`, one cell per side; object stratified by volition
+within one candidate, the declaration above; one model's two harnesses,
+`{variable: candidate, levels: [C1, C2], by: [task]}`, which reads as
+the pair `{candidate: C1, reference_candidate: C2}` does; the seeded
+workspace against the empty one, `{variable: workspace, levels:
+[seeded, empty], where: {candidate: C, object: do, volition: want}}`;
+and a low against a high reasoning level on every model,
+`{variable: reasoning, levels: [low, high], by: [model, task]}`.
+
+Why one cell per side per stratum, rather than pooling: two cells of
+one side in one stratum are two configurations or two tasks the
+declaration did not name, and pooling them would put their difference
+on the scale of the variable's. Holding each stratum to a single pair
+keeps every task-level result a single-variable pair whose confounds
+are computed as any paired task's are.
+
 ### Comparisons
 
 A comparison has a candidate side, the candidate's cells in its
@@ -1102,10 +1185,14 @@ experiment, and a reference side, which is exactly one of:
 - **another candidate of the same experiment**
   (`reference_candidate` set);
 - **the same candidate's cell of another task of the same experiment**,
-  for the variable `task` (`task` and `reference_task` set).
+  for the variable `task` (`task` and `reference_task` set);
+- **the cells of the second level** of a declared comparison of the
+  general form, whose candidate side is the cells of its first level
+  (`declaration` set; Comparisons over cell variables, above).
 
-**Pairing.** Cells pair by task name. A task on one side only is
-listed in `unpaired_tasks` and has no task-level result. Metrics pair
+**Pairing.** Cells pair by task name, and in the general form by
+stratum. A task on one side only is listed in `unpaired_tasks` and has
+no task-level result. Metrics pair
 by digest: a metric of the candidate's suite for which the reference
 holds no values has `valued = 0` on the reference side and is
 insufficient. A candidate-level metric pairs the two sides'
@@ -1251,58 +1338,114 @@ cells are final.
 ### The experiment-level test of independence
 
 An experiment that declares `independence` (spec 002) names one
-trial-level label metric of its suite, and the test asks whether that
-metric depends on the candidate, over all the experiment's candidates
-and the suite's tasks at once. It is the stratified label test (above)
-with one side per candidate, in the experiment's candidate order,
-`K` of them, at least two.
+trial-level label metric of its suite and a cell variable, `candidate`
+unless it names another, and the test asks whether that metric depends
+on the variable, stratified by the cell variables of `by`, `task`
+unless it names others, over the cells `where` keeps, every cell unless
+it names some. It is the stratified label test (above) with one side
+per level of the variable, `K` of them, at least two: for `candidate`
+the experiment's candidates in its order, and for any other variable
+its levels among the cells in ascending bytewise order. Its strata are
+the combinations of `by`'s levels, named as a declared comparison's
+strata are (Comparisons over cell variables, above), and each side
+holds at most one cell of a stratum, which is held at create. With the
+defaults it is the test of the metric against the candidate stratified
+by task, over every cell.
 
-- **Tasks.** A task of weight above zero is included when every
-  candidate's cell of it holds at least `MIN_TRIALS_PER_TASK_IN_SUITE`
-  valued trials of the metric. `coverage` is the included tasks' share
-  of the weight of the suite's tasks of weight above zero, and every
-  task left out is listed in `left_out` as `unpaired`, when a candidate
-  holds no cell of it, or `too_few_trials`, with each candidate's
-  valued trials. Below `MIN_SUITE_COVERAGE` the result is
-  `insufficient`, with no p-value.
-- **Reading.** Each candidate's cells are read at the producing grader
-  the suite names, an open-vocabulary metric at the suite's current
-  taxonomy record, as a comparison reads its candidate side
-  (Comparisons, above).
-- **Summaries.** Each candidate's suite-level summary of the metric
-  over the included tasks, as a comparison's suite-level label result
-  carries it.
+- **Strata.** A stratum's weight is the weight of the task of its cell
+  on the first side that holds one. A stratum of weight above zero is
+  included when every side's cell of it holds at least
+  `MIN_TRIALS_PER_TASK_IN_SUITE` valued trials of the metric.
+  `coverage` is the included strata's share of the weight of the
+  strata of weight above zero, and every stratum left out is listed in
+  `left_out` as `unpaired`, when a side holds no cell of it, or
+  `too_few_trials`, with each side's valued trials. Below
+  `MIN_SUITE_COVERAGE` the result is `insufficient`, with no p-value.
+  The strata are those of every cell the experiment's tasks and
+  candidates make, so a cell not yet made, in mode `import`, is a
+  stratum's missing side rather than a stratum fewer.
+- **Reading.** Each cell is read at the producing grader the suite
+  names, an open-vocabulary metric at the suite's current taxonomy
+  record, as a comparison reads its candidate side (Comparisons,
+  above).
+- **Summaries.** Each side's suite-level summary of the metric over the
+  included strata, as a comparison's suite-level label result carries
+  it.
 - **Verdict.** `changed` when `p` is at most `FALSE_DISCOVERY_RATE`,
   and `within_noise` otherwise; `q` equals `p`. It has no verdict, and
-  keeps its `p`, when any value it reads is self-reported; and no `p`,
-  `q` or verdict before label tests are built, like any label result.
+  keeps its `p`, when any value it reads is self-reported.
   `insufficient` comes first, by the coverage rule above.
 - **Confounds.** `missing`, `self_reported`, `incomplete` and
   `uncalibrated`, as a comparison's results carry them, with their
-  counts per candidate and the tasks they occur in. Its candidates
-  differ by design, so no tuple field is a confound, and the layer
-  confounds are a pair's and are read in the declared comparisons.
+  counts per side and the strata they occur in. Its sides differ by
+  design, so no tuple field is a confound, and the layer confounds are
+  a pair's and are read in the declared comparisons.
 - **Seeds.** Its inputs document is the canonical JSON of
   `analysis_version`, `parameters`, `label_tests`, the metric's
-  digest, the suite's weights, the taxonomy record and calibration
-  read, and for each candidate in the experiment's order, per cell of
-  a task of weight above zero, the task's name and digest and per
-  finished trial its id and outcome and the measurement read, as a
-  comparison's document holds them, with each candidate's excluded
-  trials. Its root seed derives from that document's digest as a
-  comparison's does, and its test's seed from the scope
+  digest, its declaration, `{variable, by, where}`, the suite's
+  weights, the taxonomy record and calibration read, and for each side
+  in order, per cell of a stratum, the stratum's name, the task's
+  digest and per finished trial its id and outcome and the measurement
+  read, as a comparison's document holds them, with each side's
+  excluded trials. Its root seed derives from that document's digest
+  as a comparison's does, and its test's seed from the scope
   `"experiment"` (Determinism, below).
-- **When.** It is computed with the declared analysis, from the
-  candidates' first finished trials, and recomputed as they finish and
-  as gradings arrive; it is final once every cell it reads is final,
-  and is then computed a last time.
+- **When.** It is computed with the declared analysis, from the first
+  finished trials, and recomputed as trials finish and gradings
+  arrive; it is final once every cell it reads is final, and is then
+  computed a last time. Before its first computation the declared
+  analysis answers it with its metric, its variable and its levels, no
+  `p`, and the reason "not computed yet: no cell has a finished
+  trial".
 
-The result is spec 002's independence result: the metric, the
-candidates, their summaries, `tasks`, `coverage` and `left_out`, the
-test's `method`, `statistic`, `exact`, `resamples` and `seed`, `p`,
-`q`, the verdict and its reason, the confounds, `final`, and the
+The result is spec 002's independence result: the metric, its
+`variable`, `by` and `where`, its `levels` in order, their summaries,
+`tasks` (the strata included), `coverage` and `left_out`, the test's
+`method`, `statistic`, `exact`, `resamples` and `seed`, `p`, `q`, the
+verdict and its reason, the confounds, `final`, and the
 `analysis_version`, `parameters` and `inputs_digest` it was computed
 with.
+
+### Comparisons across experiments: batches and anchors
+
+Comparisons across experiments come after the general form of declared
+comparisons, as a later build step; the design is kept here. An owner
+who runs pilots at a small N, then a batch, then a new model or a new
+program version months later, compares experiments, not candidates of
+one experiment. The cell variable `batch` (spec 002) is the experiment
+a cell belongs to, so a comparison across batches is the general form
+over the cells of several experiments of one suite name of the owner's,
+with `batch` as its variable or among its strata, and its confounds are
+stated from provenance as a baseline's are: `window` with each batch's
+time window; every tuple field that differs within a stratum, a
+changed task's `task_hash`, a changed judge's `grader_digests`, an
+external harness's version in `program`; `declared.image`; and
+`observed.service_versions`.
+
+**The anchor rule.** Whatever is constant within each batch and
+differs between them, the model provider's state in each window, a
+harness or image version every run of a batch shared, the judge
+version a batch was graded with, moves every cell of the batch
+together, so no test of the batches' cells can tell it apart from the
+variable compared across them. Such a confound can be ruled out only
+through an anchor: a configuration, one candidate digest, that ran in
+both batches. With an anchor, the result carries the anchor's own
+comparison across the two batches, an A/A comparison over time, with
+its delta, its interval and its `p`, as the drift the batches' other
+differences produced, and a difference between batches is read against
+it. Without one, the result says so, and its reason ends "; no
+configuration ran in both batches, so drift between them cannot be
+ruled out". A comparison across batches is never `single_variable`.
+
+What is served before that step: a baseline (spec 002) pins one
+candidate of an earlier experiment of the suite, and a later
+experiment that names it as its `reference` compares each of its
+candidates with it automatically, with `window` and the tuple
+confounds named, or, on request, any candidate with any baseline,
+exploratory. An owner who runs the baseline's candidate again in the
+later experiment makes it an anchor by hand: the comparison of that
+candidate in the later experiment with its own baseline, on request,
+is the A/A comparison across the two windows.
 
 ### Benchmark entries
 
@@ -1494,8 +1637,11 @@ every machine and architecture.
 spec 002 of: `analysis_version`, `parameters`, `variable`,
 `exploratory`, for a declared comparison `declared`, the size `D` of
 its experiment's declared family, which resolves its primary result's
-`PERMUTATION_RESAMPLES`, the candidate suite's weights and primary metric, and
-for each side and each paired task the task name and digest, the
+`PERMUTATION_RESAMPLES`, and for one of the general form its
+declaration, `{variable, levels, where, by, metric}`, the candidate
+suite's weights and primary metric, a declared comparison's own
+`metric` in its place, and
+for each side and each paired task, a stratum in the general form, the task name, the stratum's name in the general form, and digest, the
 cell's tuple, the producing grader read per metric, each taxonomy
 record read with its digest and whether a bar pinned it, for each label
 metric a judge produces the calibration read, `{grader, pairs, alpha,
