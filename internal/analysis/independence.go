@@ -152,8 +152,12 @@ func Independence(in IndependenceInput) (IndependenceResult, error) {
 	// holds a cell of it with enough valued trials.
 	var total, held float64
 	var included []string
+	// weights are the strata's: a stratum weighs as the task its suite
+	// entry names, every side alike.
+	weights := map[string]float64{}
 	for _, st := range suiteTasksOf(in) {
 		w := in.Suite.weight(st.Digest)
+		weights[st.Name] = w
 		doc.Weights[st.Digest] = w
 		if w <= 0 {
 			continue
@@ -211,7 +215,7 @@ func Independence(in IndependenceInput) (IndependenceResult, error) {
 			r := cells[s][name].read
 			vals := indices(order, r.values)
 			tasks[t][s] = vals
-			sides[s] = append(sides[s], sideTask{name: name, w: in.Suite.weight(cells[s][name].cell.TaskDigest), read: r, vals: vals})
+			sides[s] = append(sides[s], sideTask{name: name, w: weights[name], read: r, vals: vals})
 			if t == 0 && s == 0 {
 				lo, hi = len(vals), len(vals)
 			}

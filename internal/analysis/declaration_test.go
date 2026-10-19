@@ -122,3 +122,31 @@ func TestTaskVariableNeedsADeclaration(t *testing.T) {
 		t.Fatalf("the variable task without a declaration: %v", err)
 	}
 }
+
+// A test of independence weighs each stratum as its suite entry's task, on
+// every side: two levels whose tasks weigh differently, holding the same
+// labels in each stratum, have the same weighted summaries.
+func TestIndependenceWeighsStrata(t *testing.T) {
+	m := labelMetric("kind", "a", "b")
+	in := IndependenceInput{
+		Parameters: Defaults(), Metric: m.Digest, Variable: "object", By: []string{"volition"}, LabelTests: true,
+		Suite: Suite{Metrics: []Metric{m}, PrimaryMetric: m.Digest, Weights: map[string]float64{"sha256:build-want": 3},
+			Tasks: []SuiteTask{{Name: "volition=none", Digest: "sha256:build"}, {Name: "volition=want", Digest: "sha256:build-want"}}},
+		Sides: []Side{
+			{Candidate: "build", Cells: []Cell{stratumCell("volition=none", "build", m, "a", "a"), stratumCell("volition=want", "build-want", m, "b", "b")}},
+			{Candidate: "do", Cells: []Cell{stratumCell("volition=none", "do", m, "a", "a"), stratumCell("volition=want", "do-want", m, "b", "b")}},
+		},
+	}
+	res, err := Independence(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for s, sum := range res.Summaries {
+		if len(sum.Distribution) != 2 || math.Abs(sum.Distribution[0].Proportion-0.25) > 1e-12 || math.Abs(sum.Distribution[1].Proportion-0.75) > 1e-12 {
+			t.Errorf("level %s: %+v", res.Levels[s], sum.Distribution)
+		}
+	}
+	if !slices.Equal(res.Levels, []string{"build", "do"}) || res.Variable != "object" || res.Tasks != 2 {
+		t.Fatalf("the test %+v", res)
+	}
+}
