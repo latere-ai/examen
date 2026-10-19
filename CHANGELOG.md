@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.4.1 - 2026-10-19
+
 ### Security
 
 - A request about an object you may not see is answered exactly as a
