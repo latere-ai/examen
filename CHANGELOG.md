@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.5.0 - 2026-10-19
+
 ### Added
 
 - Label metrics are tested. A comparison's label result on a task now
