@@ -6,6 +6,14 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Fixed
+
+- A topos trial whose session two replicas created at once runs as the
+  session the first create made. The second create, which Topos answers
+  `409 conflict` while the first under the trial's key is still being
+  answered, no longer parks the trial's cell `blocked` with
+  `topos_refused: conflict`.
+
 ## v0.6.0 - 2026-10-19
 
 ### Added
