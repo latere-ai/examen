@@ -63,21 +63,23 @@ func experimentMembers(e objects.Experiment, c access.Caller) map[string]any {
 }
 
 // experimentAs reads an experiment and asks an action of it with extra
-// fields: a missing experiment and a deny are the 404 code names.
-func (s *Server) experimentAs(r *http.Request, c access.Caller, eid, action string, extra map[string]any, code string) (objects.Experiment, error) {
+// fields: a missing experiment and a deny are both miss, the 404 of what
+// the request named, which for a cell, trial, measurement or comparison is
+// that object and never its experiment.
+func (s *Server) experimentAs(r *http.Request, c access.Caller, eid, action string, extra map[string]any, miss missing) (objects.Experiment, error) {
 	e, err := s.Store.Experiments().Get(r.Context(), eid)
 	if err != nil {
-		return e, storeError(err, code, "no experiment has the id "+eid)
+		return e, storeError(err, miss)
 	}
 	m := experimentMembers(e, c)
 	maps.Copy(m, extra)
-	_, err = s.allowed(r, c, action, e.ID, m, code, "no experiment the caller may see has the id "+eid)
+	_, err = s.allowed(r, c, action, e.ID, m, miss)
 	return e, err
 }
 
 // readExperiment reads an experiment the caller may read.
 func (s *Server) readExperiment(r *http.Request, c access.Caller, eid string) (objects.Experiment, error) {
-	return s.experimentAs(r, c, eid, authorizer.ActionExperimentRead, nil, apierr.CodeExperimentNotFound)
+	return s.experimentAs(r, c, eid, authorizer.ActionExperimentRead, nil, missing{apierr.CodeExperimentNotFound, eid})
 }
 
 // createBody is the body of POST /experiments.
@@ -740,30 +742,32 @@ func (s *Server) getExperiment(w http.ResponseWriter, r *http.Request, c access.
 }
 
 func (s *Server) cancelExperiment(w http.ResponseWriter, r *http.Request, c access.Caller) error {
+	miss := missing{apierr.CodeExperimentNotFound, r.PathValue("id")}
 	e, err := s.Store.Experiments().Get(r.Context(), r.PathValue("id"))
 	if err != nil {
-		return storeError(err, apierr.CodeExperimentNotFound, "no experiment has the id "+r.PathValue("id"))
+		return storeError(err, miss)
 	}
 	members := map[string]any{authorizer.FieldOwner: e.Owner, authorizer.FieldSuite: e.Suite, authorizer.FieldState: e.State}
-	if _, err := s.allowed(r, c, authorizer.ActionExperimentCancel, e.ID, members, apierr.CodeExperimentNotFound, "no experiment the caller may cancel has this id"); err != nil {
+	if _, err := s.allowed(r, c, authorizer.ActionExperimentCancel, e.ID, members, miss); err != nil {
 		return err
 	}
 	out, err := s.Store.Experiments().Cancel(r.Context(), e.ID)
 	if err != nil {
-		return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
+		return storeError(err, miss)
 	}
 	reply(w, http.StatusOK, out)
 	return nil
 }
 
 func (s *Server) closeExperiment(w http.ResponseWriter, r *http.Request, c access.Caller) error {
-	e, err := s.experimentAs(r, c, r.PathValue("id"), authorizer.ActionExperimentUpdate, nil, apierr.CodeExperimentNotFound)
+	miss := missing{apierr.CodeExperimentNotFound, r.PathValue("id")}
+	e, err := s.experimentAs(r, c, r.PathValue("id"), authorizer.ActionExperimentUpdate, nil, miss)
 	if err != nil {
 		return err
 	}
 	out, err := s.Store.Experiments().Close(r.Context(), e.ID)
 	if err != nil {
-		return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
+		return storeError(err, miss)
 	}
 	reply(w, http.StatusOK, out)
 	return nil
@@ -809,13 +813,14 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, c access.Caller)
 }
 
 // cellOf reads a cell and asks experiment.read of its experiment: a
-// missing cell and a deny are cell_not_found.
+// missing cell and a deny are the cell's one 404.
 func (s *Server) cellOf(r *http.Request, c access.Caller, cid string) (objects.Cell, objects.Experiment, error) {
+	miss := missing{apierr.CodeCellNotFound, cid}
 	cell, err := s.Store.Experiments().Cell(r.Context(), cid)
 	if err != nil {
-		return cell, objects.Experiment{}, storeError(err, apierr.CodeCellNotFound, "no cell has the id "+cid)
+		return cell, objects.Experiment{}, storeError(err, miss)
 	}
-	e, err := s.experimentAs(r, c, cell.Experiment, authorizer.ActionExperimentRead, nil, apierr.CodeCellNotFound)
+	e, err := s.experimentAs(r, c, cell.Experiment, authorizer.ActionExperimentRead, nil, miss)
 	return cell, e, err
 }
 
@@ -890,16 +895,17 @@ func (s *Server) getCell(w http.ResponseWriter, r *http.Request, c access.Caller
 
 func (s *Server) retryCell(w http.ResponseWriter, r *http.Request, c access.Caller) error {
 	cid := r.PathValue("id")
+	miss := missing{apierr.CodeCellNotFound, cid}
 	cell, err := s.Store.Experiments().Cell(r.Context(), cid)
 	if err != nil {
-		return storeError(err, apierr.CodeCellNotFound, "no cell has the id "+cid)
+		return storeError(err, miss)
 	}
 	extra := map[string]any{authorizer.FieldCell: cell.ID, authorizer.FieldCellState: cell.State, authorizer.FieldParkedReason: cell.ParkedReason}
-	if _, err := s.experimentAs(r, c, cell.Experiment, authorizer.ActionCellRetry, extra, apierr.CodeCellNotFound); err != nil {
+	if _, err := s.experimentAs(r, c, cell.Experiment, authorizer.ActionCellRetry, extra, miss); err != nil {
 		return err
 	}
 	if _, err := s.Store.Experiments().RetryCell(r.Context(), cid); err != nil {
-		return storeError(err, apierr.CodeCellNotFound, "the cell is gone")
+		return storeError(err, miss)
 	}
 	s.advance(r, cell.Experiment)
 	out, err := s.Store.Experiments().Cell(r.Context(), cid)

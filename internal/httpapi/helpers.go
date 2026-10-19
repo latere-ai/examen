@@ -27,14 +27,30 @@ var notFound = map[string]string{
 	objects.KindCandidate: apierr.CodeCandidateNotFound,
 }
 
-// missingObject is the 404 of a kind, the same whether the object does not
-// exist or the caller may not see it.
-func missingObject(code, detail string) error { return apierr.New(code, detail) }
+// missing is the 404 a route answers when the object a request names is
+// not there for the caller: absent from the store, or present and denied
+// by the authorizer (specs/004-identity-and-authorization.md). It holds
+// the kind's code and the identifier as the request named it, and nothing
+// about which of the two happened, so every branch of a route that builds
+// it from the request answers the same bytes.
+type missing struct{ code, ref string }
 
-// storeError turns a store error into a route's: a missing row is the 404
-// given, and anything else is unclassified unless it already is a route
-// error.
-func storeError(err error, code, detail string) error {
+// err is the 404 itself. Its detail is made from the code and the
+// identifier alone.
+func (m missing) err() *apierr.Error {
+	return apierr.New(m.code, "no "+strings.TrimSuffix(m.code, "_not_found")+" the caller may see answers to "+m.ref)
+}
+
+// onSuite is the 404 of a record of a suite's lineage, a baseline or a
+// taxonomy, named by the suite and the path member given.
+func onSuite(r *http.Request, code, member string) missing {
+	return missing{code, r.PathValue(member) + " of the suite " + r.PathValue("suite")}
+}
+
+// storeError turns a store error into a route's: a missing row is the
+// route's 404, and anything else is unclassified unless it already is a
+// route error.
+func storeError(err error, m missing) error {
 	var e *apierr.Error
 	switch {
 	case err == nil:
@@ -42,21 +58,21 @@ func storeError(err error, code, detail string) error {
 	case errors.As(err, &e):
 		return e
 	case errors.Is(err, store.ErrNotFound):
-		return missingObject(code, detail)
+		return m.err()
 	}
 	return apierr.Internal(err)
 }
 
-// allowed asks a question and answers the error of a deny about a stored
-// object: the object's 404, byte for byte the answer for one that does not
+// allowed asks a question about a stored object and answers a deny with
+// the route's 404, byte for byte the answer for an object that does not
 // exist.
-func (s *Server) allowed(r *http.Request, c access.Caller, action, objectID string, members map[string]any, code, detail string) (access.Decision, error) {
+func (s *Server) allowed(r *http.Request, c access.Caller, action, objectID string, members map[string]any, m missing) (access.Decision, error) {
 	d, err := s.ask(r, c, access.Ask(r, action, access.Resource(action, objectID, members)))
 	if err != nil {
 		return d, err
 	}
 	if !d.Allow {
-		return d, missingObject(code, detail)
+		return d, m.err()
 	}
 	return d, nil
 }

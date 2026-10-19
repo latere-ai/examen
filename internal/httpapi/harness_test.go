@@ -135,6 +135,13 @@ func (a answer) envelope(t *testing.T) (code string, details map[string]any) {
 // do sends one request as a bearer, with a body and headers.
 func (h *harness) do(method, path, bearer string, body any, headers ...string) answer {
 	h.t.Helper()
+	return h.doCtx(h.t.Context(), method, path, bearer, body, headers...)
+}
+
+// doCtx is do under a context of the caller's, for a request such as a
+// stream that ends only when its context does.
+func (h *harness) doCtx(ctx context.Context, method, path, bearer string, body any, headers ...string) answer {
+	h.t.Helper()
 	var rd io.Reader
 	switch b := body.(type) {
 	case nil:
@@ -149,7 +156,7 @@ func (h *harness) do(method, path, bearer string, body any, headers ...string) a
 		}
 		rd = bytes.NewReader(raw)
 	}
-	r := httptest.NewRequestWithContext(h.t.Context(), method, path, rd)
+	r := httptest.NewRequestWithContext(ctx, method, path, rd)
 	if bearer != "" {
 		r.Header.Set("Authorization", "Bearer "+bearer)
 	}

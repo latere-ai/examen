@@ -85,7 +85,7 @@ func (s *Server) pinBaseline(w http.ResponseWriter, r *http.Request, c access.Ca
 		return err
 	}
 	if _, err := s.Store.Versions().Current(r.Context(), objects.KindSuite, owner, suiteName); err != nil {
-		return storeError(err, apierr.CodeSuiteNotFound, "the owner has no suite named "+suiteName)
+		return storeError(err, missing{apierr.CodeSuiteNotFound, suiteName})
 	}
 	switch {
 	case e.State != objects.StateComplete:
@@ -133,9 +133,10 @@ func (s *Server) namedExperiment(r *http.Request, c access.Caller, field, eid st
 	return e, nil
 }
 
-// readBaseline answers a stored baseline record the caller may read.
-func (s *Server) readBaseline(r *http.Request, c access.Caller, b objects.Baseline) error {
-	_, err := s.allowed(r, c, authorizer.ActionBaselineRead, b.ID, baselineMembers(b, c), apierr.CodeBaselineNotFound, "no baseline the caller may read answers here")
+// readBaseline answers whether the caller may read a stored baseline
+// record; a deny is miss, the route's 404.
+func (s *Server) readBaseline(r *http.Request, c access.Caller, b objects.Baseline, miss missing) error {
+	_, err := s.allowed(r, c, authorizer.ActionBaselineRead, b.ID, baselineMembers(b, c), miss)
 	return err
 }
 
@@ -145,11 +146,12 @@ func (s *Server) currentBaseline(w http.ResponseWriter, r *http.Request, c acces
 		return err
 	}
 	suite := objects.SuiteName{Owner: owner, Name: r.PathValue("suite")}
+	miss := onSuite(r, apierr.CodeBaselineNotFound, "name")
 	b, err := s.Store.Baselines().Current(r.Context(), owner, suite, r.PathValue("name"))
 	if err != nil {
-		return storeError(err, apierr.CodeBaselineNotFound, "the owner has no baseline of this name on the suite")
+		return storeError(err, miss)
 	}
-	if err := s.readBaseline(r, c, b); err != nil {
+	if err := s.readBaseline(r, c, b, miss); err != nil {
 		return err
 	}
 	w.Header().Set("ETag", `"`+b.ID+`"`)
@@ -168,11 +170,12 @@ func (s *Server) baselineHistory(w http.ResponseWriter, r *http.Request, c acces
 	if err != nil {
 		return err
 	}
+	miss := onSuite(r, apierr.CodeBaselineNotFound, "name")
 	b, err := s.Store.Baselines().Current(r.Context(), owner, suite, r.PathValue("name"))
 	if err != nil {
-		return storeError(err, apierr.CodeBaselineNotFound, "the owner has no baseline of this name on the suite")
+		return storeError(err, miss)
 	}
-	if err := s.readBaseline(r, c, b); err != nil {
+	if err := s.readBaseline(r, c, b, miss); err != nil {
 		return err
 	}
 	records, err := s.Store.Baselines().History(r.Context(), owner, suite, b.Name, store.Page{After: p.After, Limit: p.Limit})
@@ -211,11 +214,12 @@ func (s *Server) listBaselines(w http.ResponseWriter, r *http.Request, c access.
 
 func (s *Server) baselineByID(w http.ResponseWriter, r *http.Request, c access.Caller) error {
 	bid := r.PathValue("id")
+	miss := missing{apierr.CodeBaselineNotFound, bid}
 	b, err := s.Store.Baselines().ByID(r.Context(), bid)
 	if err != nil {
-		return storeError(err, apierr.CodeBaselineNotFound, "no baseline has the id "+bid)
+		return storeError(err, miss)
 	}
-	if err := s.readBaseline(r, c, b); err != nil {
+	if err := s.readBaseline(r, c, b, miss); err != nil {
 		return err
 	}
 	w.Header().Set("ETag", `"`+b.ID+`"`)
@@ -223,9 +227,17 @@ func (s *Server) baselineByID(w http.ResponseWriter, r *http.Request, c access.C
 	return nil
 }
 
+// taxonomyMissing is the one 404 of a taxonomy route named by its suite
+// and metric: no suite, no open-vocabulary metric of it, no record yet,
+// and a deny all answer it.
+func taxonomyMissing(r *http.Request) missing {
+	return onSuite(r, apierr.CodeTaxonomyNotFound, "metric")
+}
+
 // openMetric finds the open-vocabulary metric a taxonomy route names, by
 // name or digest, among every version of the suite: the suite's owner, and
-// the metric's digest.
+// the metric's digest. The suite is answered with its owner even when
+// nothing resolves.
 func (s *Server) openMetric(r *http.Request, c access.Caller) (objects.SuiteName, objects.Version, string, error) {
 	suiteName, ref := r.PathValue("suite"), r.PathValue("metric")
 	owner, err := s.contextOwner(r, c, authorizer.ActionSuiteList)
@@ -233,11 +245,11 @@ func (s *Server) openMetric(r *http.Request, c access.Caller) (objects.SuiteName
 		return objects.SuiteName{}, objects.Version{}, "", err
 	}
 	suite := objects.SuiteName{Owner: owner, Name: suiteName}
-	missing := apierr.New(apierr.CodeTaxonomyNotFound, "no open-vocabulary metric of a version of the suite answers to "+ref)
+	miss := taxonomyMissing(r)
 	vs := s.Store.Versions()
 	current, err := vs.Current(r.Context(), objects.KindSuite, owner, suiteName)
 	if err != nil {
-		return suite, current, "", storeError(err, apierr.CodeTaxonomyNotFound, "the owner has no suite named "+suiteName)
+		return suite, current, "", storeError(err, miss)
 	}
 	versions, err := vs.History(r.Context(), objects.KindSuite, owner, suiteName, store.Page{Limit: limits.MaxPageSize * 10})
 	if err != nil {
@@ -267,7 +279,7 @@ func (s *Server) openMetric(r *http.Request, c access.Caller) (objects.SuiteName
 			}
 		}
 	}
-	return suite, current, "", missing
+	return suite, current, "", miss.err()
 }
 
 // taxonomyMembers are the fields of a question about a taxonomy.
@@ -288,6 +300,17 @@ func (s *Server) appendTaxonomy(w http.ResponseWriter, r *http.Request, c access
 		return err
 	}
 	suite, _, metric, err := s.openMetric(r, c)
+	var e *apierr.Error
+	if errors.As(err, &e) && e.Code == apierr.CodeTaxonomyNotFound {
+		// taxonomy.apply is asked when nothing resolves too, with the
+		// members the request names, so a deny is the same 403 whether or
+		// not the suite and its metric exist.
+		if _, aerr := s.permitted(r, c, access.Ask(r, authorizer.ActionTaxonomyApply, access.Resource(authorizer.ActionTaxonomyApply, "", map[string]any{
+			authorizer.FieldOwner: suite.Owner, authorizer.FieldName: suite.Name,
+		}))); aerr != nil {
+			return aerr
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -368,13 +391,14 @@ func checkTaxonomy(canonical []string, mapping map[string]string, cur objects.Ta
 	return objects.Taxonomy{Canonical: canonical, Map: norm, Digest: digest}, nil
 }
 
-// readTaxonomy answers whether the caller may read a taxonomy record.
-func (s *Server) readTaxonomy(r *http.Request, c access.Caller, t objects.Taxonomy, objectID string) error {
+// readTaxonomy answers whether the caller may read a taxonomy record; a
+// deny is miss, the route's 404.
+func (s *Server) readTaxonomy(r *http.Request, c access.Caller, t objects.Taxonomy, objectID string, miss missing) error {
 	m := taxonomyMembers(t.Suite, t.Metric, t.Version)
 	if t.Suite.Owner != c.Subject {
 		m[authorizer.FieldShared], m[authorizer.FieldPinned] = false, false
 	}
-	_, err := s.allowed(r, c, authorizer.ActionTaxonomyRead, objectID, m, apierr.CodeTaxonomyNotFound, "no taxonomy the caller may read answers here")
+	_, err := s.allowed(r, c, authorizer.ActionTaxonomyRead, objectID, m, miss)
 	return err
 }
 
@@ -383,11 +407,12 @@ func (s *Server) currentTaxonomy(w http.ResponseWriter, r *http.Request, c acces
 	if err != nil {
 		return err
 	}
+	miss := taxonomyMissing(r)
 	t, err := s.Store.Taxonomies().Current(r.Context(), suite, metric)
 	if err != nil {
-		return storeError(err, apierr.CodeTaxonomyNotFound, "the metric has no taxonomy record yet")
+		return storeError(err, miss)
 	}
-	if err := s.readTaxonomy(r, c, t, t.ID); err != nil {
+	if err := s.readTaxonomy(r, c, t, t.ID, miss); err != nil {
 		return err
 	}
 	w.Header().Set("ETag", `"`+t.ID+`"`)
@@ -396,20 +421,24 @@ func (s *Server) currentTaxonomy(w http.ResponseWriter, r *http.Request, c acces
 }
 
 func (s *Server) taxonomyHistory(w http.ResponseWriter, r *http.Request, c access.Caller) error {
-	suite, _, metric, err := s.openMetric(r, c)
-	if err != nil {
-		return err
-	}
-	list := "taxonomies/" + suite.Name + "/" + metric
+	// The page is read before the suite, and its list is named by the
+	// path, so a cursor or a limit is refused alike whether the suite and
+	// its metric exist.
+	list := "taxonomies/" + r.PathValue("suite") + "/" + r.PathValue("metric")
 	p, err := pageOf(r, list)
 	if err != nil {
 		return err
 	}
+	suite, _, metric, err := s.openMetric(r, c)
+	if err != nil {
+		return err
+	}
+	miss := taxonomyMissing(r)
 	t, err := s.Store.Taxonomies().Current(r.Context(), suite, metric)
 	if err != nil {
-		return storeError(err, apierr.CodeTaxonomyNotFound, "the metric has no taxonomy record yet")
+		return storeError(err, miss)
 	}
-	if err := s.readTaxonomy(r, c, t, t.ID); err != nil {
+	if err := s.readTaxonomy(r, c, t, t.ID, miss); err != nil {
 		return err
 	}
 	records, err := s.Store.Taxonomies().History(r.Context(), suite, metric, store.Page{After: p.After, Limit: p.Limit})
@@ -435,7 +464,7 @@ func (s *Server) unmappedLabels(w http.ResponseWriter, r *http.Request, c access
 	case err != nil:
 		return apierr.Internal(err)
 	}
-	if err := s.readTaxonomy(r, c, t, objectID); err != nil {
+	if err := s.readTaxonomy(r, c, t, objectID, taxonomyMissing(r)); err != nil {
 		return err
 	}
 	counts, err := s.Store.Taxonomies().Labels(r.Context(), suite, metric)
@@ -454,11 +483,12 @@ func (s *Server) unmappedLabels(w http.ResponseWriter, r *http.Request, c access
 
 func (s *Server) taxonomyByID(w http.ResponseWriter, r *http.Request, c access.Caller) error {
 	tid := r.PathValue("id")
+	miss := missing{apierr.CodeTaxonomyNotFound, tid}
 	t, err := s.Store.Taxonomies().ByID(r.Context(), tid)
 	if err != nil {
-		return storeError(err, apierr.CodeTaxonomyNotFound, "no taxonomy has the id "+tid)
+		return storeError(err, miss)
 	}
-	if err := s.readTaxonomy(r, c, t, t.ID); err != nil {
+	if err := s.readTaxonomy(r, c, t, t.ID, miss); err != nil {
 		return err
 	}
 	w.Header().Set("ETag", `"`+t.ID+`"`)

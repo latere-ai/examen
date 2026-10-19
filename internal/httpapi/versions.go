@@ -359,15 +359,18 @@ func (s *Server) resolveSuite(r *http.Request, owner string, su objects.Suite, f
 	return res, nil
 }
 
+// missing is the one 404 of a route of the kind that names a version by
+// ref: absent in any form, and a deny, answer it.
+func (k kindRoute) missing(ref string) missing { return missing{notFound[k.kind], ref} }
+
 // resolveRef reads a version by a path's reference: an id, whoever owns
 // it; name@digest, a digest, or a name in the owner's context.
 func (s *Server) resolveRef(r *http.Request, c access.Caller, k kindRoute, ref string) (objects.Version, error) {
 	ctx := r.Context()
 	vs := s.Store.Versions()
-	code := notFound[k.kind]
 	if isID(objects.Prefix(k.kind), ref) {
 		v, err := vs.ByID(ctx, k.kind, ref)
-		return v, storeError(err, code, "no "+k.kind+" has the id "+ref)
+		return v, storeError(err, k.missing(ref))
 	}
 	owner, err := s.contextOwner(r, c, k.list)
 	if err != nil {
@@ -384,7 +387,7 @@ func (s *Server) resolveRef(r *http.Request, c access.Caller, k kindRoute, ref s
 			err = store.ErrNotFound
 		}
 	}
-	return v, storeError(err, code, "no "+k.kind+" of this owner answers to "+ref)
+	return v, storeError(err, k.missing(ref))
 }
 
 // readMembers are the fields a read of a version sends.
@@ -410,7 +413,7 @@ func readHandler(k kindRoute) func(*Server, http.ResponseWriter, *http.Request, 
 		if err != nil {
 			return err
 		}
-		if _, err := s.allowed(r, c, k.read, v.ID, readMembers(k, v, c), notFound[k.kind], "no "+k.kind+" of this owner answers to "+ref); err != nil {
+		if _, err := s.allowed(r, c, k.read, v.ID, readMembers(k, v, c), k.missing(ref)); err != nil {
 			return err
 		}
 		out, err := v.Answer()
@@ -434,7 +437,7 @@ func historyHandler(k kindRoute) func(*Server, http.ResponseWriter, *http.Reques
 		if err != nil {
 			return err
 		}
-		if _, err := s.allowed(r, c, k.read, cur.ID, readMembers(k, cur, c), notFound[k.kind], "no "+k.kind+" of this owner is named "+name); err != nil {
+		if _, err := s.allowed(r, c, k.read, cur.ID, readMembers(k, cur, c), k.missing(name)); err != nil {
 			return err
 		}
 		list, err := s.Store.Versions().History(r.Context(), k.kind, cur.Owner, cur.Name, store.Page{After: p.After, Limit: p.Limit})

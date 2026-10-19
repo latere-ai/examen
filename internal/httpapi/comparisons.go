@@ -92,7 +92,7 @@ func (s *Server) declaredAnalysis(w http.ResponseWriter, r *http.Request, c acce
 	}
 	a, found, err := s.Store.Experiments().DeclaredAnalysis(r.Context(), e.ID)
 	if err != nil {
-		return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
+		return storeError(err, missing{apierr.CodeExperimentNotFound, r.PathValue("id")})
 	}
 	if !found {
 		res, err := s.experimentSuite(r, e)
@@ -142,13 +142,15 @@ func (s *Server) listComparisons(w http.ResponseWriter, r *http.Request, c acces
 }
 
 // comparisonOf reads a comparison and asks experiment.read of its
-// experiment: a missing comparison and a deny are comparison_not_found.
+// experiment: a missing comparison and a deny are the comparison's one
+// 404.
 func (s *Server) comparisonOf(r *http.Request, c access.Caller, cid string) (objects.Comparison, objects.Experiment, error) {
+	miss := missing{apierr.CodeComparisonNotFound, cid}
 	cmp, err := s.Store.Experiments().Comparison(r.Context(), cid)
 	if err != nil {
-		return cmp, objects.Experiment{}, storeError(err, apierr.CodeComparisonNotFound, "no comparison has the id "+cid)
+		return cmp, objects.Experiment{}, storeError(err, miss)
 	}
-	e, err := s.experimentAs(r, c, cmp.Experiment, authorizer.ActionExperimentRead, nil, apierr.CodeComparisonNotFound)
+	e, err := s.experimentAs(r, c, cmp.Experiment, authorizer.ActionExperimentRead, nil, miss)
 	return cmp, e, err
 }
 

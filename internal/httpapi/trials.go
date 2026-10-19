@@ -218,13 +218,14 @@ func (s *Server) listTrials(w http.ResponseWriter, r *http.Request, c access.Cal
 }
 
 // trialOf reads a trial and asks experiment.read of its experiment: a
-// missing trial and a deny are trial_not_found.
+// missing trial and a deny are the trial's one 404.
 func (s *Server) trialOf(r *http.Request, c access.Caller, tid string) (objects.Trial, objects.Experiment, error) {
+	miss := missing{apierr.CodeTrialNotFound, tid}
 	t, err := s.Store.Experiments().Trial(r.Context(), tid)
 	if err != nil {
-		return t, objects.Experiment{}, storeError(err, apierr.CodeTrialNotFound, "no trial has the id "+tid)
+		return t, objects.Experiment{}, storeError(err, miss)
 	}
-	e, err := s.experimentAs(r, c, t.Experiment, authorizer.ActionExperimentRead, nil, apierr.CodeTrialNotFound)
+	e, err := s.experimentAs(r, c, t.Experiment, authorizer.ActionExperimentRead, nil, miss)
 	return t, e, err
 }
 
@@ -313,11 +314,12 @@ func (s *Server) experimentMeasurements(w http.ResponseWriter, r *http.Request, 
 
 func (s *Server) getMeasurement(w http.ResponseWriter, r *http.Request, c access.Caller) error {
 	mid := r.PathValue("id")
+	miss := missing{apierr.CodeMeasurementNotFound, mid}
 	m, err := s.Store.Experiments().Measurement(r.Context(), mid)
 	if err != nil {
-		return storeError(err, apierr.CodeMeasurementNotFound, "no measurement has the id "+mid)
+		return storeError(err, miss)
 	}
-	if _, err := s.experimentAs(r, c, m.Experiment, authorizer.ActionExperimentRead, nil, apierr.CodeMeasurementNotFound); err != nil {
+	if _, err := s.experimentAs(r, c, m.Experiment, authorizer.ActionExperimentRead, nil, miss); err != nil {
 		return err
 	}
 	reply(w, http.StatusOK, m)
@@ -494,11 +496,8 @@ func (s *Server) runContextOf(r *http.Request, e objects.Experiment, cell object
 }
 
 func (s *Server) submit(w http.ResponseWriter, r *http.Request, c access.Caller) error {
-	tid := r.PathValue("id")
-	t, err := s.Store.Experiments().Trial(r.Context(), tid)
-	if err != nil {
-		return storeError(err, apierr.CodeTrialNotFound, "no trial has the id "+tid)
-	}
+	// The body is read before the trial, so a body that does not parse is
+	// refused alike whether the trial exists.
 	body, err := readBody(r)
 	if err != nil {
 		return err
@@ -509,6 +508,12 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request, c access.Caller)
 	}
 	if err := decodeBytes(body, &in); err != nil {
 		return err
+	}
+	tid := r.PathValue("id")
+	miss := missing{apierr.CodeTrialNotFound, tid}
+	t, err := s.Store.Experiments().Trial(r.Context(), tid)
+	if err != nil {
+		return storeError(err, miss)
 	}
 	cell, err := s.Store.Experiments().Cell(r.Context(), t.Cell)
 	if err != nil {
@@ -529,7 +534,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request, c access.Caller)
 	members := experimentMembers(e, c)
 	members[authorizer.FieldCandidate], members[authorizer.FieldHarness] = cell.Candidate, harness
 	members[authorizer.FieldTrial], members[authorizer.FieldLease], members[authorizer.FieldOutcome] = t.ID, in.Lease, in.Outcome
-	if _, err := s.allowed(r, c, authorizer.ActionTrialSubmit, e.ID, members, apierr.CodeTrialNotFound, "no trial the caller may submit has the id "+tid); err != nil {
+	if _, err := s.allowed(r, c, authorizer.ActionTrialSubmit, e.ID, members, miss); err != nil {
 		return err
 	}
 	if in.Lease == "" {
@@ -544,7 +549,7 @@ func (s *Server) submit(w http.ResponseWriter, r *http.Request, c access.Caller)
 	}
 	out, err := s.Store.Experiments().Submit(r.Context(), store.Submission{Trial: t.ID, Lease: in.Lease, Subject: c.Subject, Digest: bodyDigest(body), Outcome: o})
 	if err != nil {
-		return storeError(err, apierr.CodeTrialNotFound, "the trial is gone")
+		return storeError(err, miss)
 	}
 	s.advance(r, e.ID)
 	reply(w, http.StatusOK, out)
@@ -564,8 +569,9 @@ func (s *Server) importTrial(w http.ResponseWriter, r *http.Request, c access.Ca
 		return err
 	}
 	eid := r.PathValue("id")
+	miss := missing{apierr.CodeExperimentNotFound, eid}
 	extra := map[string]any{authorizer.FieldTask: in.Task, authorizer.FieldCandidate: in.Candidate, authorizer.FieldExecutor: in.Executor, authorizer.FieldExecutorRef: in.ExecutorRef}
-	e, err := s.experimentAs(r, c, eid, authorizer.ActionExperimentImport, extra, apierr.CodeExperimentNotFound)
+	e, err := s.experimentAs(r, c, eid, authorizer.ActionExperimentImport, extra, miss)
 	if err != nil {
 		return err
 	}
@@ -632,7 +638,7 @@ func (s *Server) importTrial(w http.ResponseWriter, r *http.Request, c access.Ca
 		TaskPos: slices.Index(res.Suite.Tasks, taskDigest), CandidatePos: ci}
 	t, err := s.Store.Experiments().Import(r.Context(), store.Import{Experiment: e.ID, Cell: cell, Outcome: o})
 	if err != nil {
-		return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
+		return storeError(err, miss)
 	}
 	w.Header().Set("Location", s.location("/trials/"+t.ID))
 	reply(w, http.StatusCreated, t)
@@ -714,15 +720,20 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	case in.Max != nil && *in.Max < 1:
 		return apierr.OnField(apierr.CodeInvalidField, "max", "max is 1 or more")
 	}
-	e, err := s.Store.Experiments().Get(r.Context(), eid)
-	if err != nil {
-		return storeError(err, apierr.CodeExperimentNotFound, "no experiment has the id "+eid)
-	}
+	// The candidate is parsed before the experiment is read, so a
+	// reference that does not parse is refused alike whether the
+	// experiment exists.
 	candidate := ""
 	if in.Candidate != "" {
+		var err error
 		if _, candidate, err = objects.ParseRef("candidate", in.Candidate); err != nil {
 			return err
 		}
+	}
+	miss := missing{apierr.CodeExperimentNotFound, eid}
+	e, err := s.Store.Experiments().Get(r.Context(), eid)
+	if err != nil {
+		return storeError(err, miss)
 	}
 	bodies, err := s.experimentCandidates(r, e)
 	if err != nil {
@@ -740,13 +751,13 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	if candidate != "" {
 		members[authorizer.FieldCandidate], members[authorizer.FieldHarness] = candidate, harness
 	}
-	if _, err := s.allowed(r, c, authorizer.ActionTrialLease, e.ID, members, apierr.CodeExperimentNotFound, "no experiment the caller may lease trials of has the id "+eid); err != nil {
+	if _, err := s.allowed(r, c, authorizer.ActionTrialLease, e.ID, members, miss); err != nil {
 		return err
 	}
 	if in.Renew != "" {
 		held, err := s.Store.Experiments().Renew(r.Context(), e.ID, in.Renew, c.Subject)
 		if err != nil {
-			return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
+			return storeError(err, miss)
 		}
 		return s.replyLease(w, r, e, held, false)
 	}
@@ -784,7 +795,7 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	}
 	held, err := s.Store.Experiments().Lease(r.Context(), req)
 	if err != nil {
-		return storeError(err, apierr.CodeExperimentNotFound, "the experiment is gone")
+		return storeError(err, miss)
 	}
 	if len(held.Trials) == 0 {
 		w.WriteHeader(http.StatusNoContent)
