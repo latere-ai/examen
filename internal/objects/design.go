@@ -72,6 +72,51 @@ func LogicalVariableOf(cellVariable string) string {
 	return VarTask
 }
 
+// taskLevel reports whether a cell variable belongs to a cell's task: the
+// task or one of its factors, rather than the candidate, its model or its
+// reasoning.
+func taskLevel(v string) bool {
+	return v != VarCandidate && v != VarModel && v != VarReasoning && v != VarBatch
+}
+
+// differs names a cell variable on which two cells of one stratum differ
+// besides the compared one and what it implies, and is empty when there is
+// none: for a candidate-level variable, the task; for a factor, the
+// candidate and every other factor either task declares; for the task
+// itself, the candidate. A test that permutes within the stratum would
+// read such a difference as the variable's.
+func differs(a, b *DesignCell, variable string) string {
+	if !taskLevel(variable) {
+		if a.Task != b.Task {
+			return VarTask
+		}
+		return ""
+	}
+	if a.Candidate != b.Candidate {
+		return VarCandidate
+	}
+	if variable == VarTask {
+		return ""
+	}
+	keys := slices.Sorted(maps.Keys(a.Vars))
+	for _, k := range slices.Sorted(maps.Keys(b.Vars)) {
+		if !slices.Contains(keys, k) {
+			keys = append(keys, k)
+		}
+	}
+	for _, k := range keys {
+		if !taskLevel(k) || k == VarTask || k == variable {
+			continue
+		}
+		va, oka := a.Vars[k]
+		vb, okb := b.Vars[k]
+		if oka != okb || va != vb {
+			return k
+		}
+	}
+	return ""
+}
+
 // Stratum is one stratum of a declared comparison of the general form:
 // its name and its cell on each side, nil where the side holds none.
 type Stratum struct {
@@ -290,6 +335,11 @@ func Select(d DeclaredComparison, design []DesignCell, field string) (Selection,
 	out := Selection{}
 	paired := false
 	for _, st := range strata {
+		if st.Candidate != nil && st.Reference != nil {
+			if k := differs(st.Candidate, st.Reference, d.Variable); k != "" {
+				return Selection{}, apierr.OnField(apierr.CodeInvalidField, field, "the cells of tasks "+st.Candidate.TaskName+" and "+st.Reference.TaskName+", paired in one stratum, also differ in "+quote(k)+": hold it to one level in where, or name it in by")
+			}
+		}
 		if len(d.By) == 0 && st.Candidate != nil && st.Reference != nil {
 			// Without strata the comparison has the shape of one across
 			// tasks: named by its two tasks, or by its one task.
@@ -324,13 +374,18 @@ type IndependenceSelection struct {
 }
 
 // NormalizeIndependence fills a test of independence's defaults, the
-// candidate stratified by task, and resolves its where as a declaration's.
+// candidate, stratified by task for a variable of the candidate and by
+// candidate for the task or a factor, and resolves its where as a
+// declaration's.
 func (r Resolved) NormalizeIndependence(in *Independence, field string) error {
 	if in.Variable == "" {
 		in.Variable = VarCandidate
 	}
 	if in.By == nil {
 		in.By = []string{VarTask}
+		if taskLevel(in.Variable) {
+			in.By = []string{VarCandidate}
+		}
 	}
 	d := DeclaredComparison{Where: in.Where}
 	return r.NormalizeDeclaration(&d, field)
@@ -392,8 +447,28 @@ func SelectIndependence(in Independence, design []DesignCell, candidates []strin
 		}
 		st.Cells[level] = c
 	}
+	held2 := false
 	for _, st := range strata {
+		var first *DesignCell
+		levels := 0
+		for _, c := range st.Cells {
+			if c == nil {
+				continue
+			}
+			levels++
+			if first == nil {
+				first = c
+				continue
+			}
+			if k := differs(first, c, in.Variable); k != "" {
+				return IndependenceSelection{}, apierr.OnField(apierr.CodeInvalidField, field, "the cells of tasks "+first.TaskName+" and "+c.TaskName+", in one stratum, also differ in "+quote(k)+": hold it to one level in where, or name it in by")
+			}
+		}
+		held2 = held2 || levels >= 2
 		out.Strata = append(out.Strata, *st)
+	}
+	if !held2 {
+		return IndependenceSelection{}, apierr.OnField(apierr.CodeInvalidField, field+".by", "no stratum holds two levels of the variable")
 	}
 	slices.SortFunc(out.Strata, func(a, b IndependenceStratum) int { return strings.Compare(a.Name, b.Name) })
 	return out, nil

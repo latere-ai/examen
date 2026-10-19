@@ -295,3 +295,42 @@ func TestLogicalVariableOf(t *testing.T) {
 		t.Error("General")
 	}
 }
+
+// The two cells of a stratum may differ only in the compared variable and
+// what it implies: a factor neither held in where nor named in by, or a
+// task across a variable of the candidate, is refused, in a declaration
+// and in a test of independence alike; a test of independence also needs
+// a stratum holding two levels, and stratifies a task-level variable by
+// candidate unless it names its strata.
+func TestStrataDifferInTheVariableAlone(t *testing.T) {
+	r, c, design := study()
+	noDoWant := slices.DeleteFunc(slices.Clone(design), func(d DesignCell) bool { return d.TaskName == "do-want" })
+	_, err := Select(DeclaredComparison{Variable: "object", Levels: []string{"build", "do"}, Where: map[string]string{"candidate": c[0]}, By: []string{"volition"}}, noDoWant, "c")
+	expect(t, "a workspace that also differs", err, apierr.CodeInvalidField, "c")
+	if err == nil || !strings.Contains(err.Error(), `"workspace"`) {
+		t.Errorf("the refusal does not name the factor: %v", err)
+	}
+	across := []DesignCell{
+		{Task: d1, TaskName: "t", Candidate: "a", Vars: map[string]string{"candidate": "a", "task": d1, "model": "x"}},
+		{Task: d2, TaskName: "u", Candidate: "b", Vars: map[string]string{"candidate": "b", "task": d2, "model": "y"}},
+	}
+	_, err = Select(DeclaredComparison{Variable: "model", Levels: []string{"x", "y"}}, across, "c")
+	expect(t, "a model across two tasks", err, apierr.CodeInvalidField, "c")
+	_, err = SelectIndependence(Independence{Variable: "object", By: []string{"candidate", "volition"}}, noDoWant[:15], c, "independence")
+	expect(t, "a test whose stratum also differs in a factor", err, apierr.CodeInvalidField, "independence")
+	_, err = SelectIndependence(Independence{Variable: "object", By: []string{"task"}, Where: map[string]string{"candidate": c[0]}}, design, c, "independence")
+	expect(t, "no stratum of two levels", err, apierr.CodeInvalidField, "independence.by")
+	byCandidate := Independence{Variable: "object"}
+	if err := r.NormalizeIndependence(&byCandidate, "independence"); err != nil || !slices.Equal(byCandidate.By, []string{"candidate"}) {
+		t.Fatalf("a factor's default strata %v %v", byCandidate.By, err)
+	}
+	if _, err := SelectIndependence(Independence{Variable: "object", By: byCandidate.By, Where: map[string]string{"workspace": "empty", "volition": "want"}}, design, c, "independence"); err != nil {
+		t.Fatalf("object by candidate at one volition: %v", err)
+	}
+	if k := differs(&design[0], &design[0], "task"); k != "" {
+		t.Errorf("a cell differs from itself in %s", k)
+	}
+	if k := differs(&design[0], &design[1], "object"); k != "candidate" {
+		t.Errorf("two candidates' cells under a factor differ in %q", k)
+	}
+}
