@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.6.0 - 2026-10-19
+
 ### Added
 
 - An experiment run by your own setup can call models with a key of its
