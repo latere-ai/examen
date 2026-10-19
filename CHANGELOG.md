@@ -6,6 +6,43 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Added
+
+- An experiment run by your own setup can call models with a key of its
+  own. With a key source configured (`EXAMEN_KEYS_URL`), creating an
+  experiment of `external` candidates asks the key source for the
+  experiment's key, and every lease and renewal of its trials answers it
+  as `model_key`, with `Cache-Control: no-store`. The key draws on the
+  experiment's budget, so its spending cap stops what your setup spends
+  through it, and it reaches every model your account does, so a call to
+  another model than the candidate declared is recorded, not refused. It
+  is released when the experiment completes or is canceled. No read of
+  the experiment and no log line carries it. Your setup may keep using a
+  key of its own; its runs' cost then reads unknown, as before.
+- Each leased trial carries `lux_labels`, `examen.trial=<trial id>`: send
+  it as the `Lux-Labels` header on each of the trial's model calls.
+- A trial whose calls went through the experiment's key gets its cost and
+  what it sent and was served from Lux's records of them, about two
+  minutes after it is submitted: `observed.cost_state` and `cost_usd`,
+  `observed.served` and the token counts, a new `sent` member with each
+  model the calls named, and the built-in metrics `cost_usd`,
+  `input_tokens`, `output_tokens` and `reasoning_tokens`. A call with no
+  label that names none of your trials counts toward the experiment and no
+  trial.
+- `GET /experiments/{id}` carries the budget's `cap_usd_micro`,
+  `spent_usd_micro` and `remaining_usd_micro` when the key source answers
+  them, and `usage`: the calls made with the experiment's key, their cost,
+  and those no trial claims as `unattributed`.
+
+### Changed
+
+- Run `examend migrate` before you roll `serve`: this release adds the
+  tables that keep an experiment's key, the records of its calls and
+  each trial's sent layer.
+- A lease is refused `403 forbidden`, `422 budget_refused` or `503
+  owner_tokens_unavailable` when the key source refuses the experiment's
+  key, has no money left on it, or does not answer, and takes no trial.
+
 ## v0.5.0 - 2026-10-19
 
 ### Added
@@ -65,31 +102,6 @@ here is refused before it is pushed.
   calibrated.
 - Candidate-level values reach the comparisons that read their
   metric.
-- An experiment run by your own setup can call models with a key of its
-  own. With a key source configured (`EXAMEN_KEYS_URL`), creating an
-  experiment of `external` candidates asks the key source for the
-  experiment's key, and every lease and renewal of its trials answers it
-  as `model_key`, with `Cache-Control: no-store`. The key draws on the
-  experiment's budget, so its spending cap stops what your setup spends
-  through it, and it reaches every model your account does, so a call to
-  another model than the candidate declared is recorded, not refused. It
-  is released when the experiment completes or is canceled. No read of
-  the experiment and no log line carries it. Your setup may keep using a
-  key of its own; its runs' cost then reads unknown, as before.
-- Each leased trial carries `lux_labels`, `examen.trial=<trial id>`: send
-  it as the `Lux-Labels` header on each of the trial's model calls.
-- A trial whose calls went through the experiment's key gets its cost and
-  what it sent and was served from Lux's records of them, about two
-  minutes after it is submitted: `observed.cost_state` and `cost_usd`,
-  `observed.served` and the token counts, a new `sent` member with each
-  model the calls named, and the built-in metrics `cost_usd`,
-  `input_tokens`, `output_tokens` and `reasoning_tokens`. A call with no
-  label that names none of your trials counts toward the experiment and no
-  trial.
-- `GET /experiments/{id}` carries the budget's `cap_usd_micro`,
-  `spent_usd_micro` and `remaining_usd_micro` when the key source answers
-  them, and `usage`: the calls made with the experiment's key, their cost,
-  and those no trial claims as `unattributed`.
 
 ### Changed
 
@@ -106,9 +118,6 @@ here is refused before it is pushed.
 - One comparison declared twice is refused across forms too: a pair of
   candidates and the general form of the same pair, two orders of one
   `by`, or one metric named by name and by digest.
-- A lease is refused `403 forbidden`, `422 budget_refused` or `503
-  owner_tokens_unavailable` when the key source refuses the experiment's
-  key, has no money left on it, or does not answer, and takes no trial.
 
 ## v0.4.1 - 2026-10-19
 
