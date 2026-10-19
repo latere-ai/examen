@@ -60,9 +60,8 @@ func (g *toposGate) Authorize(_ context.Context, c access.Caller, q access.Quest
 // seedTopos stores one experiment of one topos candidate on one task in an
 // origo workspace, n trials a cell, its smoke rollout queued, and answers
 // its id and its cell's id.
-func seedTopos(t *testing.T, st store.Store, n int) (string, string) {
+func seedTopos(ctx context.Context, t *testing.T, st store.Store, n int) (string, string) {
 	t.Helper()
-	ctx := t.Context()
 	put := func(kind, name string, v any) objects.Version {
 		raw, err := json.Marshal(v)
 		if err != nil {
@@ -147,7 +146,7 @@ func TestToposRunsEachTrialAsASession(t *testing.T) {
 	e := toposEngine(st, stub, m, g)
 	e.Now = func() time.Time { return time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC) }
 	ctx := t.Context()
-	eid, cid := seedTopos(t, st, 2)
+	eid, cid := seedTopos(ctx, t, st, 2)
 
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
@@ -280,7 +279,7 @@ func TestToposRefusalsParkAndOutagesWait(t *testing.T) {
 
 	m := &minter{err: &tokens.RefusedError{Reason: tokens.ReasonSignInNotKept}}
 	e := toposEngine(st, stub, m, &toposGate{})
-	_, cid := seedTopos(t, st, 1)
+	_, cid := seedTopos(ctx, t, st, 1)
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +288,7 @@ func TestToposRefusalsParkAndOutagesWait(t *testing.T) {
 	}
 
 	m.err = nil
-	_, cid = seedTopos(t, st, 1)
+	_, cid = seedTopos(ctx, t, st, 1)
 	stub.Refuse(http.StatusForbidden, "forbidden")
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
@@ -298,7 +297,7 @@ func TestToposRefusalsParkAndOutagesWait(t *testing.T) {
 		t.Fatalf("a refused create: cell %s %q", c.State, c.ParkedReason)
 	}
 
-	eid, _ := seedTopos(t, st, 1)
+	eid, _ := seedTopos(ctx, t, st, 1)
 	stub.Down(true)
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
@@ -333,7 +332,7 @@ func TestToposLostAndLateSessions(t *testing.T) {
 	e.Now = func() time.Time { return clock }
 	ctx := t.Context()
 
-	eid, _ := seedTopos(t, st, 1)
+	eid, _ := seedTopos(ctx, t, st, 1)
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +366,7 @@ func TestToposLostAndLateSessions(t *testing.T) {
 	}
 
 	// A run past its deadline is ended and its session stopped.
-	late, _ := seedTopos(t, st, 1)
+	late, _ := seedTopos(ctx, t, st, 1)
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -396,7 +395,7 @@ func TestASessionCreatedForAnEndedTrialIsStopped(t *testing.T) {
 	stub.Agent("helper", topostest.Version{Version: 1, Digest: agentDigest})
 	e := toposEngine(st, stub, &minter{}, &toposGate{})
 	ctx := t.Context()
-	eid, cid := seedTopos(t, st, 1)
+	eid, cid := seedTopos(ctx, t, st, 1)
 	if err := e.Advance(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +466,7 @@ func TestToposStopsEveryWay(t *testing.T) {
 	e.Now = func() time.Time { return time.Date(2026, 10, 19, 12, 5, 0, 0, time.UTC) }
 	ctx := t.Context()
 	started := func() (string, string) {
-		eid, _ := seedTopos(t, st, 1)
+		eid, _ := seedTopos(ctx, t, st, 1)
 		if err := e.Tick(ctx); err != nil {
 			t.Fatal(err)
 		}
@@ -540,7 +539,7 @@ func TestToposFollowsThroughRefusals(t *testing.T) {
 		return c
 	}
 
-	eid, cid := seedTopos(t, st, 1)
+	eid, cid := seedTopos(ctx, t, st, 1)
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -562,7 +561,7 @@ func TestToposFollowsThroughRefusals(t *testing.T) {
 	}
 	m.err = nil
 
-	_, cid = seedTopos(t, st, 1)
+	_, cid = seedTopos(ctx, t, st, 1)
 	stub.Refuse(http.StatusUnprocessableEntity, "")
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
@@ -572,7 +571,7 @@ func TestToposFollowsThroughRefusals(t *testing.T) {
 	}
 
 	before := len(stub.Sessions())
-	_, cid = seedTopos(t, st, 1)
+	_, cid = seedTopos(ctx, t, st, 1)
 	if err := e.Advance(ctx, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -596,7 +595,7 @@ func TestARunReadsItsCellsVersions(t *testing.T) {
 	st := pgtest.Open(t, false, postgres.Options{})
 	e := toposEngine(st, topostest.New(t), &minter{}, &toposGate{})
 	ctx := t.Context()
-	eid, cid := seedTopos(t, st, 1)
+	eid, cid := seedTopos(ctx, t, st, 1)
 	exp, cell := mustExperiment(t, st, eid), mustCell(t, st, cid)
 	if run, err := e.runOf(ctx, exp, cell); err != nil || run.candidate.Topos == nil || run.task.Name != "seeded" {
 		t.Fatalf("the run %+v %v", run, err)
