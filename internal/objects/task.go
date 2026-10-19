@@ -5,6 +5,7 @@ package objects
 
 import (
 	"encoding/json"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -24,18 +25,22 @@ const (
 
 // Task is one versioned unit of work.
 type Task struct {
-	Name        string            `json:"name"`
-	Instruction string            `json:"instruction,omitempty"`
-	Inputs      []FileSource      `json:"inputs,omitempty"`
-	Reference   []FileSource      `json:"reference,omitempty"`
-	Outputs     []string          `json:"outputs,omitempty"`
-	Workspace   *Workspace        `json:"workspace,omitempty"`
-	Environment *Environment      `json:"environment,omitempty"`
-	Checks      []string          `json:"checks,omitempty"`
-	Timeout     string            `json:"timeout,omitempty"`
-	MaxTurns    int               `json:"max_turns,omitempty"`
-	Evidence    []string          `json:"evidence,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	Name        string       `json:"name"`
+	Instruction string       `json:"instruction,omitempty"`
+	Inputs      []FileSource `json:"inputs,omitempty"`
+	Reference   []FileSource `json:"reference,omitempty"`
+	Outputs     []string     `json:"outputs,omitempty"`
+	Workspace   *Workspace   `json:"workspace,omitempty"`
+	Environment *Environment `json:"environment,omitempty"`
+	Checks      []string     `json:"checks,omitempty"`
+	Timeout     string       `json:"timeout,omitempty"`
+	MaxTurns    int          `json:"max_turns,omitempty"`
+	Evidence    []string     `json:"evidence,omitempty"`
+	// Factors place the task in a design: each factor's name to the
+	// task's level of it. A declared comparison or a test of independence
+	// selects and stratifies cells by them.
+	Factors  map[string]string `json:"factors,omitempty"`
+	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
 // FileSource is one named input or reference of a task, in one of three
@@ -157,7 +162,30 @@ func (t Task) Validate() error {
 	if t.MaxTurns < 0 {
 		return invalid("max_turns", "max_turns is a whole number above zero")
 	}
+	if err := factors(t.Factors); err != nil {
+		return err
+	}
 	return metadata("metadata", t.Metadata)
+}
+
+// factors checks a task's factors: at most MAX_TASK_FACTORS, each name and
+// level under the name rule, and no name a cell variable Examen defines
+// itself.
+func factors(f map[string]string) error {
+	if len(f) > limits.MaxTaskFactors {
+		return apierr.Exceeds("MAX_TASK_FACTORS", "factors", "more factors than MAX_TASK_FACTORS ("+itoa(limits.MaxTaskFactors)+")")
+	}
+	for _, name := range slices.Sorted(maps.Keys(f)) {
+		switch {
+		case !fileName.MatchString(name):
+			return invalid("factors", "a factor's name is 1 to 63 characters of [a-z0-9._-], starting with a letter or a digit")
+		case slices.Contains(ReservedVariables, name):
+			return invalid("factors."+name, "a factor is not named for a cell variable Examen defines itself: "+strings.Join(ReservedVariables, ", "))
+		case !fileName.MatchString(f[name]):
+			return invalid("factors."+name, "a factor's level is 1 to 63 characters of [a-z0-9._-], starting with a letter or a digit")
+		}
+	}
+	return nil
 }
 
 // files checks a list of inputs or references.

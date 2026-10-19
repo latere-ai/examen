@@ -37,6 +37,7 @@ const (
 	OutputFileKeepMaxBytes        = 16 << 20
 	MaxInlineInputBytes           = 64 << 10
 	MetadataMaxPairs              = 16
+	MaxTaskFactors                = 16
 	LabelMaxBytes                 = 128
 	MaxLabelsPerMetric            = 64
 	MaxTaxonomyRawLabels          = 10000

@@ -69,13 +69,16 @@ type Experiment struct {
 	Mode        string               `json:"mode"`
 	Scheduling  string               `json:"scheduling"`
 	Comparisons []DeclaredComparison `json:"comparisons"`
-	State       string               `json:"state"`
-	CreatedBy   string               `json:"created_by"`
-	Judgments   []json.RawMessage    `json:"judgments"`
-	Progress    *Progress            `json:"progress,omitempty"`
-	Metadata    map[string]string    `json:"metadata,omitempty"`
-	CreatedAt   time.Time            `json:"created_at"`
-	UpdatedAt   time.Time            `json:"updated_at"`
+	// Independence is the experiment's declared test of independence;
+	// nil when it declares none.
+	Independence *Independence     `json:"independence,omitempty"`
+	State        string            `json:"state"`
+	CreatedBy    string            `json:"created_by"`
+	Judgments    []json.RawMessage `json:"judgments"`
+	Progress     *Progress         `json:"progress,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	CreatedAt    time.Time         `json:"created_at"`
+	UpdatedAt    time.Time         `json:"updated_at"`
 
 	// SuiteID and CandidateIDs are the version ids the digests resolved
 	// to in the owner's context, and SuiteName the suite's name.
@@ -417,6 +420,9 @@ type Comparison struct {
 	Final              bool     `json:"final"`
 	Variable           []string `json:"variable"`
 	DeclaredProvenance []string `json:"declared_provenance"`
+	// Declaration is, for a declared comparison of the general form, its
+	// declaration, whose two levels select its sides; nil otherwise.
+	Declaration *DeclaredComparison `json:"declaration,omitempty"`
 	Computed
 	CreatedAt time.Time `json:"created_at"`
 
@@ -426,14 +432,35 @@ type Comparison struct {
 }
 
 // DeclaredComparison is one comparison an experiment declares at create: a
-// pair of its candidates, by digest, with an optional logical variable, or
-// one candidate's pair of tasks, by digest.
+// pair of its candidates, by digest, with an optional logical variable;
+// one candidate's pair of tasks, by digest; or the general form, a cell
+// variable and its two levels, the candidate side's first, with the cell
+// variables Where holds to one level and those By stratifies. Metric is
+// the metric whose result is its primary result; the suite's primary
+// metric when empty.
 type DeclaredComparison struct {
-	Candidate          string `json:"candidate"`
-	ReferenceCandidate string `json:"reference_candidate,omitempty"`
-	Variable           string `json:"variable,omitempty"`
-	Task               string `json:"task,omitempty"`
-	ReferenceTask      string `json:"reference_task,omitempty"`
+	Candidate          string            `json:"candidate,omitempty"`
+	ReferenceCandidate string            `json:"reference_candidate,omitempty"`
+	Variable           string            `json:"variable,omitempty"`
+	Task               string            `json:"task,omitempty"`
+	ReferenceTask      string            `json:"reference_task,omitempty"`
+	Levels             []string          `json:"levels,omitempty"`
+	Where              map[string]string `json:"where,omitempty"`
+	By                 []string          `json:"by,omitempty"`
+	Metric             string            `json:"metric,omitempty"`
+}
+
+// General reports whether the declaration is of the general form.
+func (d DeclaredComparison) General() bool { return len(d.Levels) > 0 }
+
+// Independence is an experiment's declared test of independence: a
+// trial-level label metric, by digest, against one cell variable,
+// stratified by others, over the cells Where selects.
+type Independence struct {
+	Metric   string            `json:"metric"`
+	Variable string            `json:"variable"`
+	By       []string          `json:"by"`
+	Where    map[string]string `json:"where,omitempty"`
 }
 
 // DeclaredAnalysis is what an experiment declared, with its outcome: its

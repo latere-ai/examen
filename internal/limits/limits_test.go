@@ -32,6 +32,7 @@ var constants = map[string]any{
 	"MAX_METRICS_PER_SUITE":            MaxMetricsPerSuite,
 	"MAX_CANDIDATES_PER_EXPERIMENT":    MaxCandidatesPerExperiment,
 	"MAX_DECLARED_COMPARISONS":         MaxDeclaredComparisons,
+	"MAX_TASK_FACTORS":                 MaxTaskFactors,
 	"MAX_ACTIVE_EXPERIMENTS_PER_OWNER": MaxActiveExperimentsPerOwner,
 	"DEFAULT_PARALLELISM":              DefaultParallelism,
 	"MAX_PARALLELISM":                  MaxParallelism,
