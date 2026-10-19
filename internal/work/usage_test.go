@@ -4,6 +4,7 @@
 package work
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -54,6 +55,7 @@ func TestUsageReadsUntilTheEndAndReleases(t *testing.T) {
 	st := pgtest.Open(t, false, postgres.Options{Now: clk.read})
 	eid, _ := seed(t, st)
 	src := keys.NewMemory()
+	src.PageSize = 1
 	e := &Engine{Store: st, Authz: &gate{}, Analyzer: figures{}, Keys: src, Now: clk.read}
 	ctx := t.Context()
 	l, err := src.Lease(ctx, keys.Request{Experiment: eid, Purpose: keys.PurposeExternal})
@@ -62,6 +64,12 @@ func TestUsageReadsUntilTheEndAndReleases(t *testing.T) {
 	}
 	if err := st.Usage().Hold(ctx, eid, owner, l.ID); err != nil {
 		t.Fatal(err)
+	}
+	// A store that does not answer fails a read and a release whole.
+	gone, cancel := context.WithCancel(ctx)
+	cancel()
+	if e.Usage(gone) == nil || e.Release(gone, "") == nil {
+		t.Fatal("a store that does not answer failed nothing")
 	}
 	if id, err := st.Usage().KeyID(ctx, eid); err != nil || id != l.ID {
 		t.Fatalf("the held key: %q %v", id, err)
@@ -90,6 +98,16 @@ func TestUsageReadsUntilTheEndAndReleases(t *testing.T) {
 	}
 	if u, _ := st.Usage().Summary(ctx, eid); u.Requests != 2 {
 		t.Fatalf("the read after the outage: %+v", u)
+	}
+	// A read past the lookback starts that far before the last one ended,
+	// and still keeps a record of a call that began before it, read then.
+	clk.add(limits.UsageLookback + limits.UsageEvery)
+	src.AddRecord(eid, callRecord(t, "req_3", clk.since(time.Minute), "", 5))
+	if err := e.Usage(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if u, _ := st.Usage().Summary(ctx, eid); u.Requests != 3 {
+		t.Fatalf("the read past the lookback: %+v", u)
 	}
 	// Nothing is released while the experiment runs; once it ends, its Key
 	// is, once, and its reads go on until the lookback past the end.

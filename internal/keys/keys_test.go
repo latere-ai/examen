@@ -237,3 +237,63 @@ func TestTheCacheAsksOnceWithinItsTTL(t *testing.T) {
 		t.Fatalf("after a failure: %v, asked %d", err, len(src.Asked()))
 	}
 }
+
+// TestTheMemorySource: one Key per experiment until it is released, the
+// figures a test set, its records a page at a time behind a cursor, and
+// its error answered by every call.
+func TestTheMemorySource(t *testing.T) {
+	m := NewMemory()
+	ctx := t.Context()
+	if _, err := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeJudge}); err == nil {
+		t.Error("a judge's Key was answered")
+	}
+	a, _ := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeExternal})
+	b, _ := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeExternal})
+	if a.ID != b.ID || len(m.Asked()) != 3 {
+		t.Fatalf("two asks answered %v and %v", a.ID, b.ID)
+	}
+	if err := m.Release(ctx, a.ID); err != nil || !m.Released(a.ID) {
+		t.Fatalf("release: %v", err)
+	}
+	if c, _ := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeExternal}); c.ID == a.ID {
+		t.Error("a released Key was answered again")
+	}
+	if _, err := m.Budget(ctx, Request{Experiment: "exp_1"}); !errors.Is(err, ErrNoKey) {
+		t.Errorf("figures never set: %v", err)
+	}
+	m.SetBudget("exp_1", Budget{Name: "b", Cap: 1, Currency: "USD"})
+	if got, err := m.Budget(ctx, Request{Experiment: "exp_1"}); err != nil || got.Cap != 1 {
+		t.Errorf("figures: %+v %v", got, err)
+	}
+	if _, err := m.Usage(ctx, UsageRequest{Experiment: "exp_none"}); !errors.Is(err, ErrNoKey) {
+		t.Errorf("records of an experiment with no Key: %v", err)
+	}
+	at := time.Date(2026, 10, 19, 9, 0, 0, 0, time.UTC)
+	for i := range 3 {
+		m.AddRecord("exp_1", Record{RequestID: fmt.Sprintf("req_%d", i), At: at})
+	}
+	m.PageSize = 2
+	window := UsageRequest{Experiment: "exp_1", From: at.Add(-time.Minute), To: at.Add(time.Minute)}
+	first, err := m.Usage(ctx, window)
+	if err != nil || len(first.Records) != 2 || first.NextCursor == "" {
+		t.Fatalf("the first page: %+v %v", first, err)
+	}
+	window.Cursor = first.NextCursor
+	if last, err := m.Usage(ctx, window); err != nil || len(last.Records) != 1 || last.NextCursor != "" {
+		t.Fatalf("the last page: %+v %v", last, err)
+	}
+	window.Cursor = "not-a-cursor"
+	if _, err := m.Usage(ctx, window); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("a cursor it did not answer: %v", err)
+	}
+	if l, ok := m.KeyOf("exp_1"); !ok || l.ID == "" {
+		t.Error("the experiment's Key")
+	}
+	m.Err = ErrUnavailable
+	_, lerr := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeExternal})
+	_, berr := m.Budget(ctx, Request{Experiment: "exp_1"})
+	_, uerr := m.Usage(ctx, window)
+	if lerr == nil || m.Release(ctx, "k") == nil || berr == nil || uerr == nil {
+		t.Error("an error set is not answered by every call")
+	}
+}

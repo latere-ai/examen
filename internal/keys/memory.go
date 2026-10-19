@@ -23,6 +23,9 @@ type Memory struct {
 	budgets  map[string]Budget
 	asked    []Request
 	Err      error
+	// PageSize, when above zero, is the most records one page answers,
+	// the rest behind its cursor.
+	PageSize int
 }
 
 // NewMemory is an empty source.
@@ -86,12 +89,25 @@ func (m *Memory) Usage(_ context.Context, r UsageRequest) (UsagePage, error) {
 	if _, ok := m.keys[r.Experiment]; !ok {
 		return UsagePage{}, ErrNoKey
 	}
-	page := UsagePage{Records: []Record{}}
+	var in []Record
 	for _, rec := range m.records[r.Experiment] {
 		if !rec.At.Before(r.From) && rec.At.Before(r.To) {
-			page.Records = append(page.Records, rec)
+			in = append(in, rec)
 		}
 	}
+	start := 0
+	if r.Cursor != "" {
+		if _, err := fmt.Sscanf(r.Cursor, "at-%d", &start); err != nil || start > len(in) {
+			return UsagePage{}, fmt.Errorf("%w: a cursor this source did not answer", ErrUnavailable)
+		}
+	}
+	end := len(in)
+	page := UsagePage{}
+	if m.PageSize > 0 && start+m.PageSize < end {
+		end = start + m.PageSize
+		page.NextCursor = fmt.Sprintf("at-%d", end)
+	}
+	page.Records = append([]Record{}, in[start:end]...)
 	return page, nil
 }
 
