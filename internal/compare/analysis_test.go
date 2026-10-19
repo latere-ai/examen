@@ -58,6 +58,9 @@ type experiments struct {
 	trials map[string][]objects.Trial // by experiment, ids ascending
 	ms     []objects.Measurement
 	fail   string // the method that fails
+	// pairs are the calibration pairs of a judge on a metric, by
+	// owner, grader and metric.
+	pairs map[[3]string][]store.CalibrationPair
 }
 
 var errBroken = errors.New("the store broke")

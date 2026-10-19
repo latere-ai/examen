@@ -490,6 +490,7 @@ func TestReadsOnAClosedStore(t *testing.T) {
 		func() error { _, err := x.Trial(ctx, "t"); return err },
 		func() error { _, err := x.Measurements(ctx, store.MeasurementFilter{}, page); return err },
 		func() error { _, err := x.MeasurementsOf(ctx, []string{"t"}); return err },
+		func() error { _, err := x.CalibrationPairs(ctx, owner, "g", "m"); return err },
 		func() error { _, err := x.Measurement(ctx, "m"); return err },
 		func() error { _, err := x.Events(ctx, "e", 0, 1); return err },
 		func() error { _, err := x.LatestSeq(ctx, "e"); return err },

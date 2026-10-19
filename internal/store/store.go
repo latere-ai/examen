@@ -259,6 +259,15 @@ type TrialFilter struct {
 	Ascending bool
 }
 
+// CalibrationPair is one trial that calibrates a judge on a metric: the
+// judge's current value, and each annotator's current value under each
+// annotation grader.
+type CalibrationPair struct {
+	Trial  string
+	Judge  any
+	People []any
+}
+
 // MeasurementFilter narrows a list of measurements. Generation is
 // "current", "all" or a number.
 type MeasurementFilter struct {
@@ -395,6 +404,10 @@ type Experiments interface {
 	Measurements(ctx context.Context, f MeasurementFilter, p Page) ([]objects.Measurement, error)
 	MeasurementsOf(ctx context.Context, trials []string) ([]objects.Measurement, error)
 	Measurement(ctx context.Context, id string) (objects.Measurement, error)
+	// CalibrationPairs are the trials of an owner's, across its
+	// experiments, holding a judge version's current value of a metric and
+	// at least one person's current annotation of it, by trial id.
+	CalibrationPairs(ctx context.Context, owner, grader, metric string) ([]CalibrationPair, error)
 
 	Events(ctx context.Context, experiment string, after int64, limit int) ([]objects.Event, error)
 	LatestSeq(ctx context.Context, experiment string) (int64, error)

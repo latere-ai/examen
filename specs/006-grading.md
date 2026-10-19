@@ -631,7 +631,9 @@ same trials.
   interval distance for the other types, and its interval at
   `CONFIDENCE_LEVEL` by bootstrap over trials. Over trials with two or
   more annotators, the people's own alpha is reported beside it, as the
-  ceiling a judge cannot be expected to pass.
+  ceiling a judge cannot be expected to pass. A sample in which alpha
+  is undefined, every value of judge and people one value, says nothing
+  of agreement: its alpha reads 0 and the judge is not calibrated.
 - **Uncalibrated.** J is uncalibrated for m when it has fewer than
   `CALIBRATION_MIN_PAIRS` pairs or its alpha is below
   `CALIBRATION_MIN_AGREEMENT`. The flag is derived, recomputed whenever
@@ -725,11 +727,17 @@ runs is the part of this spec that needs no core:
   new record keeps every raw label the one before it mapped; the raw
   labels the current record does not map are served with their counts,
   and the analysis counts each as a label of its own (spec 008).
+- **Calibration read (v0.5.0).** Every comparison and test of
+  independence reads the calibration of each judge that produces a
+  label metric it reads, from the owner's annotated trials, so a result
+  read from a judge carries `uncalibrated` while the judge has too few
+  pairs; until annotations are served no judge has one.
 
 | # | Verdict | Held by |
 |---|---|---|
 | 5 | Partly met: a check `env` key beginning `EXAMEN_` and a `workdir` that leaves the workspace are refused at apply; an absolute `workdir` is refused by the same rule and has no case of its own | `objects.TestGraderRules` |
 | 20 | Partly met: `builtin:decline` fills `declined` from the outcome with no model call, and no grading changes an outcome; the suite's own `decline_judge` is refused at create until model judges run | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `postgres.TestMeasurementsAreAppendOnly` |
+| 23 | Partly met (v0.5.0): Krippendorff's alpha matches reference values for nominal and interval data, a judge below `CALIBRATION_MIN_PAIRS` pairs or `CALIBRATION_MIN_AGREEMENT` is uncalibrated, and every comparison and test of independence reads the calibration of each judge that produces a label metric it reads, from the owner's annotated trials; no interval or people's alpha is computed and `GET /graders/{ref}/calibration` is not served, which wait on the annotation routes and their actions (spec 004), so no judge has a pair yet | `calibrate.TestAlpha`, `calibrate.TestCalibrated`, `calibrate.TestPeoplesValue`, `compare.TestServedCalibration`, `postgres.TestCalibrationPairs` |
 | 24 | Partly met: a value is stored normalized and never rewritten; no grader run exists to end `malformed`, so a reported or imported label longer than `LABEL_MAX_BYTES` is refused `invalid_field` instead, and no test reaches that bound | `objects.TestValuesAndCurrent`, `httpapi.TestTaxonomies`, `postgres.TestMeasurementsAreAppendOnly` |
 | 25 | Met; the store's trigger that refuses changing a taxonomy row has no test of its own | `httpapi.TestTaxonomies`, `analysis.TestTaxonomyReads` |
 
@@ -738,6 +746,7 @@ Every other criterion waits on what runs a grader: 1 to 4, 6, 22 and
 the comparators and their image; 9 to 16 on model judges, which need a
 Key from the key source (spec 004); 17 on agent judges; 18 and 19 on
 annotation queues, which are stored and fill nothing; 21 on re-grading;
-23 on calibration; 26 on the canonicalizer; 28 on candidate-level
-judges. The criteria cite tests of packages not yet written; the table
+26 on the canonicalizer; 28 on candidate-level judges. Calibration
+reads only judges' values: a value an external harness reported
+itself, its own judge's included, is never calibrated (above). The criteria cite tests of packages not yet written; the table
 names the tests that hold the same behavior.

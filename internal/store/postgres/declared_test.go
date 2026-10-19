@@ -175,3 +175,64 @@ func TestDeclarationsAndCandidateValues(t *testing.T) {
 		t.Fatalf("without the filter a candidate's trials' values are read too: %+v %v", all, err)
 	}
 }
+
+// A judge's calibration pairs are the owner's trials holding the judge's
+// latest value of a metric and at least one person's: each annotator's
+// latest under each annotation grader, a trial no person annotated left
+// out, and another owner's trials never read.
+func TestCalibrationPairs(t *testing.T) {
+	ctx := t.Context()
+	w := newWorld(t)
+	p := w.plan()
+	ne, _ := w.experiment(p, objects.ModeImport, 3)
+	if err := w.st.Experiments().Create(ctx, ne); err != nil {
+		t.Fatal(err)
+	}
+	eid := ne.Experiment.ID
+	var trials []objects.Trial
+	for range 3 {
+		tr, err := w.st.Experiments().Import(ctx, store.Import{Experiment: eid, Cell: objects.Cell{Task: p.task.Digest, TaskID: p.task.ID, Candidate: p.a.Digest, CandidateID: p.a.ID}, Outcome: outcome(objects.OutcomeCompleted)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		trials = append(trials, tr)
+	}
+	insert := func(n int, tr objects.Trial, owner, grader, annotator string, generation int, value string) {
+		t.Helper()
+		if err := pgtest.Exec(ctx, w.dsn, `INSERT INTO measurements (id, owner, experiment, cell, trial, metric, grader, annotator, self_reported, generation, value_text, rationale, created_at)
+			VALUES ($1, $2, $3, $4, $5, 'sha256:kind', $6, $7, false, $8, $9, '', now())`, "msr_cal"+strconv.Itoa(n), owner, eid, tr.Cell, tr.ID, grader, annotator, generation, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insert(0, trials[0], owner, "sha256:judge", "", 1, "tool")
+	insert(1, trials[0], owner, "sha256:judge", "", 2, "game")
+	insert(2, trials[0], owner, "sha256:people", "human:ann", 1, "tool")
+	insert(3, trials[0], owner, "sha256:people", "human:ann", 2, "game")
+	insert(4, trials[0], owner, "sha256:people", "human:bob", 1, "game")
+	insert(5, trials[1], owner, "sha256:judge", "", 1, "tool")
+	insert(6, trials[1], owner, "sha256:people", "human:ann", 1, "game")
+	// A trial the judge graded and no person annotated, and a value of
+	// another owner's.
+	insert(7, trials[2], owner, "sha256:judge", "", 1, "game")
+	insert(8, trials[2], "https://issuer.example.com|eve", "sha256:people", "human:eve", 1, "game")
+	pairs, err := w.st.Experiments().CalibrationPairs(ctx, owner, "sha256:judge", "sha256:kind")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]store.CalibrationPair{
+		trials[0].ID: {Trial: trials[0].ID, Judge: "game", People: []any{"game", "game"}},
+		trials[1].ID: {Trial: trials[1].ID, Judge: "tool", People: []any{"game"}},
+	}
+	if len(pairs) != 2 {
+		t.Fatalf("pairs %+v", pairs)
+	}
+	for _, got := range pairs {
+		w := want[got.Trial]
+		if got.Judge != w.Judge || !slices.Equal(got.People, w.People) {
+			t.Errorf("trial %s: %+v, want %+v", got.Trial, got, w)
+		}
+	}
+	if none, err := w.st.Experiments().CalibrationPairs(ctx, owner, "sha256:other", "sha256:kind"); err != nil || len(none) != 0 {
+		t.Fatalf("a judge of no grading %+v %v", none, err)
+	}
+}

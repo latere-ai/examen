@@ -111,6 +111,9 @@ func Input(ctx context.Context, c objects.Comparison, src Source) (analysis.Inpu
 		if in, err = generalInput(ctx, c, e, su, src, in); err != nil {
 			return analysis.Input{}, err
 		}
+		if in.Calibrations, err = calibrations(ctx, src.Experiments, e.Owner, su.resolved.Graders, in.Suite.Metrics, in.Candidate, in.Reference); err != nil {
+			return analysis.Input{}, err
+		}
 		if in.Taxonomies, err = taxonomies(ctx, src.Taxonomies, su); err != nil {
 			return analysis.Input{}, err
 		}
@@ -173,6 +176,12 @@ func Input(ctx context.Context, c objects.Comparison, src Source) (analysis.Inpu
 	}
 	if in.AcrossTasks && (len(in.Candidate.Cells) != 1 || len(in.Reference.Cells) != 1) {
 		return analysis.Input{}, fmt.Errorf("%w: %s compares two tasks of which the candidate holds %d and %d cells", errCellsMissing, c.ID, len(in.Candidate.Cells), len(in.Reference.Cells))
+	}
+	// A baseline's side may be read at the judges of its own suite.
+	graders := maps.Clone(su.resolved.Graders)
+	maps.Copy(graders, ref.suite.resolved.Graders)
+	if in.Calibrations, err = calibrations(ctx, src.Experiments, e.Owner, graders, in.Suite.Metrics, in.Candidate, in.Reference); err != nil {
+		return analysis.Input{}, err
 	}
 	if in.Taxonomies, err = taxonomies(ctx, src.Taxonomies, su); err != nil {
 		return analysis.Input{}, err

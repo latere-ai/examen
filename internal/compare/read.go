@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"latere.ai/x/examen/internal/analysis"
+	"latere.ai/x/examen/internal/calibrate"
 	"latere.ai/x/examen/internal/objects"
 	"latere.ai/x/examen/internal/store"
 )
@@ -349,6 +350,48 @@ func taxonomies(ctx context.Context, t store.Taxonomies, su suiteOf) (map[string
 	}
 	if len(out) == 0 {
 		return nil, nil
+	}
+	return out, nil
+}
+
+// calibrations are spec 006's calibration of every judge that produces a
+// trial-level label metric on a cell of the sides, as the analysis reads
+// it for the uncalibrated confound: over the owner's trials that hold the
+// judge's current value and a person's, Krippendorff's alpha and whether
+// the judge is calibrated. A check, a built-in grader, a canonicalizer and
+// a self-reported value are never calibrated, so none is listed.
+func calibrations(ctx context.Context, x store.Experiments, owner string, graders map[string]objects.Grader, metrics []analysis.Metric, sides ...analysis.Side) ([]analysis.Calibration, error) {
+	var out []analysis.Calibration
+	for _, m := range metrics {
+		if m.Type != analysis.TypeLabel || (m.Level != "" && m.Level != analysis.LevelTrial) {
+			continue
+		}
+		var judges []string
+		for _, s := range sides {
+			for _, c := range s.Cells {
+				g := c.Producers[m.Digest]
+				kind := graders[g].Kind
+				if (kind == objects.GraderModelJudge || kind == objects.GraderAgentJudge) && !graders[g].Canonicalizer() && !slices.Contains(judges, g) {
+					judges = append(judges, g)
+				}
+			}
+		}
+		slices.Sort(judges)
+		for _, g := range judges {
+			stored, err := x.CalibrationPairs(ctx, owner, g, m.Digest)
+			if err != nil {
+				return nil, fmt.Errorf("compare: reading the calibration of %s on %s: %w", g, m.Name, err)
+			}
+			pairs := make([]calibrate.Pair, len(stored))
+			for i, p := range stored {
+				pairs[i] = calibrate.Pair{Judge: p.Judge, People: p.People}
+			}
+			cal, err := calibrate.Of(pairs, true)
+			if err != nil {
+				return nil, fmt.Errorf("compare: the calibration of %s on %s: %w", g, m.Name, err)
+			}
+			out = append(out, analysis.Calibration{Grader: g, Metric: m.Digest, Pairs: cal.Pairs, Alpha: cal.Alpha, Calibrated: cal.Calibrated})
+		}
 	}
 	return out, nil
 }

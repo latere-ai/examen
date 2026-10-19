@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"latere.ai/x/examen/internal/analysis"
+	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
 	"latere.ai/x/examen/internal/store"
 )
@@ -42,6 +43,14 @@ func (x *experiments) Measurements(_ context.Context, f store.MeasurementFilter,
 		}
 	}
 	return out, nil
+}
+
+// CalibrationPairs answers the pairs a test put for a judge on a metric.
+func (x *experiments) CalibrationPairs(_ context.Context, owner, grader, metric string) ([]store.CalibrationPair, error) {
+	if x.fail == "CalibrationPairs" {
+		return nil, errBroken
+	}
+	return x.pairs[[3]string{owner, grader, metric}], nil
 }
 
 const (
@@ -171,5 +180,59 @@ func TestCandidateValuesPage(t *testing.T) {
 	}
 	if len(got) != trialPage+2 || !slices.IsSortedFunc(got, func(a, b analysis.Measurement) int { return strings.Compare(a.ID, b.ID) }) {
 		t.Fatalf("read %d values", len(got))
+	}
+}
+
+// A label result read from a model judge carries the uncalibrated
+// confound, naming the judge, while the judge has fewer pairs with people
+// than CALIBRATION_MIN_PAIRS, as every judge has until annotations are
+// built, and loses it once people agree with it on enough trials; the
+// calibration read is in the inputs document, and it changes no verdict.
+func TestServedCalibration(t *testing.T) {
+	w := labelWorld(t)
+	c := objects.Comparison{ID: "cmp_lab", Experiment: "exp_lab", Candidate: candNew, ReferenceCandidate: candOld, Final: true}
+	in, err := Input(t.Context(), c, w.src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(in.Calibrations) != 1 || in.Calibrations[0] != (analysis.Calibration{Grader: judge, Metric: kind}) {
+		t.Fatalf("calibrations %+v", in.Calibrations)
+	}
+	uncalibrated := func(computed objects.Computed) (bool, string) {
+		t.Helper()
+		for _, r := range computed.Results {
+			if r.Metric == kind && r.Level == "task" && r.Task == "todo-app" {
+				return strings.Contains(string(r.Confounds), `"name":"uncalibrated","grader":"`+judge+`"`), r.Verdict + " " + r.Reason
+			}
+		}
+		t.Fatal("no kind result on todo-app")
+		return false, ""
+	}
+	computed, _, err := Analysis{}.Compare(t.Context(), c, w.src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, reason := uncalibrated(computed); !got || !strings.HasPrefix(reason, "changed ") || !strings.HasSuffix(reason, "; labels from a judge not yet calibrated against people") {
+		t.Fatalf("an uncalibrated judge: confound %v, %s", got, reason)
+	}
+	var pairs []store.CalibrationPair
+	for i := range limits.CalibrationMinPairs {
+		l := []string{"game", "tool"}[i%2]
+		pairs = append(pairs, store.CalibrationPair{Trial: fmt.Sprintf("tri_%d", i), Judge: l, People: []any{l}})
+	}
+	w.x.pairs = map[[3]string][]store.CalibrationPair{{"alice", judge, kind}: pairs}
+	calibrated, _, err := Analysis{}.Compare(t.Context(), c, w.src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, reason := uncalibrated(calibrated); got || !strings.HasPrefix(reason, "changed ") {
+		t.Fatalf("a calibrated judge: confound %v, %s", got, reason)
+	}
+	if calibrated.InputsDigest == computed.InputsDigest {
+		t.Fatal("the calibration read is not in the inputs document")
+	}
+	w.x.fail = "CalibrationPairs"
+	if _, err := Input(t.Context(), c, w.src); !errors.Is(err, errBroken) {
+		t.Fatalf("a failing calibration read: %v", err)
 	}
 }

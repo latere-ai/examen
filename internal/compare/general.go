@@ -222,6 +222,9 @@ func independence(ctx context.Context, e objects.Experiment, su suiteOf, src Sou
 	if in.Taxonomies, err = taxonomies(ctx, src.Taxonomies, su); err != nil {
 		return nil, false, err
 	}
+	if in.Calibrations, err = calibrations(ctx, src.Experiments, e.Owner, su.resolved.Graders, su.suite.Metrics, in.Sides...); err != nil {
+		return nil, false, err
+	}
 	res, err := analysis.Independence(in)
 	if err != nil {
 		return nil, false, fmt.Errorf("compare: the test of independence of %s: %w", e.ID, err)

@@ -527,14 +527,7 @@ func scanMeasurement(row pgx.Row) (objects.Measurement, error) {
 		return objects.Measurement{}, err
 	}
 	m.CreatedAt = m.CreatedAt.UTC()
-	switch {
-	case b != nil:
-		m.Value = *b
-	case n != nil:
-		m.Value = *n
-	case s != nil:
-		m.Value = *s
-	}
+	m.Value = valueOf(b, n, s)
 	return m, nil
 }
 
@@ -598,6 +591,59 @@ func (x experiments) Measurements(ctx context.Context, f store.MeasurementFilter
 		return nil, fmt.Errorf("postgres: listing measurements: %w", err)
 	}
 	return collectMeasurements(rows)
+}
+
+func (x experiments) CalibrationPairs(ctx context.Context, owner, grader, metric string) ([]store.CalibrationPair, error) {
+	// The judge's latest generation on each trial, and each annotator's
+	// latest under each annotation grader on the same trials.
+	rows, err := x.s.pool.Query(ctx, `
+		WITH judge AS (
+			SELECT DISTINCT ON (trial) trial, value_bool, value_num, value_text FROM measurements
+			WHERE owner = $1 AND grader = $2 AND metric = $3 AND annotator = '' AND trial IS NOT NULL
+			ORDER BY trial, generation DESC
+		), people AS (
+			SELECT DISTINCT ON (trial, grader, annotator) trial, annotator, grader, value_bool, value_num, value_text FROM measurements
+			WHERE owner = $1 AND metric = $3 AND annotator <> '' AND trial IN (SELECT trial FROM judge)
+			ORDER BY trial, grader, annotator, generation DESC
+		)
+		SELECT j.trial, j.value_bool, j.value_num, j.value_text, p.value_bool, p.value_num, p.value_text
+		FROM judge j JOIN people p ON p.trial = j.trial ORDER BY j.trial, p.grader, p.annotator`, owner, grader, metric)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: reading calibration pairs: %w", err)
+	}
+	defer rows.Close()
+	var out []store.CalibrationPair
+	for rows.Next() {
+		var trial string
+		var jb, pb *bool
+		var jn, pn *float64
+		var js, ps *string
+		if err := rows.Scan(&trial, &jb, &jn, &js, &pb, &pn, &ps); err != nil {
+			return nil, fmt.Errorf("postgres: reading a calibration pair: %w", err)
+		}
+		if len(out) == 0 || out[len(out)-1].Trial != trial {
+			out = append(out, store.CalibrationPair{Trial: trial, Judge: valueOf(jb, jn, js)})
+		}
+		last := &out[len(out)-1]
+		last.People = append(last.People, valueOf(pb, pn, ps))
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("postgres: reading calibration pairs: %w", err)
+	}
+	return out, nil
+}
+
+// valueOf is a measurement's value from the column that holds it.
+func valueOf(b *bool, n *float64, s *string) any {
+	switch {
+	case b != nil:
+		return *b
+	case n != nil:
+		return *n
+	case s != nil:
+		return *s
+	}
+	return nil
 }
 
 func (x experiments) MeasurementsOf(ctx context.Context, trials []string) ([]objects.Measurement, error) {
