@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.6.2 - 2026-10-19
+
 ### Fixed
 
 - A topos trial whose session met `machine_unavailable`, or another
