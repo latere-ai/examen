@@ -43,9 +43,11 @@ that loop declarative:
   the services it called, the environment and the task. When two
   results differ in more than one of those, the report says so.
 - **Planned tests stay planned.** Declare the comparisons an experiment
-  will make before any trial runs, and their headline results are
-  corrected together; a comparison asked for afterwards is marked
-  exploratory. Trials can be interleaved across every task and
+  will make before any trial runs, over any variable you designed in:
+  two candidates, two prompts, a factor your tasks declare or a
+  reasoning level, within or across the rest, and whether a label
+  depends on one of them. Their headline results are corrected
+  together; a comparison asked for afterwards is marked exploratory. Trials can be interleaved across every task and
   candidate, so the conditions you compare run in the same window.
 - **Expected outputs scored without a model.** Built-in comparators
   score an output against a reference answer, by exact match, numeric

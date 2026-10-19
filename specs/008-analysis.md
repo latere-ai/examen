@@ -1789,20 +1789,21 @@ benchmark (spec 013).
 ## Build order
 
 Declared comparisons, their declared family and the declared analysis
-follow v0.1 in the release after it; the experiment's test of
-independence is accepted, and computed, from the release that builds
-label tests, since it is one. The first release, v0.1, builds everything above but label tests, open
+follow v0.1 in the release after it. Label tests, the general form of
+declared comparisons and the experiment's test of independence are
+built in v0.5.0, ahead of the built-in comparators; comparisons across
+batches follow as a later step. The first release, v0.1, builds everything above but label tests, open
 vocabularies, cell-level and candidate-level metrics and the
 `uncalibrated` confound, benchmark entries, trends and the
 cross-architecture run of the golden comparison, which follow as later
 steps (specs/README.md). Its comparisons read `external` and imported
 trials, so declared provenance, comparisons across tasks and the
 `self_reported`, `declared.image` and `window` confounds are in it; the
-`window` confound reads adopted trials once adoption is built. Label
-tests, with open vocabularies, the two levels and `uncalibrated`, come
-after the built-in comparators; until annotations are built every judge
-is uncalibrated (spec 006). Benchmark entries come with submissions,
-after publishing (spec 013).
+`window` confound reads adopted trials once adoption is built. Open
+vocabularies, the two levels, label tests and `uncalibrated` are served
+by v0.5.0; until annotations are built every judge is uncalibrated
+(spec 006). Benchmark entries come with submissions, after publishing
+(spec 013).
 
 ## Acceptance criteria
 
@@ -1825,7 +1826,7 @@ after publishing (spec 013).
 | The stratified label test matches the worked examples' exact p-values for two and three sides; a task of one label adds nothing and every task of one label gives p = 1; above `PERMUTATION_EXACT_MAX` relabelings it draws from its seed with sequential stopping, repeats bit for bit and lands near the exact p-value; a comparison's suite-level label result is its two-sided form, with the statistic `pearson_x2_sum`, and finds the opposite shifts a test of the weighted distributions misses | `analysis.TestStratifiedLabelTest`, `analysis.TestLabelResults`, `analysis.TestOppositeShiftsAreFound` |
 | A declared comparison's primary result is in no comparison's family, carries its `p` and no `q` or verdict, draws `PERMUTATION_RESAMPLES` resolved with `m = D` and reads its power floor at `FALSE_DISCOVERY_RATE / D`; a declared comparison across tasks is not exploratory and its primary result is the primary metric's task-level result; its inputs document carries `D` and one that is not declared is unchanged | `analysis.TestDeclaredComparison` |
 | The declared family corrects every declared comparison's primary p-value together over `D`, a missing one counted as 1, and matches the worked example; an insufficient primary result keeps its verdict and no `q`; a self-reported one keeps its `p` and no verdict; the declared analysis recomputed from the same comparisons is identical | `analysis.TestDeclaredFamily` |
-| The experiment's test of independence over three candidates matches the worked example; it includes the tasks every candidate holds enough trials of and is `insufficient` below `MIN_SUITE_COVERAGE`, is tested alone with `q` equal to `p`, is `changed` or `within_noise`, has no verdict on self-reported values and no `p` before label tests are built, states its power floor, and recomputes bit for bit from its inputs document with the seed scope `experiment` | `analysis.TestIndependence` |
+| The experiment's test of independence over three candidates matches the worked example; it includes the strata every level holds enough trials of and is `insufficient` below `MIN_SUITE_COVERAGE`, is tested alone with `q` equal to `p`, is `changed` or `within_noise`, has no verdict on self-reported values and no `p` before label tests are built, states its power floor, and recomputes bit for bit from its inputs document with the seed scope `experiment`; its sides are the levels of its cell variable, the candidates in the experiment's order by default, and its strata the combinations of `by`'s levels, task by default; before any cell holds a finished trial it answers its declaration with no figure | `analysis.TestIndependence`, `objects.TestSelectIndependence`, `compare.TestDeclaredIndependence`, `httpapi.TestGeneralDeclarationsAndIndependence` |
 | A repeat rate matches the worked examples, is tested by the exact permutation of its difference (12/252 for five equal labels against five distinct), has no interval and says why, and its suite-level figure is the weighted mean; `mode_share` and `distinct_count` carry no interval, `p`, `q` or verdict, and stay out of the family, `verdict_counts` and the headline | `analysis.TestRepeatRate`, `analysis.TestDescriptiveCellMeasures` |
 | A candidate-level result carries both values and no interval, `p`, `q` or verdict, and stays out of the family | `analysis.TestCandidateLevelIsDescriptive` |
 | An open-vocabulary metric is read at one taxonomy record on both sides, the suite's or the one a bar pins; an unmapped raw label counts as a label of its own, marked, and never as missing; a new record after a final comparison makes a new comparison | `analysis.TestTaxonomyReads` |
@@ -1854,6 +1855,9 @@ after publishing (spec 013).
 | Every figure of the console's grid, verdict tables and cost table is read from a stored comparison or the stored analysis; the console bundle contains no statistical routine | `analysis.TestEveryShownFigureIsStored`, `console.TestNoStatisticsInTheClient` |
 | The analysis calls no `exp`, `log`, `lgamma` or `erfinv` but `internal/analysis/mathx`'s, which holds no assembly | `analysis.TestUsesVendoredMath` |
 | Later steps: the golden comparison is byte-identical on amd64 and arm64; a trend over a lineage of three baselines shows three points and two step comparisons | `analysis.TestGoldenAcrossArchitectures`, run on both in CI; `analysis.TestTrend` |
+| A declared comparison of the general form takes as its sides the cells `where` keeps at each of its variable's two levels, pairs them by stratum, names each stratum by its task or by its levels, gives one task-level result per stratum and the stratified suite-level result over the strata, weighted as their candidate sides' tasks, and matches the stratified label test's worked example over two strata; without `by` it is one pair whose task-level result is its primary result; its logical variable follows its cell variable; a declaration whose variable or `where` or `by` no cell carries, whose level selects no cell, whose stratum holds two cells of one side, that pairs no stratum or names two strata alike, is refused at create naming the member; a comparison of no declaration keeps its inputs document | `objects.TestSelect`, `objects.TestSelectRefusals`, `analysis.TestGeneralDeclaration`, `analysis.TestGeneralDeclarationWithoutStrata`, `analysis.TestTaskVariableNeedsADeclaration`, `compare.TestGeneralInput`, `compare.TestGeneralInputWaitsAndFails`, `httpapi.TestGeneralDeclarationsRefused`, `httpapi.TestGeneralDeclarationsAndIndependence` |
+| A declaration's `metric` is its primary result's metric, in the comparison and in the declared family, and a pair of candidates that names one is a record of its own beside the automatic comparison | `compare.TestGeneralInput`, `httpapi.TestGeneralDeclarationsRefused` |
+| A comparison across batches names its confounds from the batches' provenance and is never `single_variable`; with a configuration that ran in both batches it carries that anchor's comparison across them, delta, interval and `p`; without one its reason says drift between the batches cannot be ruled out | not built |
 
 ## Outcome
 
@@ -1867,15 +1871,17 @@ provenance tuple, declared provenance and declared images, comparisons
 across tasks, self-reported values, and the inputs digest, seeds and
 parameters that make a comparison reproduce bit for bit on vendored
 math. v0.3.0 adds declared comparisons and their family, served at
-`GET /experiments/{id}/declared`.
+`GET /experiments/{id}/declared`. v0.5.0 serves label tests in every
+comparison, task-level and stratified; the general form of declared
+comparisons over cell variables with their strata and a declaration's
+own metric; the experiment's test of independence of a label metric
+against a cell variable, in the declared analysis; the `uncalibrated`
+confound from each judge's calibration; and candidate-level values.
 
-Built in `internal/analysis` and not yet served: label tests, so a
-label result is descriptive; the stratified label test and the
-experiment's test of independence (v0.3.0), so a create's
-`independence` is `400 unknown_field`; the `uncalibrated` confound;
-candidate-level values; the layer confounds read from Lux's records;
-the stored analysis's spend and outcomes; and a benchmark's results
-table with Holm's correction and rank intervals. A grid's cell
+Built in `internal/analysis` and not yet served: the layer confounds
+read from Lux's records; the stored analysis's spend and outcomes; and
+a benchmark's results table with Holm's correction and rank intervals.
+Comparisons across batches are designed and not built. A grid's cell
 summaries are computed by the same procedures when the grid is read,
 and are not stored.
 
@@ -1891,18 +1897,18 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 6 | Met | `analysis.TestResamplesGrowWithTheFamily` |
 | 7 | Met | `analysis.TestPowerFloor`, `analysis.TestPowerFloorThresholds` |
 | 8 | Met | `analysis.TestCountsUseTheirAggregate` |
-| 9 | Met; its label case runs with label tests on, which are not served | `analysis.TestEqualSidesAreWithinNoise` |
+| 9 | Met | `analysis.TestEqualSidesAreWithinNoise` |
 | 10 | Met | `analysis.TestInsufficientBelowMinimum` |
 | 11 | Met | `analysis.TestCoverage` |
 | 12 | Partly met: Kish's, Wilson's and Agresti and Caffo's intervals match the worked examples; no test shows a comparison's suite-level rate uses them rather than the bootstrap-t | `analysis.TestSuiteRateIntervals` |
-| 13 | Met | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive` |
-| 14 | Partly met, not served: the Fisher, Freeman and Halton and the chi-square p-values; the chi-square's sequential stop, and the methods of the per-label intervals, are untested | `analysis.TestFisherFreemanHalton`, `analysis.TestChiSquarePermutation`, `analysis.TestLabelResults` |
-| 15 | Met, not served (v0.3.0) | `analysis.TestStratifiedLabelTest`, `analysis.TestOppositeShiftsAreFound`, `analysis.TestLabelResults` |
+| 13 | Met; from v0.5.0 a label result is tested, and one computed before keeps its descriptive form | `analysis.TestDirectionNone`, `analysis.TestLabelsAreDescriptive`, `compare.TestServedLabelTestsAndCandidateValues` |
+| 14 | Partly met, served from v0.5.0: the Fisher, Freeman and Halton and the chi-square p-values; the chi-square's sequential stop, and the methods of the per-label intervals, are untested | `analysis.TestFisherFreemanHalton`, `analysis.TestChiSquarePermutation`, `analysis.TestLabelResults`, `compare.TestServedLabelTestsAndCandidateValues` |
+| 15 | Met (v0.3.0), served from v0.5.0 | `analysis.TestStratifiedLabelTest`, `analysis.TestOppositeShiftsAreFound`, `analysis.TestLabelResults`, `compare.TestServedLabelTestsAndCandidateValues` |
 | 16 | Met (v0.3.0) | `analysis.TestDeclaredComparison`, `httpapi.TestDeclaredComparisons`, `compare.TestDeclaredInput` |
 | 17 | Met (v0.3.0) | `analysis.TestDeclaredFamily`, `httpapi.TestDeclaredComparisons`, `work.TestComputeDeclares`, `postgres.TestDeclare` |
-| 18 | Met, not served (v0.3.0) | `analysis.TestIndependence` |
+| 18 | Met (v0.5.0) | `analysis.TestIndependence`, `objects.TestSelectIndependence`, `compare.TestDeclaredIndependence`, `httpapi.TestGeneralDeclarationsAndIndependence`, `work.TestComputeDeclaresIndependence` |
 | 19 | Met | `analysis.TestRepeatRate`, `analysis.TestDescriptiveCellMeasures`, `analysis.TestModeShareAgainstRepeatRate` |
-| 20 | Met, not served | `analysis.TestCandidateLevelIsDescriptive` |
+| 20 | Met; served from v0.5.0, though nothing writes a candidate-level value yet | `analysis.TestCandidateLevelIsDescriptive`, `compare.TestServedLabelTestsAndCandidateValues`, `compare.TestCandidateValuesPage`, `postgres.TestDeclarationsAndCandidateValues` |
 | 21 | Partly met: one taxonomy record is read on both sides, and an unmapped raw label counts as a label of its own; a record a bar pins waits on bars, and a record appended after a final comparison makes no new comparison | `analysis.TestTaxonomyReads` |
 | 22 | Met | `analysis.TestDeclaredImage` |
 | 23 | Met | `analysis.TestAppliesTo` |
@@ -1915,7 +1921,7 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 30 | Met | `analysis.TestSelfReported`, `httpapi.TestAnalyzedImport` |
 | 31 | Met | `analysis.TestSuiteWeights` |
 | 32 | Met; the `observed.model` layer confound needs Lux's records, which no served comparison reads | `analysis.TestModelComparisonIsSingleVariable`, `analysis.TestConfounds` |
-| 33 | Partly met: `incomplete` and `window` are served; `window` for adopted trials waits on adoption, and `uncalibrated` on calibration | `analysis.TestIncomplete`, `analysis.TestWindow`, `analysis.TestUncalibrated` |
+| 33 | Partly met: `incomplete`, `window` and, from v0.5.0, `uncalibrated` are served; `window` for adopted trials waits on adoption | `analysis.TestIncomplete`, `analysis.TestWindow`, `analysis.TestUncalibrated`, `compare.TestServedCalibration` |
 | 34 | Met; `program` candidates are refused at create, so their half is computed in the analysis package alone | `analysis.TestProgramConfigIsSingleVariable`, `analysis.TestServiceVersions`, `analysis.TestDeclaredProvenance` |
 | 35 | Met | `analysis.TestVariableIsOneLogicalVariable`, `httpapi.TestComparisonRequestRefusals` |
 | 36 | Met in the analysis package; re-grading is not built | `analysis.TestReferenceReadAtCandidatesGrader` |
@@ -1928,9 +1934,11 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 43 | Met, not served | `analysis.TestRecomputeResultsTable` |
 | 45 | Met | `analysis.TestUsesVendoredMath`, `mathx.TestNoAssembly` |
 | 46 | Partly met: the golden comparison is held to a committed digest on whichever architecture runs it; no CI job runs it on both amd64 and arm64, and trends are not built | `analysis.TestGoldenAcrossArchitectures` |
+| 47 | Met (v0.5.0) | `objects.TestSelect`, `objects.TestSelectRefusals`, `analysis.TestGeneralDeclaration`, `analysis.TestGeneralDeclarationWithoutStrata`, `analysis.TestTaskVariableNeedsADeclaration`, `compare.TestGeneralInput`, `compare.TestGeneralInputWaitsAndFails`, `httpapi.TestGeneralDeclarationsRefused`, `httpapi.TestGeneralDeclarationsAndIndependence` |
+| 48 | Met (v0.5.0) | `compare.TestGeneralInput`, `httpapi.TestGeneralDeclarationsRefused` |
 
 Not built: 44, since the grid's figures are computed when it is read
-and there is no cost table; and trends.
+and there is no cost table; 49, comparisons across batches; and trends.
 
 Two behaviors differ from the text above: an automatic or declared
 comparison turns `final` when its experiment completes, rather than

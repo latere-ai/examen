@@ -6,6 +6,68 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Added
+
+- Label metrics are tested. A comparison's label result on a task now
+  carries Fisher, Freeman and Halton's exact test of its two label
+  distributions, or a permutation of Pearson's chi-square when the
+  tables are too many to enumerate, and at suite level the stratified
+  label test, the chi-square summed over the tasks and permuted within
+  each. A significant difference is `changed`, and the per-label
+  differences keep their intervals. A comparison still computing from
+  an earlier release is tested when it is next computed; one that was
+  final keeps its label results descriptive.
+- Place a task in a design with `factors`, such as
+  `{"object": "build", "volition": "want"}`: names and levels of 1 to 63
+  characters of `[a-z0-9._-]`, at most `MAX_TASK_FACTORS` (16), none
+  named `candidate`, `task`, `model`, `reasoning` or `batch`. A task
+  without factors keeps its digest.
+- Declare a comparison over any cell variable: `{"variable": "object",
+  "levels": ["build", "do"], "where": {"candidate": "sha256:…"}, "by":
+  ["volition"]}` compares the cells at the first level with those at the
+  second, within the cells `where` keeps and stratified by `by`. A cell
+  carries `candidate`, `task`, its `model` and `reasoning`, and its
+  task's factors. With `by`, each stratum is a task-level result named
+  by its levels, such as `volition=want`, or by its task for `by:
+  ["task"]`, and the suite-level result tests over the strata; without
+  it, each side is one cell and its one result per metric is the
+  primary one. The comparison answers its `declaration`, and its
+  primary result joins the one corrected family of every declared
+  comparison. A declaration whose variable no cell carries, whose level
+  selects no cell, or whose stratum holds two cells of one side is
+  refused at create, naming the member. The pair and task-pair forms
+  are unchanged.
+- Any declared comparison takes a `metric`, whose result is its primary
+  result in place of the suite's primary metric. A pair that names one
+  is a comparison of its own beside the automatic comparison.
+- Declare a test of independence with `independence` on `POST
+  /experiments`: `{"metric": "sha256:…"}` tests whether a trial-level
+  label metric depends on the candidate, stratified by task, over every
+  cell; `variable`, `by` and `where` test it against any cell variable,
+  stratified by others, over the cells you keep. It is one planned
+  test, tested alone at 5%, and `GET /experiments/{id}/declared`
+  answers it under `independence` with its levels, their summaries, its
+  strata and `p`.
+- A result read from a model or agent judge's labels carries
+  `uncalibrated`, naming the judge, until the judge agrees with people
+  on enough of your trials (Krippendorff's alpha of at least 0.67 over
+  at least 30); no annotation route is served yet, so every judge reads
+  uncalibrated. A value your harness reports itself is never
+  calibrated.
+- Candidate-level values reach the comparisons that read their
+  metric.
+
+### Changed
+
+- Run `examend migrate` before you roll `serve`: this release adds an
+  experiment's `independence` and a comparison's `declaration`, both
+  empty for what exists, so the release before it serves the migrated
+  schema with a warning.
+- Results your harness reported itself keep their `p` and get no
+  verdict, as before: in the declared family such a primary result
+  counts as `p = 1`, and a test of independence over such values
+  answers its `p` without a verdict.
+
 ## v0.4.1 - 2026-10-19
 
 ### Security

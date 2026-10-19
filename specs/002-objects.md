@@ -1029,10 +1029,13 @@ values and the current value, taxonomy records, and the limits table,
 which a test holds to this spec. v0.2.0 adds an experiment's
 `created_by` beside its `owner`, and v0.3.0 an experiment's
 `comparisons` and `scheduling`, a comparison's `declared` and the
-declared analysis. Not built: bars, shares, dataset exports, reports,
-publications, submissions, annotation items, re-grading,
-candidate-level measurements, an experiment's `independence`, and any
-change to an experiment after its create.
+declared analysis. v0.5.0 adds a task's `factors`, the cell variables,
+the general form of a declared comparison with its `metric` and a
+comparison's `declaration`, and an experiment's `independence`. Not
+built: bars, shares, dataset exports, reports, publications,
+submissions, annotation items, re-grading, writing candidate-level
+measurements, the cell variable `batch`, and any change to an
+experiment after its create.
 
 Every row below shipped in v0.1.0 unless it names another release.
 
@@ -1055,6 +1058,7 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 15 | Partly met: every constant holds its table's value, and the limits of what is built answer `limit_exceeded` with `details.constant`, asserted by name for `MAX_ACTIVE_EXPERIMENTS_PER_OWNER` alone; most constants of what is not built are not yet read | `limits.TestEveryLimitIsTheSpecs`, `httpapi.TestCreateLimits`, `objects.TestSuiteRules` |
 | 16 | Met on tasks, candidates and experiments, the objects built that carry metadata | `objects.TestNamesAndRefs`, `objects.TestTaskRules`, `objects.TestCandidateRules`, `httpapi.TestCreateRefusals` |
 | 17 | Partly met: no route changes an experiment, so N cannot change; no test asserts it | no test yet |
-| 18 | Partly met (v0.3.0): `comparisons` and `scheduling` are set at create, and a pair named twice, more than `MAX_DECLARED_COMPARISONS` and a candidate or task the experiment does not hold are refused naming `comparisons[i]`; `independence` is not yet accepted, and no route changes an experiment | `httpapi.TestDeclaredComparisons`, `httpapi.TestDeclaredComparisonsRefused` |
+| 18 | Partly met (v0.3.0, v0.5.0): `comparisons`, `independence` and `scheduling` are set at create, and a pair named twice, more than `MAX_DECLARED_COMPARISONS`, a candidate or task the experiment does not hold, a general declaration that does not read as one comparison, a declared metric the suite does not list and an `independence` that is not a trial-level label metric or whose variable holds one level are refused naming the member; no route changes an experiment | `httpapi.TestDeclaredComparisons`, `httpapi.TestDeclaredComparisonsRefused`, `httpapi.TestGeneralDeclarationsRefused`, `objects.TestSelectRefusals`, `objects.TestSelectIndependence` |
 | 19 | Met (v0.2.0) | `httpapi.TestAnOrganizationsExperimentKeepsItsCreator` |
 | 20 | Partly met: the built-in decline judge derives `declined` from the outcome and writes only a measurement; no test reads the outcome after it ran, and a model decline judge is refused at create | `objects.TestValuesAndCurrent` |
+| 21 | Met (v0.5.0) | `objects.TestTaskFactors`, `objects.TestDesign`, `httpapi.TestGeneralDeclarationsRefused` |
