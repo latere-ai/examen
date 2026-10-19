@@ -177,6 +177,8 @@ else. The last column names the spec that explains its use.
 | `EXTERNAL_LEASE` | 10 minutes | how long one lease of an external trial, or one renewal of it, holds the trial before it returns to pending | 005 |
 | `REPORT_INTERVAL` | 15 seconds | how often an open rollout is reported | 005 |
 | `USAGE_SETTLE_DELAY` | 2 minutes | the wait after a trial ends before Lux's records of it are read | 005 |
+| `USAGE_EVERY` | 1 minute | how often the records of the calls made with one experiment's external Key are read | 005 |
+| `USAGE_LOOKBACK` | 30 minutes | how far before the end of the last read each read of an experiment's records starts again, so the record of a call that ended after a read of its start is kept | 005 |
 | `COST_ESTIMATE_MARGIN` | 1.5 | the factor a cell's cost estimate is multiplied by at the cost check | 005 |
 | `ADOPTION_MAX_AGE` | 30 days | the oldest trials a new experiment may adopt instead of re-running, once adoption is built | 005 |
 | `CHECK_MAX_OUTPUT_BYTES` | 64 KiB | the stdout of one check examend reads, and the stderr tail a check run record keeps; the whole of both stays in evidence | 006 |
@@ -436,6 +438,7 @@ One execution of a suite against candidates.
 | `candidates` | []candidate digest | at most `MAX_CANDIDATES_PER_EXPERIMENT` |
 | `trials` | int | N per cell, declared before any cell runs; `DEFAULT_TRIALS` when unset, at most `MAX_TRIALS_PER_CELL` |
 | `budget` | object | `{name}`: the Lux Budget every model call of this experiment is metered against, as resolved at create: the Budget the request named, the one an authorizer's `budget` limit assigned, or the one created for the cap the request gave (specs 003 and 004); in the v0.1 profile, without an authorizer's `budget` limit, `{cap_usd_micro}` alone, the spending cap the request gave, which no Lux Budget holds since nothing the profile serves calls a model through Examen (spec 003). Read with `cap_usd_micro`, `spent_usd_micro` and `remaining_usd_micro` beside `name`, computed through the key source when read, at most `BUDGET_STATUS_TTL` old, and never stored |
+| `usage` | object | computed on a read of one experiment whose runs hold its external Key, never stored: `{requests, cost_usd_micro, unpriced_requests, unattributed, read_to}`, what Lux recorded of the calls made with the Key, `unattributed` those no trial claims (specs 003 and 005) |
 | `benchmark` | object | `{publication, version}`: the published benchmark version through which the experiment runs another owner's suite (spec 013); absent otherwise. No experiment holds one while a benchmark runs on its owner's side alone, since that create is refused; the field is kept so the decision can be reversed |
 | `parallelism` | int | `DEFAULT_PARALLELISM` when unset, at most `MAX_PARALLELISM` |
 | `reference` | object | what every other candidate is compared with: `{baseline}`, a baseline record's id, or `{candidate}`, the digest of one of the experiment's candidates; `{candidate}` naming the first candidate when unset. The reference set before any cell leaves `pending` is the declared one; a reference set later makes exploratory comparisons (spec 008) |

@@ -1217,25 +1217,63 @@ job runs them in a check sandbox (The check sandbox, below), over the
 outputs examend wrote from the submit.
 
 **Attribution and cost.** An external trial's model calls are its
-external harness's, on Keys its owner gave it. Examen reads their records from
-Lux as the owner (Cost and the sent and observed layers, above): by the
-request ids the external harness submitted, or else by the request label
-`examen.trial=<trial id>` the external harness set on each call with
-`Lux-Labels`. The served model, the usage, the cost and the sent layer
-come from those records. A call the external harness neither listed nor labeled
-is not attributed to the trial, and Examen cannot see that it is
-missing. A trial for which Lux holds no record Examen can attribute,
-such as a past trial made through another gateway, has cost `unknown`:
-no `cost_usd` measurement, `observed.cost_state` `unknown` (spec 007),
-and every figure that sums cost counts it apart and shows it as
-unknown, never as zero. An executed trial's Keys are known, so no
-record there means no spend.
+external harness's. With a key source, each experiment Examen executes
+that has an `external` candidate has one Key of its own, the
+**external Key**: Examen asks the key source for it with the purpose
+`external` when the experiment is created, and again with every lease and
+renewal of its trials, and the source answers the same Key for every ask
+while the experiment runs (spec 004). It draws on the experiment's Budget,
+so the experiment's spending cap binds every call made with it, and it
+names no model list of the candidate's: a call to another model than the
+candidate declared, such as a harness's side call to a small model, is
+served, recorded and shown in the trial's `sent` and `observed` layers,
+not refused. A lease hands the Key on as `model_key` and each trial its
+label as `lux_labels`, the value `examen.trial=<trial id>` of the
+`Lux-Labels` header each of the trial's calls carries (spec 003). Examen
+releases the Key when the experiment completes or is canceled. An
+external harness may call models with a Key of its owner's instead; its
+trials' cost then reads `unknown`, as below.
+
+The `usage` job reads Lux's records of the calls made with the
+experiment's external Key through the key source (spec 004, `Usage`), with
+no owner token: every `USAGE_EVERY` (one minute) for each experiment,
+over the window from where the last read ended less `USAGE_LOOKBACK`
+(30 minutes) to now, following `next_cursor` to the end. Lux files a
+record under the time its call began and writes it when the call ends,
+so the lookback keeps a long call's record that appeared after a read of
+its start; each record is kept once by its request id. A record is the
+trial's whose id its request label `examen.trial` names, or, when it
+names none of the experiment's, the trial's that submitted its request id
+in `lux_requests`. A record no trial of the experiment claims counts
+toward the experiment and no trial: the experiment's answer shows it in
+`usage.unattributed` (spec 003). A done trial that ended
+`USAGE_SETTLE_DELAY` before the end of a read is settled from its records:
+its `sent` layer, its `observed` layer's `served`, token counts,
+`cost_state` and `cost_usd`, and a new generation of the `builtin` grader
+with `cost_usd` (when known) and the token counts beside the values it had.
+A record of it that arrives after unsettles it, and the next read settles
+it again. The reads of an experiment end once one covers its end with the
+lookback past it. A trial for which no record carries its label or a
+request id it submitted, such as one whose harness used its owner's own
+Key or a past trial made through another gateway, has cost `unknown`: no
+`cost_usd` measurement, `observed.cost_state` `unknown` (spec 007), and
+every figure that sums cost counts it apart and shows it as unknown,
+never as zero. An executed trial's Keys are known, so no record there
+means no spend.
+
+Without a key source the external harness's calls are on Keys its owner
+gave it, and Examen reads their records from Lux as the owner (Cost and
+the sent and observed layers, above): by the request ids the external
+harness submitted, or else by the request label it set. A call the
+external harness neither listed nor labeled is not attributed to the
+trial, and Examen cannot see that it is missing.
 
 **Smoke and the cost check** run as for any cell: a cell's smoke trials
 are the only ones it leases until they are graded and its cost check
 passes. The estimate reads the smoke trials' Lux records, and it bounds
-the external harness's spend through the experiment's Budget only when the
-external harness's Keys draw on that Budget, which is its owner's to arrange.
+the external harness's spend through the experiment's Budget when the
+external harness calls models with the external Key, which draws on that
+Budget.
 
 **Declared provenance.** Nothing Examen observes pins what an external
 external harness ran: the candidate's `harness`, `version`, `digest`, `model`,
@@ -1399,6 +1437,12 @@ rollout primitive and Cella's SandboxSet are those projects' specs.
 ## Outcome
 
 In progress. v0.1.0 runs the `external` executor of the v0.1 profile.
+v0.6.0 gives an experiment of `external` candidates its external Key
+from the key source, hands it on with each lease beside each trial's
+label, releases it at the experiment's end, and reads the records of its
+calls to settle each trial's cost and its `sent` and `observed` layers.
+A cost settled after the experiment completed is on the trial and its
+measurements, and does not reopen a final comparison.
 Rollouts are rows on their cell, keyed `<cell>.smoke`, `<cell>.main`,
 `<cell>.retry.N` and `<cell>.smoke.N`. A cell's smoke trials run
 first, and its main trials follow a cost check whose estimate is zero.
@@ -1433,17 +1477,20 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 12 | Met (v0.3.0) | `postgres.TestLeaseWithoutCandidate`, `postgres.TestLeaseHoldsTheParallelism`, `httpapi.TestLeaseWithoutCandidate` |
 | 13 | Met | `execute.TestInfraFailuresRetryThenBlock`, `httpapi.TestRetriesBlockAndResume`, `objects.TestValuesAndCurrent` |
 | 15 | Partly met: a cancel ends unfinished trials `canceled` and their leases and rollouts in one transaction; the tests assert the experiment's state and a refused lease rather than each trial, and the `cella` Key waits on that executor | `httpapi.TestTheExternalFlow`, `httpapi.TestExperimentReads`, `postgres.TestWritesFailWhole` |
+| 15 | Partly met (v0.6.0 adds the external Key): a cancel releases the experiment's external Key at once, and a completion within `REPORT_INTERVAL` | `httpapi.TestTheExperimentKey` |
 | 18 | Partly met: past times, the declared `harness_version` and image, `422 provenance_mismatch` for another version, and declared provenance; outputs written under the trial's folder and graded wait on the file store and the check sandbox | `httpapi.TestSubmitAndImportRefusals`, `httpapi.TestAnalyzedImport` |
 | 19 | Partly met: an external harness's `service_usage` is kept in `observed` and summed apart from the trial's cost; programs and the HTTP runner are not built, and no test reads the stored usage back through the API | `compare.TestCostOf`, `analysis.TestUnknownCostNeverZero` |
-| 23 | Partly met: `completed`, `duration` and `declined`; the cost, token, turn and tool-call metrics wait on Lux, and an unfinished trial's missing value is tested for pending trials alone | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `postgres.TestMeasurementsAreAppendOnly` |
+| 21 | Partly met for `external` trials (v0.6.0): a trial's cost is the sum of the records of the experiment's external Key that its label marks or whose request id it submitted; a call no trial claims counts toward the experiment's `usage.unattributed` and no trial | `httpapi.TestTheExperimentKey`, `usage.TestTheLayersOfATrialsCalls` |
+| 22 | Partly met for `external` trials (v0.6.0): `sent` and `observed` are read from the same records, each kept once by its request id; Lux records no reasoning level a request carried, so `sent.by_setting` carries the model alone | `httpapi.TestTheExperimentKey`, `usage.TestTheLayersOfATrialsCalls` |
+| 23 | Partly met: `completed`, `duration` and `declined`; `cost_usd`, `input_tokens`, `output_tokens` and `reasoning_tokens` for an `external` trial whose records were read, as a later generation of `builtin` (v0.6.0); turns and tool calls wait on an executor, and an unfinished trial's missing value is tested for pending trials alone | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `httpapi.TestTheExperimentKey`, `postgres.TestMeasurementsAreAppendOnly` |
+| 24 | Met for the trial label (v0.6.0): a lease answers each trial's `lux_labels` as `examen.trial=<trial id>`, the id verbatim | `httpapi.TestTheExperimentKey`, `httpapi.TestALeaseWithNoKeySource` |
 | 33 | Partly met: only smoke trials lease before the smoke passes, never past the share, and a lapsed lease returns its trials to pending with no retry spent; a submit's outputs and the check sandbox wait on the file store and Cella, and that a cancel ends every lease is untested | `httpapi.TestTheExternalFlow`, `httpapi.TestLeasesLapseAndRenew`, `postgres.TestLapsesLeasesAndReopensFailWhole` |
-| 34 | Partly met: self-reported values are stored with `self_reported` true; Lux is not read, so every trial's cost is `unknown` | `httpapi.TestAnalyzedImport`, `postgres.TestMeasurementsAreAppendOnly` |
+| 34 | Partly met: self-reported values are stored with `self_reported` true; with a key source (v0.6.0) the records are those of the experiment's external Key, read through the key source rather than as the owner, by label or submitted request id, each once, a late record unsettling its trial; a trial with no record keeps cost `unknown`. Without one, every trial's cost is `unknown` | `httpapi.TestAnalyzedImport`, `postgres.TestMeasurementsAreAppendOnly`, `httpapi.TestTheExperimentKey`, `httpapi.TestTheExperimentKeyThroughAPooler` |
 
 Not built: 1 to 3, the executor contract; 5 and 9, the cost check
 against a Budget's remainder, unpriced models and soft Budgets; 14,
 deadlines and `TRIAL_START_TIMEOUT`; 16, adoption; 17, 25 and 26, the
-`topos` executor; 20 and 28, the prepare job; 21 and 22, cost and the
-sent layer read from Lux; 24, labels; 27, 31 and 36 to 38, the `cella`
+`topos` executor; 20 and 28, the prepare job; 27, 31 and 36 to 38, the `cella`
 executor and the trial driver; 29 and 30, the check sandbox; 32, the
 HTTP runner; 35, directory outputs.
 

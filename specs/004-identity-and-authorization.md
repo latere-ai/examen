@@ -593,6 +593,9 @@ type Source interface {
 	Release(ctx context.Context, keyID string) error
 	// Budget answers the figures of an experiment's Budget.
 	Budget(ctx context.Context, r Request) (Budget, error)
+	// Usage answers one page of the records of the model calls made with
+	// an experiment's external Key.
+	Usage(ctx context.Context, r UsageRequest) (UsagePage, error)
 }
 
 // Budget is what an experiment's answer shows of its Budget.
@@ -609,8 +612,8 @@ type Request struct {
 	Owner      string            // the experiment's owner
 	Subject    string            // on whose behalf: the caller, or the experiment's created_by
 	Experiment string            // the exp_ id
-	Purpose    string            // "trial", "judge" or "report"
-	Models     []string          // the only models the Key may call
+	Purpose    string            // "trial", "judge", "report" or "external"
+	Models     []string          // the only models the Key may call; none for "external"
 	Surface    string            // the one Lux surface the Key may call (spec 005): a program's surface; "lux" for a judge and a narrative draft
 	Labels     map[string]string // the Key's labels (spec 005)
 	TTL        time.Duration     // the longest the work can last
@@ -655,6 +658,26 @@ trial in the Cella Secret that carries it; it is never written to
 Postgres, an event, a log line or an error, and the Key is released
 when its work ends (specs 005 and 006).
 
+**The external Key.** The purpose `external` asks for the one Key of an
+experiment whose runs an external harness does (spec 005): the source
+answers the same Key to every ask of the experiment while it runs, made on
+the first, drawing on the experiment's Budget and naming no model list of
+a candidate's, so a call to any model the owner reaches is served and
+recorded. The ask carries no `models`, `surface` or `ttl`, and the answer
+may carry no `expires_at` for a Key that ends with its experiment. Examen
+holds its id, never its value, hands the value on in the answer of each
+lease of the experiment's trials, which a cache may not keep (spec 003),
+and releases it when the experiment completes or is canceled. `Usage`
+reads the records of the calls made with every external Key the
+experiment has had: the `endpoint` source posts `{owner, experiment,
+from, to, cursor}` to `{EXAMEN_KEYS_URL}/usage` with the same bearer and
+reads `{records, next_cursor}`, each record one of Lux's request records
+as `GET /v1/requests` answers it, less the prefix of the Key's value; a
+`404` is an experiment with no external Key. The installation reads them
+as itself, so Examen reads an external trial's records with no owner
+token. The `lux` source answers no external Key, since Examen would have
+to keep its value to answer it again.
+
 **The key endpoint.** The `endpoint` source posts one request per
 lease:
 
@@ -691,8 +714,9 @@ placeholder at the last hop, only on a request to the Secret's host. A
 credential's token lasts at most `OWNER_TOKEN_MAX_LIFETIME`; Examen
 replaces the Secret's value `OWNER_TOKEN_RENEWAL` before it expires,
 which Cella applies without touching the sandbox (spec 005). An
-external harness holds whatever credentials its owner gave it; Examen
-gives it none.
+external harness holds whatever credentials its owner gave it, and, with
+a key source, the experiment's external Key that each lease of its trials
+hands on (spec 005); Examen gives it no other credential.
 
 **Attribution check.** Where a core's answer names the owner it
 recorded for what Examen created, such as the `owner` of a Key the
@@ -969,7 +993,9 @@ object's content beyond the fields sent.
 - A canary planted as a minted token, a token file's content and a Lux
   Key's value, from either key source, is found only in requests to the
   core it belongs to, and in no response, log line, span, event, error
-  or database row.
+  or database row; an experiment's external Key is found besides in the
+  answers of the leases of its trials alone, sent with `Cache-Control:
+  no-store`.
 - A minter `403` parks the cell `blocked` with `owner_token_refused`,
   and with the reason `sign_in_not_kept` refuses a create `403
   sign_in_not_kept` and parks unattended work `blocked` with
@@ -1024,7 +1050,10 @@ create's `sign_in` to the authorizer and keeps it nowhere. v0.4.1
 answers a deny about a stored object byte for byte as an id that names
 nothing on every route served, refuses a malformed request alike
 whether the object it names exists, and asks `taxonomy.apply` when the
-suite resolves to nothing.
+suite resolves to nothing. v0.6.0 builds the `endpoint` key source for
+the external Key of an experiment whose runs an external harness does,
+its Budget's figures and the records of its calls (The external Key,
+above).
 
 Every row below shipped in v0.1.0 unless it names another release.
 
@@ -1048,14 +1077,16 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 17 | Met (v0.2.0) | `httpapi.TestAnOrganizationsExperimentKeepsItsCreator` |
 | 18 | Partly met: an allow's `budget` becomes a capped experiment's Budget, and an empty or overlong `attribution` is no decision; `attribution` does not yet replace a version's name, the key sources are not built, and a cap with no Budget is refused rather than recorded | `httpapi.TestCreateLimits`, `authorizer.TestDecodeLimits` |
 | 19 | Partly met: `grader_kinds` is sent, and an `external` experiment runs to its comparisons with no minter, token file or key source configured; no recording stub shows the absence of requests | `httpapi.TestCreateSendsGraderKinds`, `httpapi.TestTheExternalFlow` |
+| 20 | Met for the `endpoint` source (v0.6.0): the figures on an experiment's answer, reused for `BUDGET_STATUS_TTL`, and left out when the source refuses or fails | `httpapi.TestTheExperimentKey`, `httpapi.TestAKeySourceThatRefusesLeasesNothing`, `keys.TestTheEndpointsBudgetReleaseAndUsage` |
 | 21 | Met | `access.TestOwnerPolicyConformance`, `access.TestOwnerPolicyNarrowsByTheGrants`, `access.TestNewAndTheProbe` |
+| 23 | Partly met (v0.6.0): an external Key's value is in a lease's answer, sent `no-store`, and in no read of the experiment, log line, error or formatted lease; a minted token and a token file are not built, and spans, events and database rows are not searched for the canary | `httpapi.TestTheExperimentKey`, `keys.TestTheEndpointLeasesAKey`, `keys.TestTheEndpointsRefusals` |
+| 25 | Partly met (v0.6.0): with the `endpoint` source Examen writes no Key or Budget at Lux, its external Key comes from the endpoint and is released when the experiment ends, and a `402` at a lease answers `422 budget_refused`; Keys for Examen's own calls, and the `lux` source, are not built | `httpapi.TestTheExperimentKey`, `httpapi.TestAKeySourceThatRefusesLeasesNothing` |
 | 26 | Partly met: the owner policy allows `cell.retry`, `trial.lease` and `trial.submit` to the owner alone; the fields each question carries are sent and not asserted | `access.TestOwnerPolicy`, `access.TestASharedExperimentDoesNotRun`, `work.TestAdvanceDenied` |
 | 28 | Partly met: a core audience is refused at apply before any question; Examen's own audience is reserved and has no case of its own | `httpapi.TestApplyPreconditionsAndRefusals`, `objects.TestCandidateRules` |
 | 30 | Met | `httpapi.TestRunDeniedAndUnavailable`, `work.TestAdvanceDenied` |
 
 Not built: 14 and 27, the publication actions and questions with no
-subject; 20, Budget status from a key source; 22 to 25, the minter,
-owner tokens on core requests and the `endpoint` key source; 29,
+subject; 22 and 24, the minter and owner tokens on core requests; 29,
 `credential_audiences` and the `cella` executor; 31, the Key owner
 check; 32, owner token files under `EXAMEN_SOLE_OWNER`, a variable
 `serve` reads and announces and nothing else uses.

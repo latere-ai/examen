@@ -2004,7 +2004,7 @@ paths:
         - "trials"
       operationId: "leaseTrials"
       summary: "Lease pending trials of an external candidate, or of every one, or renew a lease"
-      description: "Hands out pending trials of the named candidate, or of every external candidate when the body names none, within each cell's share of the parallelism and never more at once than the parallelism, smoke trials first and main trials only after a cell's smoke passes, in the order the experiment's scheduling deals them, for EXTERNAL_LEASE. Each trial names the candidate it runs. `204` when nothing may be leased now. No answer carries a reference. Asks `trial.lease`, with the candidate and its harness when the body names one."
+      description: "Hands out pending trials of the named candidate, or of every external candidate when the body names none, within each cell's share of the parallelism and never more at once than the parallelism, smoke trials first and main trials only after a cell's smoke passes, in the order the experiment's scheduling deals them, for EXTERNAL_LEASE. Each trial names the candidate it runs. `204` when nothing may be leased now. No answer carries a reference. With a key source, a lease and a renewal also carry the experiment's Key as model_key, asked of the key source before any trial is taken, and each trial the label its model calls send as Lux-Labels: a key source that refuses answers 403 forbidden with its reason, one with no money left 422 budget_refused, and one that does not answer 503 owner_tokens_unavailable, each taking no trial. Asks `trial.lease`, with the candidate and its harness when the body names one."
       parameters:
         - name: "id"
           in: "path"
@@ -2032,7 +2032,11 @@ paths:
           "$ref": "#/components/responses/Error"
         "409":
           "$ref": "#/components/responses/Error"
+        "403":
+          "$ref": "#/components/responses/Error"
         "422":
+          "$ref": "#/components/responses/Error"
+        "503":
           "$ref": "#/components/responses/Error"
         "204":
           description: "Nothing may be leased now."
@@ -3248,9 +3252,47 @@ components:
           type: "integer"
         budget:
           type: "object"
+          description: "The Lux Budget the experiment is metered against, and its figures as the key source read them when the answer was built, reused for at most BUDGET_STATUS_TTL. The figures are absent when no key source answered them, or carry currency in their place for a Budget in another currency than USD."
           properties:
             name:
               type: "string"
+            cap_usd_micro:
+              type: "integer"
+              description: "The Budget's amount, in micro-USD."
+            spent_usd_micro:
+              type: "integer"
+              description: "What the Budget spent, in micro-USD."
+            remaining_usd_micro:
+              type: "integer"
+              description: "The smallest remainder across the Budget and every Budget that pays for it, in micro-USD."
+            currency:
+              type: "string"
+        usage:
+          type: "object"
+          description: "On a read of one experiment whose runs hold the experiment's Key: what Lux recorded of the calls made with it. unattributed counts the calls no trial claims by its request label or a submitted request id, which count toward the experiment and no trial. read_to is how far the records were read."
+          properties:
+            requests:
+              type: "integer"
+            cost_usd_micro:
+              type: "integer"
+              description: "The priced calls' cost, in micro-USD."
+            unpriced_requests:
+              type: "integer"
+              description: "The calls Lux could not price, whose cost is unknown."
+            unattributed:
+              type: "object"
+              properties:
+                requests:
+                  type: "integer"
+                cost_usd_micro:
+                  type: "integer"
+                unpriced_requests:
+                  type: "integer"
+              additionalProperties: false
+            read_to:
+              type: "string"
+              format: "date-time"
+          additionalProperties: false
         parallelism:
           type: "integer"
         reference:
@@ -3477,8 +3519,28 @@ components:
           additionalProperties: false
         retry_of:
           type: "string"
+        sent:
+          type: "object"
+          description: "What the trial's model calls named, from Lux's records of the calls made with the experiment's Key: how many it made, and one entry per distinct model and reasoning level. Absent until those records are read, and for a trial no record of which carries its label or a request id it submitted."
+          properties:
+            requests:
+              type: "integer"
+            by_setting:
+              type: "array"
+              items:
+                type: "object"
+                properties:
+                  model:
+                    type: "string"
+                  reasoning:
+                    type: "string"
+                  requests:
+                    type: "integer"
+                additionalProperties: false
+          additionalProperties: false
         observed:
           type: "object"
+          description: "What happened in the trial. From Lux's records of its calls: served (the models that served them, each with its count), input_tokens, output_tokens, reasoning_tokens, cost_state (known, unpriced when a call was not priced, or unknown when no record of the trial was read) and cost_usd when known."
         declared:
           type: "object"
           properties:
@@ -3603,6 +3665,9 @@ components:
         expires_at:
           type: "string"
           format: "date-time"
+        model_key:
+          type: "string"
+          description: "The experiment's Lux Key, which each trial's model calls go through so the experiment's Budget binds them and Lux's records of them are the trial's cost. Absent when the installation has no key source. The answer is sent with Cache-Control: no-store, and no other answer carries the Key."
         trials:
           type: "array"
           items:
@@ -3614,6 +3679,9 @@ components:
                 type: "string"
               index:
                 type: "integer"
+              lux_labels:
+                type: "string"
+                description: "The value of the Lux-Labels header each of the trial's model calls carries, examen.trial=<trial id>, which attributes the call to the trial."
               candidate:
                 type: "object"
                 description: "The candidate the trial runs, with the configuration its harness declared."
