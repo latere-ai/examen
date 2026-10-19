@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.6.3 - 2026-10-20
+
 ### Fixed
 
 - A run that found no machine free to work on, `machine_unavailable`,
