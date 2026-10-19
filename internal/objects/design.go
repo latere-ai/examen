@@ -151,7 +151,7 @@ func kept(design []DesignCell, where map[string]string) []*DesignCell {
 		c := &design[i]
 		match := true
 		for k, v := range where {
-			if c.Vars[k] != v {
+			if held, ok := c.Vars[k]; !ok || held != v {
 				match = false
 				break
 			}
@@ -172,6 +172,8 @@ func checkVariables(design []DesignCell, variable string, where map[string]strin
 	}
 	for _, k := range slices.Sorted(maps.Keys(where)) {
 		switch {
+		case where[k] == "":
+			return apierr.OnField(apierr.CodeInvalidField, field+".where."+k, "where holds a variable to a level that is not empty")
 		case k == variable:
 			return apierr.OnField(apierr.CodeInvalidField, field+".where."+k, "where holds the compared variable to one level")
 		case !carried(design, k):
@@ -180,12 +182,13 @@ func checkVariables(design []DesignCell, variable string, where map[string]strin
 	}
 	for i, b := range by {
 		at := field + ".by[" + itoa(i) + "]"
+		_, inWhere := where[b]
 		switch {
 		case b == variable:
 			return apierr.OnField(apierr.CodeInvalidField, at, "a comparison is not stratified by the variable it compares")
 		case slices.Contains(by[:i], b):
 			return apierr.OnField(apierr.CodeInvalidField, at, "by names "+quote(b)+" twice")
-		case where[b] != "":
+		case inWhere:
 			return apierr.OnField(apierr.CodeInvalidField, at, "where already holds "+quote(b)+" to one level")
 		case !carried(design, b):
 			return apierr.OnField(apierr.CodeInvalidField, at, "no cell of the experiment carries the variable "+quote(b))
@@ -228,8 +231,8 @@ func stratumKey(c *DesignCell, by []string) string {
 // is one cell. It refuses a declaration that does not read as one
 // comparison, naming the member at fault.
 func Select(d DeclaredComparison, design []DesignCell, field string) (Selection, error) {
-	if len(d.Levels) != 2 || d.Levels[0] == d.Levels[1] {
-		return Selection{}, apierr.OnField(apierr.CodeInvalidField, field+".levels", "levels are two different levels of the variable, the candidate side's first")
+	if len(d.Levels) != 2 || d.Levels[0] == d.Levels[1] || slices.Contains(d.Levels, "") {
+		return Selection{}, apierr.OnField(apierr.CodeInvalidField, field+".levels", "levels are two different levels of the variable, neither empty, the candidate side's first")
 	}
 	if err := checkVariables(design, d.Variable, d.Where, d.By, field); err != nil {
 		return Selection{}, err
@@ -240,8 +243,12 @@ func Select(d DeclaredComparison, design []DesignCell, field string) (Selection,
 	}
 	sides := [2][]*DesignCell{}
 	for _, c := range cells {
+		held, ok := c.Vars[d.Variable]
+		if !ok {
+			continue
+		}
 		for s, l := range d.Levels {
-			if c.Vars[d.Variable] == l {
+			if held == l {
 				sides[s] = append(sides[s], c)
 			}
 		}

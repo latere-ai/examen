@@ -194,6 +194,8 @@ func TestSelectRefusals(t *testing.T) {
 	}{
 		{"one level", DeclaredComparison{Variable: "object", Levels: []string{"build"}}, apierr.CodeInvalidField, "c.levels"},
 		{"one level twice", DeclaredComparison{Variable: "object", Levels: []string{"do", "do"}}, apierr.CodeInvalidField, "c.levels"},
+		{"an empty level", DeclaredComparison{Variable: "object", Levels: []string{"build", ""}}, apierr.CodeInvalidField, "c.levels"},
+		{"an empty where", DeclaredComparison{Variable: "candidate", Levels: []string{c[0], c[1]}, Where: map[string]string{"object": ""}}, apierr.CodeInvalidField, "c.where.object"},
 		{"a variable no cell carries", DeclaredComparison{Variable: "harness", Levels: []string{"a", "b"}}, apierr.CodeInvalidField, "c.variable"},
 		{"where on the variable", DeclaredComparison{Variable: "object", Levels: []string{"build", "do"}, Where: map[string]string{"object": "do"}}, apierr.CodeInvalidField, "c.where.object"},
 		{"where on a variable no cell carries", DeclaredComparison{Variable: "object", Levels: []string{"build", "do"}, Where: map[string]string{"tone": "dry"}}, apierr.CodeInvalidField, "c.where.tone"},
