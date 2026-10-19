@@ -41,9 +41,12 @@ source, key source or file store runs, which is what the first release
 serves.
 
 Neither the `topos` nor the `cella` executor can run today as written.
-Topos has sessions, budgets and metadata but no rollout primitive, no
-model override at create and no checks in the machine; Cella's
-SandboxSet is designed (Cella spec 020) and not built. What the `topos`
+Topos has sessions, budgets and metadata, and since its v0.49.0 a model
+named at create and a session marked as one run of a rollout, but no
+rollout primitive and no checks in the machine; Cella's SandboxSet is
+designed (Cella spec 020) and not built. The `topos` executor runs today
+with one session per trial, which the mapping below allows until R1
+exists (Outcome). What the `topos`
 executor needs from Topos is listed below as numbered requirements,
 from which Topos's rollout spec is written. The `external` executor
 needs from Cella only a single sandbox, its file routes and exec, which
@@ -722,7 +725,7 @@ reports by path and digest.
 | Rollout field | Topos, today | Needs |
 |---|---|---|
 | `Candidate.topos.agent` | a session names `name@version`; examend resolves the digest to a version through `GET /agents/{ref}/versions` and checks it | R1 takes the digest |
-| `Candidate.topos.model`, `.reasoning` | `PATCH /sessions/{id}` with `model {name, reasoning}` changes the next turn, and the authorizer may answer another model | R3 |
+| `Candidate.topos.model`, `.reasoning` | the create's `model {name, reasoning}`, run from the first request; an allow that names another model or level refuses the create `model_not_allowed` (Topos v0.49.0) | R3 met for one session |
 | `Candidate.topos.tools` | none | R4 |
 | `Task.instruction` | the create's `message` | carried by R1 |
 | `Task.workspace` `origo` | `resources` `[{type: repository, url, ref}]` with `ref` the full commit | carried by R1 |
@@ -735,8 +738,8 @@ reports by path and digest.
 | `Task.outputs` | none | R9 |
 | evidence | a session keeps files in a folder of an Arca-compatible files API only when the authorizer's allow names one | R9 |
 | `Budget` | each session's two Lux keys are minted by the installation's authorizer, with a budget it chooses | R10 |
-| `Labels` | session `metadata`, at most 32 pairs, listable by `metadata.<key>=<value>` | built |
-| unattended, one turn | `attended` false (a question is answered at once as unanswered), `end_on_idle` true | built |
+| `Labels` | session `metadata`, at most 32 pairs, listable by `metadata.<key>=<value>`; the create's `rollout`, the rollout's key, which leaves the session out of the owner's lists (Topos v0.49.0) | built |
+| unattended, one turn | `attended` false (a question is answered at once as unanswered), `end_on_idle` true; a run of a rollout refuses a call that would wait for a confirmation, as a person's deny (Topos v0.49.0) | built |
 | idempotent create | `Idempotency-Key`, same subject and body, kept 24 hours | R1 holds a key for the rollout's life |
 | the record of each request | `model.request` with `model`, `usage`, `cost_usd_micro`, `cost_source`, `stop_reason`, `outcome` | R11 adds the Lux request id |
 | the level of each request | folded today from the session's `model` and its `session.model_changed` events: one trial is one turn, and the level standing at a request's `fold_seq` is the level it carried | built |
@@ -1489,8 +1492,10 @@ Every row below shipped in v0.1.0 unless it names another release.
 
 Not built: 1 to 3, the executor contract; 5 and 9, the cost check
 against a Budget's remainder, unpriced models and soft Budgets; 14,
-deadlines and `TRIAL_START_TIMEOUT`; 16, adoption; 17, 25 and 26, the
-`topos` executor; 20 and 28, the prepare job; 27, 31 and 36 to 38, the `cella`
+deadlines and `TRIAL_START_TIMEOUT`, but a `topos` trial's deadline
+(below); 16, adoption; 17, imports; 25 and 26, the `topos` executor's
+rollout, which runs as one session per trial (below); 20 and 28, the
+prepare job; 27, 31 and 36 to 38, the `cella`
 executor and the trial driver; 29 and 30, the check sandbox; 32, the
 HTTP runner; 35, directory outputs.
 
@@ -1500,3 +1505,50 @@ jobs table claimed by `EXAMEN_WORKERS` workers, a rollout has no
 are dealt at each lease, and a parked cell's reason reads
 `smoke_infra_failed: <trial>: <code>` or `budget_exhausted: <trial>:
 <code>`.
+
+**The `topos` executor, one session per trial.** Built with Topos
+v0.49.0, before Topos has a rollout primitive. A `topos` cell's rollouts
+are rows as an external cell's are, with `executor` `topos` and the key
+as their handle. Each tick deals the experiment's parallelism as a lease
+does and claims the pending trials it lets run, asks `experiment.run`
+with the executor `topos`, and creates one session per claimed trial at
+`POST /sessions` with the trial's id as its `Idempotency-Key`, as the
+experiment's owner on behalf of its `created_by`, through an owner token
+the minter answers with the purpose `trial`: the agent version the
+candidate's digest resolves to, its model and reasoning level, the
+task's instruction as the one message, `attended` false, `end_on_idle`
+true, the rollout's key as `rollout`, spec 005's labels as metadata, an
+`origo` workspace as the repository at its commit under
+`EXAMEN_ORIGO_URL`, and the task's timeout as the turn timeout with
+`CHECK_TIMEOUT` and `TRIAL_GRACE` added for the maximum age. A session
+that ended, or stopped idle short of its end, ends its trial by the
+outcome table, and one that stopped idle is ended. A session gone at
+Topos ends its trial `infra_failed` with `rollout_lost`, and one past
+the trial's deadline `deadline_passed`. A trial that ends `canceled`
+while its session runs, at a cancel or a parked cell, or before its
+session's create was answered, marks the session to stop: an interrupt,
+then an end. A minter that keeps no sign-in parks the cell `blocked`
+with `sign_in_not_kept`, a Topos refusal with `topos_refused: <code>`,
+and an outage of either waits. An experiment's create resolves each
+agent version at Topos as the caller with the purpose `resolve`, which
+asks the minter before the experiment exists, and refuses a task with no
+instruction and what a session cannot carry yet: a candidate's `tools`
+(R4), a task's `environment` (R5) or `arca` workspace (R6).
+
+A trial's `sent` layer, its `observed` figures and its cost, tokens,
+`turns` and `tool_calls` are read from the session's own records when it
+ends: each `model.request` with the model it named, the session's
+reasoning level, its usage and the cost Topos recorded, which is Lux's
+when the gateway reported one. Lux's records by the session's Key ids
+(R10 and R11) are not read yet, so a request's served model is the one
+it named. Its evidence is the session's log, by its id, last sequence and
+the SHA-256 of its JSONL as read, and the files the session keeps in its
+own folder, its working directory under `work/`; R9's outputs and
+manifest are not built, so a task's `outputs` are not collected apart.
+Held by `work.TestToposRunsEachTrialAsASession`,
+`work.TestToposRefusalsParkAndOutagesWait`,
+`work.TestToposLostAndLateSessions`,
+`work.TestASessionCreatedForAnEndedTrialIsStopped`, `topos.TestOutcomes`,
+`topos.TestReadTheLog`, `topos.TestTheClient`,
+`httpapi.TestAToposExperimentRunsItsTrialsAsSessions` and
+`httpapi.TestAToposCreateIsRefusedForWhatCannotRun`.

@@ -156,14 +156,14 @@ configuration, and `examend` reads none of them.
 | `EXAMEN_OWNER_TOKEN_DIR` | none; required with `EXAMEN_SOLE_OWNER`, after v0.1 | spec 004 |
 | `EXAMEN_KEYS_URL` | none: no key source, which with no owner token source and no file store is the v0.1 profile; after v0.1, the `lux` key source, which creates Keys at Lux as the owner, when `EXAMEN_LUX_URL` and an owner token source are set | spec 004 |
 | `EXAMEN_KEYS_TOKEN_FILE` | none; required with `EXAMEN_KEYS_URL` | spec 004 |
-| `EXAMEN_TOPOS_URL` | none: candidates of kind `topos` and agent judges are refused | spec 005 |
+| `EXAMEN_TOPOS_URL` | none: candidates of kind `topos` and agent judges are refused; the root of Topos's API with its base path, such as `https://topos.example/v1`. Set without `EXAMEN_MINTER_URL`, no owner token reaches Topos, so `topos` candidates stay refused and the start logs it | spec 005 |
 | `EXAMEN_CELLA_URL` | none: candidates of kind `program`, `external` candidates on a suite whose tasks have checks, and every publication version, whose secret scan runs in Cella, are refused | spec 005 |
 | `EXAMEN_CELLA_ENVIRONMENT` | none; required with `EXAMEN_CELLA_URL`: the `queued` Cella Environment a SandboxSet and a check sandbox run in | spec 005 |
 | `EXAMEN_LUX_URL` | none: model judges, agent judges, the `lux` key source and a named Budget no authorizer assigned are refused, and every trial's cost is `unknown`; an experiment that needs none of them, as in the v0.1 profile, is created | spec 005 |
 | `EXAMEN_ARCA_URL` | none: an `arca` workspace a trial starts from, tasks with inputs or references, outputs carried inline, transcripts and final messages, judges that read evidence, exports, and publications that carry files are refused; an `external` trial's outputs are taken only as `arca` references with their digests, recorded and not read (the v0.1 profile) | spec 007 |
 | `EXAMEN_ARCA_PUBLIC_URL` | `EXAMEN_ARCA_URL`: the address readers reach Arca at, on which a public read builds evidence links | spec 013 |
 | `EXAMEN_FILESTORE_DOWNLOAD_ONLY` | `false`: publication versions at `outputs` and `full` are refused, `422 file_store_not_download_only`. `true` declares that every link read of the file store answers `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`, so a published file a model wrote is downloaded and never rendered on the file store's origin; Examen cannot check the declaration, and an operator sets it only once the file store does so | spec 013 |
-| `EXAMEN_ORIGO_URL` | none: tasks with an `origo` workspace are refused | spec 005 |
+| `EXAMEN_ORIGO_URL` | none: tasks with an `origo` workspace are refused; the root a repository is cloned from as `<root>/<repository>.git`, which a `topos` trial's session is given | spec 005 |
 | `EXAMEN_TOPOS_AUDIENCE` | `topos` | spec 004 |
 | `EXAMEN_CELLA_AUDIENCE` | `cella` | spec 004 |
 | `EXAMEN_LUX_AUDIENCE` | `lux` | spec 004 |

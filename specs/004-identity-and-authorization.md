@@ -1053,7 +1053,19 @@ whether the object it names exists, and asks `taxonomy.apply` when the
 suite resolves to nothing. v0.6.0 builds the `endpoint` key source for
 the external Key of an experiment whose runs an external harness does,
 its Budget's figures and the records of its calls (The external Key,
-above).
+above), and the minter's client: owner tokens asked one at a time for an
+owner, a subject, an audience, an experiment and a purpose, kept in
+memory until `OWNER_TOKEN_RENEWAL` before they expire and never past
+`OWNER_TOKEN_MAX_LIFETIME`, a `403` naming `sign_in_not_kept` told from
+any other refusal, and an outage retried once on a connection failure.
+The `topos` executor asks it for Topos with the purpose `resolve` at an
+experiment's create and `trial` for the experiment's sessions, as the
+owner on behalf of `created_by`, and asks `experiment.run` with the
+executor `topos` before a cell's sessions start (spec 005). Held by
+`owner.TestTokensAreKeptUntilTheirRenewal`,
+`owner.TestALongTokenIsUsedNoLongerThanTheMaxLifetime`,
+`owner.TestRefusalsAndOutages` and
+`httpapi.TestAToposCreateIsRefusedForWhatCannotRun`.
 
 Every row below shipped in v0.1.0 unless it names another release.
 
