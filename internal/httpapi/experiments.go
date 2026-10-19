@@ -4,6 +4,7 @@
 package httpapi
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -241,7 +242,6 @@ func checkDeclared(list []declaredBody, candDigests []string) error {
 	if len(list) > limits.MaxDeclaredComparisons {
 		return apierr.Exceeds("MAX_DECLARED_COMPARISONS", "comparisons", "more declared comparisons than MAX_DECLARED_COMPARISONS ("+itoa(limits.MaxDeclaredComparisons)+")")
 	}
-	pairs := map[[3]string]bool{}
 	for i, d := range list {
 		f := "comparisons[" + itoa(i) + "]"
 		if d.Levels != nil {
@@ -296,11 +296,6 @@ func checkDeclared(list []declaredBody, candDigests []string) error {
 		case ref == cand:
 			return apierr.OnField(apierr.CodeInvalidField, f+".reference_candidate", "a declared comparison compares two different candidates")
 		}
-		key := [3]string{min(cand, ref), max(cand, ref), d.Metric}
-		if pairs[key] {
-			return apierr.OnField(apierr.CodeInvalidField, f, "the pair of candidates is declared twice")
-		}
-		pairs[key] = true
 	}
 	return nil
 }
@@ -317,8 +312,7 @@ func checkDeclared(list []declaredBody, candDigests []string) error {
 func declarations(list []declaredBody, res objects.Resolved, design []objects.DesignCell) ([]objects.DeclaredComparison, []objects.Selection, error) {
 	out := make([]objects.DeclaredComparison, len(list))
 	selections := make([]objects.Selection, len(list))
-	pairs := map[[4]string]bool{}
-	general := map[string]bool{}
+	seen := map[string]bool{}
 	for i, d := range list {
 		f := "comparisons[" + itoa(i) + "]"
 		metric := ""
@@ -338,14 +332,6 @@ func declarations(list []declaredBody, res objects.Resolved, design []objects.De
 			if err != nil {
 				return nil, nil, err
 			}
-			key, err := generalKey(dc)
-			if err != nil {
-				return nil, nil, apierr.Internal(err)
-			}
-			if general[key] {
-				return nil, nil, apierr.OnField(apierr.CodeInvalidField, f, "the comparison is declared twice")
-			}
-			general[key] = true
 			out[i], selections[i] = dc, sel
 			continue
 		}
@@ -356,10 +342,11 @@ func declarations(list []declaredBody, res objects.Resolved, design []objects.De
 			out[i] = dc
 			continue
 		}
+		dc.Task, dc.ReferenceTask = d.Task, d.ReferenceTask
 		for _, t := range []struct {
 			field, ref string
 			into       *string
-		}{{f + ".task", d.Task, &dc.Task}, {f + ".reference_task", d.ReferenceTask, &dc.ReferenceTask}} {
+		}{{f + ".task", dc.Task, &dc.Task}, {f + ".reference_task", dc.ReferenceTask, &dc.ReferenceTask}} {
 			digest := t.ref
 			_, ok := res.Tasks[t.ref]
 			if !ok {
@@ -373,28 +360,49 @@ func declarations(list []declaredBody, res objects.Resolved, design []objects.De
 		if dc.Task == dc.ReferenceTask {
 			return nil, nil, apierr.OnField(apierr.CodeInvalidField, f+".reference_task", "a declared comparison across tasks names two different tasks")
 		}
-		key := [4]string{cand, min(dc.Task, dc.ReferenceTask), max(dc.Task, dc.ReferenceTask), metric}
-		if pairs[key] {
-			return nil, nil, apierr.OnField(apierr.CodeInvalidField, f, "the candidate's pair of tasks is declared twice")
-		}
-		pairs[key] = true
 		out[i] = dc
+	}
+	for i, dc := range out {
+		key, err := comparisonKey(dc, res.Suite.PrimaryMetric)
+		if err != nil {
+			return nil, nil, apierr.Internal(err)
+		}
+		if seen[key] {
+			return nil, nil, apierr.OnField(apierr.CodeInvalidField, "comparisons["+itoa(i)+"]", "the comparison is declared twice, in this form or another")
+		}
+		seen[key] = true
 	}
 	return out, selections, nil
 }
 
-// generalKey identifies a general declaration whatever the order of its
-// levels: two declarations of one key are one comparison.
-func generalKey(d objects.DeclaredComparison) (string, error) {
-	levels := slices.Clone(d.Levels)
+// comparisonKey identifies a declared comparison whatever its form, the
+// orientation of its levels and the order of its strata: a pair of
+// candidates reads as the candidate compared by task, and a candidate's
+// pair of tasks as the task compared within the candidate, at the metric
+// of its primary result. Two declarations of one key are one comparison.
+func comparisonKey(d objects.DeclaredComparison, primary string) (string, error) {
+	variable, levels, where, by := d.Variable, slices.Clone(d.Levels), maps.Clone(d.Where), slices.Clone(d.By)
+	switch {
+	case d.ReferenceCandidate != "":
+		variable, levels, where, by = objects.VarCandidate, []string{d.Candidate, d.ReferenceCandidate}, nil, []string{objects.VarTask}
+	case d.ReferenceTask != "":
+		variable, levels, where, by = objects.VarTask, []string{d.Task, d.ReferenceTask}, map[string]string{objects.VarCandidate: d.Candidate}, nil
+	}
 	slices.Sort(levels)
+	slices.Sort(by)
+	if where == nil {
+		where = map[string]string{}
+	}
+	if by == nil {
+		by = []string{}
+	}
 	b, err := json.Marshal(struct {
 		Variable string            `json:"variable"`
 		Levels   []string          `json:"levels"`
 		Where    map[string]string `json:"where"`
 		By       []string          `json:"by"`
 		Metric   string            `json:"metric"`
-	}{d.Variable, levels, d.Where, d.By, d.Metric})
+	}{variable, levels, where, by, cmp.Or(d.Metric, primary)})
 	return string(b), err
 }
 

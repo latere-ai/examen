@@ -102,10 +102,27 @@ func TestGeneralDeclarationsRefused(t *testing.T) {
 			general("object", []string{"do", "build"}, map[string]string{"candidate": d.high}, []string{"volition"}),
 		}, nil, 400, apierr.CodeInvalidField, "comparisons[1]"},
 		{"a metric the suite does not list", []any{map[string]any{"candidate": d.high, "reference_candidate": d.low, "metric": "quality"}}, nil, 400, apierr.CodeInvalidField, "comparisons[0].metric"},
+		{"a pair twice, its metric by name and by digest", []any{
+			map[string]any{"candidate": d.low, "reference_candidate": d.high, "metric": "completed"},
+			map[string]any{"candidate": d.high, "reference_candidate": d.low, "metric": "builtin:completed"},
+		}, nil, 400, apierr.CodeInvalidField, "comparisons[1]"},
+		{"a pair twice, in the pair form and the general one", []any{
+			map[string]any{"candidate": d.high, "reference_candidate": d.low},
+			general("candidate", []string{d.low, d.high}, nil, []string{"task"}),
+		}, nil, 400, apierr.CodeInvalidField, "comparisons[1]"},
+		{"a pair of tasks twice, in the task form and the general one", []any{
+			map[string]any{"candidate": d.high, "task": "build", "reference_task": "do"},
+			general("task", []string{"do", "build"}, map[string]string{"candidate": d.high}, nil),
+		}, nil, 400, apierr.CodeInvalidField, "comparisons[1]"},
+		{"strata named in another order", []any{
+			general("volition", []string{"none", "want"}, nil, []string{"candidate", "object"}),
+			general("volition", []string{"none", "want"}, nil, []string{"object", "candidate"}),
+		}, nil, 400, apierr.CodeInvalidField, "comparisons[1]"},
 		{"no metric of independence", nil, map[string]any{"variable": "candidate"}, 400, apierr.CodeMissingField, "independence.metric"},
 		{"a metric that is no label", nil, map[string]any{"metric": "builtin:completed"}, 400, apierr.CodeInvalidField, "independence.metric"},
 		{"a variable of one level", nil, map[string]any{"metric": d.kind, "where": map[string]string{"model": "m-high"}}, 400, apierr.CodeInvalidField, "independence.variable"},
 		{"a stratum of two cells", nil, map[string]any{"metric": d.kind, "by": []string{"volition"}}, 400, apierr.CodeInvalidField, "independence.by"},
+		{"no stratum of two levels", nil, map[string]any{"metric": d.kind, "variable": "object", "by": []string{"task"}}, 400, apierr.CodeInvalidField, "independence.by"},
 	} {
 		details := x.refuse(c.status, c.code, http.MethodPost, "/v1/experiments", "t-alice", create(c.comparisons, c.independence))
 		if field, _ := details["field"].(string); field != c.field {
