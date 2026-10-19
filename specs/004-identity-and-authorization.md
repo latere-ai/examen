@@ -240,7 +240,7 @@ object's own `type` or `kind` is sent as `metric_type`, `grader_kind`,
 | `pinned` | on a read of another owner's task, metric, grader or suite: whether an experiment of the context owner pins it |
 | `for_owner` | the owner that would use another owner's suite or baseline: the experiment's, baseline's or bar's owner |
 | `publication`, `published` | on `suite.use` through a benchmark: the benchmark's publication id, and its `visibility` when the request resolved it by its link token or public id |
-| `metric`, `version` on a taxonomy action | the open-vocabulary metric's digest, and the record's `version`: on `taxonomy.apply`, the one it would append |
+| `metric`, `version` on a taxonomy action | the open-vocabulary metric's digest, and the record's `version`: on `taxonomy.apply`, the one it would append, and both left out when the suite or its metric resolves to nothing |
 | `metric_type`, `grader_kind`, `candidate_kind`, `workspace_kind` | the object's `type`, `kind`, or workspace kind (`none`, `origo`, `arca`) |
 | `model`, `agent`, `image`, `reasoning` | a grader's judge model or judge agent; a candidate's pinned agent version or a `program` candidate's image, its model and its reasoning level; on `report.update`, the model a narrative draft calls |
 | `harness` | an `external` candidate's `harness`; on `trial.lease` and `trial.submit`, that of the candidate whose trials are leased or submitted, absent on a lease that names no candidate |
@@ -312,7 +312,15 @@ its owner context where it resolves names before its own question, as
 `POST /experiments` does when it names no owner (spec 003, The owner
 context). A question with no id is asked
 before any name in the request is resolved, so its answer never depends
-on whether the name exists. Then, for each other owner's object the
+on whether the name exists. `taxonomy.apply` carries the metric's digest
+and the version it would append, which only a resolved suite gives, so
+it is asked after the suite and its metric resolve, and also, with
+`owner` and `name` alone, when either resolves to nothing: its deny is
+the same `403` whether or not they exist, and an allow then answers the
+`404`. A request's body, references and page are checked before the
+object it names is read or after the question about it allows it, never
+between, so a malformed request is refused alike whether the object
+exists. Then, for each other owner's object the
 request names, the route asks `suite.use` or `baseline.use`; and for
 each experiment an export names, the experiment a baseline pin names,
 and the experiment of the comparison a bar evaluation names, it asks
@@ -1012,7 +1020,11 @@ v0.2.0 records a creator apart from the owner in an organization's
 context, and the owner policy denies a grantee every action that runs
 an experiment. v0.3.0 makes a share open reads alone and runs an
 experiment only on its owner's suite and baseline. v0.4.0 passes a
-create's `sign_in` to the authorizer and keeps it nowhere.
+create's `sign_in` to the authorizer and keeps it nowhere. v0.4.1
+answers a deny about a stored object byte for byte as an id that names
+nothing on every route served, refuses a malformed request alike
+whether the object it names exists, and asks `taxonomy.apply` when the
+suite resolves to nothing.
 
 Every row below shipped in v0.1.0 unless it names another release.
 
@@ -1024,7 +1036,7 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 4 | Met | `config.TestRefusals`, `config.TestErrorsNameTheVariableOnly`, `access.TestAVerifierNeedsAnIssuerAndAnAudience` |
 | 5 | Partly met: the package's actions are the table's rows in order, with their kinds, id flags and fields, less `benchmark` and `adopt` on `experiment.create`; the table of routes is not checked against the routes served | `authorizer.TestTheVocabularyIsTheSpecs`, `authorizer.TestVocabulary` |
 | 6 | Partly met: every route served asks before it acts, a list question comes before a name is resolved, and a deny or an outage does nothing; public routes are not built | `httpapi.TestARouteAsks`, `httpapi.TestReadsAcrossOwnersAndOutages` |
-| 7 | Partly met: a deny about a stored object answers that object's `404` code, and a denied create or apply `403 forbidden`; the two `404` bodies are not yet identical, and shares, exports, submissions, `suite.use` and `baseline.use` are not built | `httpapi.TestExperimentReads`, `httpapi.TestARouteAsks`, `apierr.TestDenied` |
+| 7 | Met for every route served (v0.4.1): a deny about a stored object is byte for byte, status, headers and body, the answer for an object that does not exist, by id, name, digest or reference, in the path, the query or the body; a denied create, apply, pin or taxonomy apply is `403 forbidden` whether or not what it names exists. Shares, exports, submissions, `suite.use` and `baseline.use` are not built | `httpapi.TestAnotherOwnersTokenReachesNothing`, `httpapi.TestARouteAsks`, `apierr.TestDenied` |
 | 8 | Partly met: each failure listed is `503` with nothing done; a label filter is refused outside the task, candidate and experiment lists, as Filters above says, rather than on every list but tasks | `access.TestNoDecisionFailsClosed`, `access.TestTheLimitsOfAnAllow`, `authorizer.TestDecodeLimits` |
 | 9 | Partly met: an allow is held for its `ttl`, an outage never, and a question with no id is asked each time; the deny's `authz.DenyTTL` and the one retry belong to `latere.ai/x/pkg/authz` and are not tested here | `access.TestWhatTheClientRemembers`, `access.TestNoDecisionFailsClosed` |
 | 10 | Partly met: `owner`, `max_parallelism`, `max_trials`, `max_active_experiments`, `executors` and `budget` each change an outcome, and a limit above its constant is held to it; `judge_models`, `credential_audiences` and `attribution` are decoded and not yet enforced | `httpapi.TestCreateLimits`, `httpapi.TestNamesResolveInTheListsOwner`, `access.TestTheLimitsOfAnAllow` |

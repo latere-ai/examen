@@ -305,21 +305,23 @@ deny answered as a missing object, the body bound and the rate limit
 per subject, idempotent creates, the bound on active experiments,
 measurements kept append-only by the database, canonical digests, the
 reserved `examen.` metadata prefix and the lease holder's check. v0.3.0
-adds the owner policy's rule that a share opens reads alone.
+adds the owner policy's rule that a share opens reads alone. v0.4.1
+answers another owner's caller byte for byte as if the object did not
+exist, on every route served.
 `SECURITY.md` names the private channel. Nothing that rests on judges,
 checks, executors, Keys, program credentials, shares or public reads
 is built.
 
-Every row below shipped in v0.1.0. Of the tests the table of threats
-names, few exist under the cited name; the table below names the tests
-that hold the same behavior.
+Every row below shipped in v0.1.0 unless it names another release. Of
+the tests the table of threats names, few exist under the cited name;
+the table below names the tests that hold the same behavior.
 
 | # | Verdict | Held by |
 |---|---|---|
 | 2 | Partly met: `SECURITY.md` names a private channel; no test reads both files, and two of its commitments have no row in the table of threats | no test yet |
 | 8 | Partly met: no file of `examend` imports `os/exec` or starts a process; no test asserts it | no test yet |
 | 10 | Met | `httpapi.TestCreateLimits` |
-| 11 | Partly met: a read, a run and a cancel with another owner's token answer as a missing object; re-grade, annotation answers and evidence reads are not built, and that nothing changes is not asserted after each refusal | `httpapi.TestExperimentReads`, `httpapi.TestReadsAcrossOwnersAndOutages`, `httpapi.TestSubmitAndImportRefusals` |
+| 11 | Met for every route served (v0.4.1): each read, run, cancel, close, retry, import, lease and submit with another owner's token, naming the object by id, name, digest or reference, answers byte for byte as the same request against a store that holds nothing, and nothing of the owner's changes; re-grade, annotation answers and evidence reads are not built | `httpapi.TestAnotherOwnersTokenReachesNothing` |
 | 13 | Partly met: a model judge without a model is `400 missing_field`, and a suite pins only applied graders; no test shows that no default judge model exists | `objects.TestGraderRules` |
 | 15 | Met; the store, its tests and the migrations use one role, the one that owns the tables | `postgres.TestMeasurementsAreAppendOnly` |
 | 16 | Met | `id.TestCanonicalGolden`, `id.TestDigestIgnoresOrderAndSpace` |
