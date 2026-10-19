@@ -14,6 +14,7 @@ import (
 	"latere.ai/x/examen/internal/compare"
 	keysrc "latere.ai/x/examen/internal/keys"
 	"latere.ai/x/examen/internal/limits"
+	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/store/postgres"
 	"latere.ai/x/examen/internal/store/postgres/pgtest"
 	"latere.ai/x/examen/internal/work"
@@ -241,4 +242,34 @@ func TestALeaseWithNoKeySource(t *testing.T) {
 	if e := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid, "t-alice", nil); e["usage"] != nil {
 		t.Errorf("usage with no key: %v", e["usage"])
 	}
+}
+
+// TestARepeatedLeaseKeepsNoKey: a lease sent with an Idempotency-Key keeps
+// its answer without the Key, and its repeat answers the Key afresh, with
+// no-store.
+func TestARepeatedLeaseKeepsNoKey(t *testing.T) {
+	x, _, src, _ := newKeyedAPI(t)
+	f := x.fixture()
+	eid := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
+		"suite": f.suite, "candidates": []string{f.high}, "trials": 2, "budget": map[string]any{"name": "study"},
+	})["id"].(string)
+	key, _ := src.KeyOf(eid)
+	body := map[string]any{"candidate": f.high, "max": 1}
+	first := x.do(http.MethodPost, "/v1/experiments/"+eid+"/work/lease", "t-alice", body, "Idempotency-Key", "lease-1")
+	if first.status != http.StatusOK || first.json(t)["model_key"] != key.Value {
+		t.Fatalf("the first lease: %d %s", first.status, first.body)
+	}
+	held, fresh, err := x.st.Idempotency().Begin(t.Context(), store.IdempotencyKey{Subject: alice, Key: "lease-1"}, time.Minute)
+	if err != nil || fresh || !held.Done || strings.Contains(string(held.Body), key.Value) || !strings.Contains(string(held.Body), "lux_labels") {
+		t.Fatalf("the kept answer: fresh %v, %s, %v", fresh, held.Body, err)
+	}
+	again := x.do(http.MethodPost, "/v1/experiments/"+eid+"/work/lease", "t-alice", body, "Idempotency-Key", "lease-1")
+	got := again.json(t)
+	if again.status != http.StatusOK || again.header.Get("Idempotent-Replayed") != "true" || again.header.Get("Cache-Control") != "no-store" ||
+		got["model_key"] != key.Value || got["lease"] != first.json(t)["lease"] {
+		t.Fatalf("the repeat: %d %v %v", again.status, again.header, got)
+	}
+	src.Err = keysrc.ErrUnavailable
+	x.srv.keyCache().Forget(eid)
+	x.refuse(http.StatusServiceUnavailable, apierr.CodeOwnerTokensUnavailable, http.MethodPost, "/v1/experiments/"+eid+"/work/lease", "t-alice", body, "Idempotency-Key", "lease-1")
 }

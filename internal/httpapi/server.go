@@ -101,7 +101,12 @@ type route struct {
 	method, path string
 	// idempotent routes take an Idempotency-Key (specs/003-api.md).
 	idempotent bool
-	handle     func(*Server, http.ResponseWriter, *http.Request, access.Caller) error
+	// secret, on an idempotent route, is the member of its 200 answer
+	// that carries a credential: the copy kept for a repeat leaves it out,
+	// and refill answers it afresh on the repeat.
+	secret string
+	refill func(*Server, *http.Request, access.Caller) (any, error)
+	handle func(*Server, http.ResponseWriter, *http.Request, access.Caller) error
 }
 
 // routes are the routes of specs/003-api.md this release serves that take

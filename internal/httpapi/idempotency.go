@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"net/http"
 
@@ -62,12 +63,27 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 		s.answer(w, r, apierr.OnField(apierr.CodeRequestInProgress, idempotencyHeader, "the first request with this key is still being answered"))
 		return
 	case !fresh:
+		replay := held.Body
+		if rt.secret != "" && held.Status == http.StatusOK {
+			// The kept answer left the credential out; the repeat is
+			// answered it afresh, and no cache keeps it.
+			v, err := rt.refill(s, r, c)
+			if err != nil {
+				s.answer(w, r, err)
+				return
+			}
+			if replay, err = withMember(held.Body, rt.secret, v); err != nil {
+				s.answer(w, r, apierr.Internal(err))
+				return
+			}
+			w.Header().Set("Cache-Control", "no-store")
+		}
 		if held.ContentType != "" {
 			w.Header().Set("Content-Type", held.ContentType)
 		}
 		w.Header().Set(replayedHeader, "true")
 		w.WriteHeader(held.Status)
-		if _, err := w.Write(held.Body); err != nil {
+		if _, err := w.Write(replay); err != nil {
 			s.log().WarnContext(ctx, "a replayed answer was not written whole", "route", r.Pattern, "error", err.Error())
 		}
 		return
@@ -86,6 +102,18 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 		return
 	}
 	k.Status, k.ContentType, k.Body = rec.status, rec.Header().Get("Content-Type"), rec.body.Bytes()
+	if rt.secret != "" && k.Status == http.StatusOK {
+		// A credential in the answer is never kept with the key.
+		kept, err := withMember(k.Body, rt.secret, nil)
+		if err != nil {
+			s.log().ErrorContext(ctx, "an answer that carries a credential is not kept; a repeat runs the request again", "route", r.Pattern, "error", err.Error())
+			if err := s.Store.Idempotency().Abandon(ctx, k.Subject, k.Key); err != nil {
+				s.log().ErrorContext(ctx, "an idempotency key was not abandoned; a repeat waits for its reservation to lapse", "route", r.Pattern, "error", apierr.LogText(err))
+			}
+			return
+		}
+		k.Body = kept
+	}
 	if err := s.Store.Idempotency().Finish(ctx, k, limits.IdempotencyWindow); err != nil {
 		s.log().ErrorContext(ctx, "an idempotent answer was not kept; a repeat runs the request again once its reservation lapses", "route", r.Pattern, "error", apierr.LogText(err))
 	}
@@ -122,4 +150,22 @@ func (r *recorder) Write(b []byte) (int, error) {
 	r.wrote = true
 	r.body.Write(b)
 	return r.ResponseWriter.Write(b)
+}
+
+// withMember is a JSON object's body with one member set to v, or left out
+// when v is nil.
+func withMember(body []byte, name string, v any) ([]byte, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(body, &m); err != nil {
+		return nil, err
+	}
+	delete(m, name)
+	if v != nil {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		m[name] = raw
+	}
+	return json.Marshal(m)
 }

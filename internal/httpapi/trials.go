@@ -821,6 +821,24 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	return s.replyLease(w, r, e, held, modelKey, true)
 }
 
+// leaseKey answers the experiment's external Key again for a repeat of a
+// lease, whose kept answer leaves it out; nil with no key source, and for
+// an experiment no longer there.
+func (s *Server) leaseKey(r *http.Request, c access.Caller) (any, error) {
+	if s.Keys == nil {
+		return nil, nil
+	}
+	e, err := s.Store.Experiments().Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return nil, storeError(err, missing{apierr.CodeExperimentNotFound, r.PathValue("id")})
+	}
+	k, err := s.modelKey(r, e, c)
+	if err != nil || k == "" {
+		return nil, err
+	}
+	return k, nil
+}
+
 // modelKey is the value of the experiment's external Key a lease hands on,
 // "" with no key source.
 func (s *Server) modelKey(r *http.Request, e objects.Experiment, c access.Caller) (string, error) {
