@@ -658,6 +658,9 @@ type leasedTrial struct {
 	Outputs     []string        `json:"outputs"`
 	Timeout     string          `json:"timeout"`
 	MaxTurns    int             `json:"max_turns,omitempty"`
+	// LuxLabels is the value of the Lux-Labels header each of the trial's
+	// model calls carries, which attributes the call to the trial.
+	LuxLabels string `json:"lux_labels"`
 }
 
 // inputLink is one presigned link to a task's input. This release mints
@@ -684,10 +687,14 @@ type taskName struct {
 	Digest string `json:"digest"`
 }
 
-// leaseAnswer is the answer of a lease or a renewal.
+// leaseAnswer is the answer of a lease or a renewal. ModelKey is the
+// experiment's external Key, which the leased trials' model calls go
+// through so the experiment's Budget binds them; absent when the
+// installation has no key source.
 type leaseAnswer struct {
 	Lease     string        `json:"lease"`
 	ExpiresAt time.Time     `json:"expires_at"`
+	ModelKey  string        `json:"model_key,omitempty"`
 	Trials    []leasedTrial `json:"trials"`
 }
 
@@ -759,7 +766,11 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 		if err != nil {
 			return storeError(err, miss)
 		}
-		return s.replyLease(w, r, e, held, false)
+		modelKey, err := s.modelKey(r, e, c)
+		if err != nil {
+			return err
+		}
+		return s.replyLease(w, r, e, held, modelKey, false)
 	}
 	switch {
 	case candidate != "" && !slices.Contains(e.Candidates, candidate):
@@ -770,6 +781,12 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 		return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "lease: the experiment is in mode import, whose trials are imported", State: e.State}
 	case e.Finished():
 		return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "lease: the experiment is " + e.State, State: e.State}
+	}
+	// The Key is asked for before any trial is taken, so a key source that
+	// refuses or does not answer leases nothing.
+	modelKey, err := s.modelKey(r, e, c)
+	if err != nil {
+		return err
 	}
 	s.advance(r, e.ID)
 	cells, err := s.Store.Experiments().Leasable(r.Context(), e.ID, candidate)
@@ -801,7 +818,20 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 		w.WriteHeader(http.StatusNoContent)
 		return nil
 	}
-	return s.replyLease(w, r, e, held, true)
+	return s.replyLease(w, r, e, held, modelKey, true)
+}
+
+// modelKey is the value of the experiment's external Key a lease hands on,
+// "" with no key source.
+func (s *Server) modelKey(r *http.Request, e objects.Experiment, c access.Caller) (string, error) {
+	if s.Keys == nil {
+		return "", nil
+	}
+	l, err := s.externalKey(r.Context(), e, c.Subject)
+	if err != nil {
+		return "", keyError(err)
+	}
+	return l.Value, nil
 }
 
 // experimentCandidates reads the bodies of an experiment's candidates, by
@@ -822,10 +852,12 @@ func (s *Server) experimentCandidates(r *http.Request, e objects.Experiment) (ma
 	return out, nil
 }
 
-// replyLease answers a lease with each trial's task, and on a new lease
-// its input links, of which this release delivers none: a task with inputs
-// is refused at create.
-func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, e objects.Experiment, held store.Leased, links bool) error {
+// replyLease answers a lease with each trial's task and label, the
+// experiment's external Key when a key source keeps one, and on a new
+// lease its input links, of which this release delivers none: a task with
+// inputs is refused at create. The answer carries a Key's value, so no
+// cache keeps it.
+func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, e objects.Experiment, held store.Leased, modelKey string, links bool) error {
 	bodies, err := s.experimentCandidates(r, e)
 	if err != nil {
 		return err
@@ -847,7 +879,7 @@ func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, e objects.Ex
 	if err != nil {
 		return apierr.Internal(err)
 	}
-	out := leaseAnswer{Lease: held.Lease, ExpiresAt: held.ExpiresAt, Trials: []leasedTrial{}}
+	out := leaseAnswer{Lease: held.Lease, ExpiresAt: held.ExpiresAt, ModelKey: modelKey, Trials: []leasedTrial{}}
 	for _, t := range held.Trials {
 		cl := cells[t.Cell]
 		var task objects.Task
@@ -857,7 +889,8 @@ func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, e objects.Ex
 		cb := bodies[cl.Candidate]
 		lt := leasedTrial{ID: t.ID, Cell: t.Cell, Index: t.Index, Candidate: leasedCandidate{Name: cb.Name, Digest: cl.Candidate, External: cb.External},
 			Task:        taskName{Name: task.Name, Digest: cl.Task},
-			Instruction: task.Instruction, Outputs: task.Outputs, Timeout: duration(task.TimeoutOf()), MaxTurns: task.MaxTurns}
+			Instruction: task.Instruction, Outputs: task.Outputs, Timeout: duration(task.TimeoutOf()), MaxTurns: task.MaxTurns,
+			LuxLabels: trialLabel(t.ID)}
 		if lt.Outputs == nil {
 			lt.Outputs = []string{}
 		}
@@ -866,6 +899,7 @@ func (s *Server) replyLease(w http.ResponseWriter, r *http.Request, e objects.Ex
 		}
 		out.Trials = append(out.Trials, lt)
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	reply(w, http.StatusOK, out)
 	return nil
 }

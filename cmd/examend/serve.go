@@ -22,6 +22,7 @@ import (
 	"latere.ai/x/examen/internal/compare"
 	"latere.ai/x/examen/internal/config"
 	"latere.ai/x/examen/internal/httpapi"
+	"latere.ai/x/examen/internal/keys"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/store/postgres"
 	"latere.ai/x/examen/internal/version"
@@ -119,6 +120,14 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	api := &httpapi.Server{
 		Store: st, Auth: who.Authenticator, Authz: who.Authorizer, BasePath: s.BasePath,
 		Draining: draining.Load, Log: log, Engine: engine, Analyzer: compare.Analysis{}, Reserved: reserved(s),
+	}
+	// With the endpoint key source, each experiment whose runs a person's
+	// own setup does is handed its Key, and its Key's records are read
+	// through the endpoint. The lux key source is not built, so with no
+	// endpoint no Key is leased and no record is read.
+	if s.KeySource() == config.KeySourceEndpoint {
+		src := keys.NewEndpoint(s.KeysURL, s.KeysToken.Reveal, &http.Client{Transport: otel.Transport(nil)})
+		engine.Keys, api.Keys = src, src
 	}
 	httpSrv := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: readHeaderTimeout, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	failed := make(chan error, 1)

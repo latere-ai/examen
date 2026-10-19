@@ -29,6 +29,7 @@ import (
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/compare"
+	keysrc "latere.ai/x/examen/internal/keys"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/version"
@@ -84,8 +85,14 @@ type Server struct {
 	StreamPoll      time.Duration
 	StreamKeepalive time.Duration
 
+	// Keys is the key source an experiment's external Key and its Budget's
+	// figures come from (specs/004-identity-and-authorization.md). Nil
+	// hands no run a Key, and an experiment's answer carries no figures.
+	Keys keysrc.Source
+
 	streamsMu sync.Mutex
 	streams   map[string]int
+	keyState  keySource
 }
 
 // route is one route of the contract this server serves, below the base

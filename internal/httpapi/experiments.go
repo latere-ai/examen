@@ -5,6 +5,7 @@ package httpapi
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -846,6 +847,17 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	if err != nil {
 		return apierr.Internal(err)
 	}
+	// The experiment's external Key is made now, so its runs' first lease
+	// finds it; a key source that does not answer leaves it to that lease.
+	var candKinds []string
+	for _, cb := range p.candBodies {
+		candKinds = append(candKinds, cb.Kind)
+	}
+	if s.handsKey(stored, candKinds) {
+		if _, err := s.externalKey(r.Context(), stored, c.Subject); err != nil {
+			s.log().WarnContext(r.Context(), "the key source gave no key at the create; the first lease asks again", "experiment", eid, "error", apierr.LogText(err))
+		}
+	}
 	s.advance(r, eid)
 	w.Header().Set("Location", s.location("/experiments/"+eid))
 	reply(w, http.StatusCreated, stored)
@@ -890,6 +902,9 @@ func (s *Server) getExperiment(w http.ResponseWriter, r *http.Request, c access.
 	if err != nil {
 		return err
 	}
+	if err := s.figures(r.Context(), &e, c.Subject); err != nil {
+		return err
+	}
 	reply(w, http.StatusOK, e)
 	return nil
 }
@@ -908,8 +923,22 @@ func (s *Server) cancelExperiment(w http.ResponseWriter, r *http.Request, c acce
 	if err != nil {
 		return storeError(err, miss)
 	}
+	s.releaseKey(r, e.ID)
 	reply(w, http.StatusOK, out)
 	return nil
+}
+
+// releaseKey releases an experiment's external Key once it ended, when
+// the server takes unattended work; a failure is logged and left to the
+// ticker, which releases it within REPORT_INTERVAL.
+func (s *Server) releaseKey(r *http.Request, experiment string) {
+	if s.Engine == nil || s.Keys == nil {
+		return
+	}
+	s.keyCache().Forget(experiment)
+	if err := s.Engine.Release(context.WithoutCancel(r.Context()), experiment); err != nil {
+		s.log().WarnContext(r.Context(), "an ended experiment's key was not released; the ticker releases it", "experiment", experiment, "error", apierr.LogText(err))
+	}
 }
 
 func (s *Server) closeExperiment(w http.ResponseWriter, r *http.Request, c access.Caller) error {

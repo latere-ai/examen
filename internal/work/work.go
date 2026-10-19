@@ -21,6 +21,7 @@ import (
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/compare"
+	"latere.ai/x/examen/internal/keys"
 	"latere.ai/x/examen/internal/objects"
 	"latere.ai/x/examen/internal/store"
 )
@@ -37,7 +38,12 @@ type Engine struct {
 	Store    store.Store
 	Authz    access.Authorizer
 	Analyzer compare.Analyzer
-	Log      *slog.Logger
+	// Keys is the key source an ended experiment's Key is released at and
+	// its Key's records are read from. Nil releases and reads nothing.
+	Keys keys.Source
+	Log  *slog.Logger
+	// Now is the clock of the usage reads; time.Now when nil.
+	Now func() time.Time
 }
 
 func (e *Engine) log() *slog.Logger {
@@ -171,10 +177,12 @@ func (e *Engine) Compute(ctx context.Context) error {
 }
 
 // Tick takes one round of every kind of work: lapsed leases back to
-// pending, queued rollouts submitted, comparisons computed.
+// pending, queued rollouts submitted, the records of the experiments'
+// Keys read and their trials' cost settled, comparisons computed, and the
+// Keys of ended experiments released.
 func (e *Engine) Tick(ctx context.Context) error {
 	_, err := e.Store.Experiments().ExpireLeases(ctx)
-	return errors.Join(err, e.Advance(ctx, ""), e.Compute(ctx))
+	return errors.Join(err, e.Advance(ctx, ""), e.Usage(ctx), e.Compute(ctx), e.Release(ctx, ""))
 }
 
 // Loop ticks every interval until ctx ends, logging a round that failed;
