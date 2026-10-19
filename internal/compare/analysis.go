@@ -97,9 +97,24 @@ func Input(ctx context.Context, c objects.Comparison, src Source) (analysis.Inpu
 			return analysis.Input{}, fmt.Errorf("compare: the recorded parameters of %s: %w", c.ID, err)
 		}
 	}
-	in := analysis.Input{Parameters: params, Suite: su.suite, Exploratory: c.Exploratory}
+	// Label tests are built: a label result is tested and can be changed
+	// (spec 008, Label metrics).
+	in := analysis.Input{Parameters: params, Suite: su.suite, Exploratory: c.Exploratory, LabelTests: true}
 	if c.DeclaredIndex != nil {
 		in.Declared, in.Exploratory = len(e.Comparisons), false
+		// A declaration's own metric is its primary result's.
+		if i := *c.DeclaredIndex; i < len(e.Comparisons) && e.Comparisons[i].Metric != "" {
+			in.Suite.PrimaryMetric = e.Comparisons[i].Metric
+		}
+	}
+	if c.Declaration != nil {
+		if in, err = generalInput(ctx, c, e, su, src, in); err != nil {
+			return analysis.Input{}, err
+		}
+		if in.Taxonomies, err = taxonomies(ctx, src.Taxonomies, su); err != nil {
+			return analysis.Input{}, err
+		}
+		return in, nil
 	}
 	cand, err := sideOf(ctx, src, e, su, c.Candidate, c.Task)
 	if err != nil {
@@ -150,7 +165,11 @@ func Input(ctx context.Context, c objects.Comparison, src Source) (analysis.Inpu
 		if err != nil {
 			return analysis.Input{}, err
 		}
-		*s.into = analysis.Side{Candidate: s.from.candidate, Cells: cells}
+		values, err := candidateValues(ctx, src.Experiments, s.from.experiment.ID, s.from.candidate)
+		if err != nil {
+			return analysis.Input{}, err
+		}
+		*s.into = analysis.Side{Candidate: s.from.candidate, Cells: cells, Values: values, Producers: s.from.suite.candidateProducers}
 	}
 	if in.AcrossTasks && (len(in.Candidate.Cells) != 1 || len(in.Reference.Cells) != 1) {
 		return analysis.Input{}, fmt.Errorf("%w: %s compares two tasks of which the candidate holds %d and %d cells", errCellsMissing, c.ID, len(in.Candidate.Cells), len(in.Reference.Cells))
@@ -295,7 +314,8 @@ func (Analysis) Declared(ctx context.Context, e objects.Experiment, family []obj
 	fdr := analysis.Defaults().FalseDiscoveryRate
 	primaries := make([]analysis.DeclaredPrimary, len(e.Comparisons))
 	for i := range e.Comparisons {
-		p := analysis.DeclaredPrimary{Metric: primary}
+		metric, level := declaredPrimary(e.Comparisons[i], primary)
+		p := analysis.DeclaredPrimary{Metric: metric}
 		c, ok := byIndex[i]
 		if !ok || (c.State == objects.ComparisonComputing && len(c.Results) == 0) {
 			primaries[i] = p
@@ -309,7 +329,7 @@ func (Analysis) Declared(ctx context.Context, e objects.Experiment, family []obj
 		if level, ok := recordedLevel(c.Parameters); ok {
 			fdr = level
 		}
-		row, found := primaryRow(c, primary)
+		row, found := primaryRow(c, metric, level)
 		if c.State == objects.ComparisonFailed || !found {
 			p.Reason = analysis.ReasonDeclaredFailed
 			primaries[i] = p
@@ -341,18 +361,41 @@ func (Analysis) Declared(ctx context.Context, e objects.Experiment, family []obj
 		})
 		primaries[i] = p
 	}
-	return declaredRecord(e, analysis.CorrectDeclared(primaries, fdr)), nil
+	rec := declaredRecord(e, analysis.CorrectDeclared(primaries, fdr))
+	if e.Independence != nil {
+		raw, final, err := independence(ctx, e, su, src, false)
+		if err != nil {
+			return objects.DeclaredAnalysis{}, err
+		}
+		rec.Independence, rec.Final = raw, rec.Final && final
+	}
+	return rec, nil
 }
 
 // Pending is the declared analysis of an experiment none of whose declared
-// comparisons is computed yet: every entry not computed, at the suite's
-// primary metric, and the family at the default level.
-func Pending(e objects.Experiment, primaryMetric string) objects.DeclaredAnalysis {
+// comparisons is computed yet: every entry not computed, at its
+// declaration's metric or the suite's primary metric, the family at the
+// default level, and its test of independence with no figure yet.
+func Pending(ctx context.Context, e objects.Experiment, src Source) (objects.DeclaredAnalysis, error) {
+	su, err := readSuite(ctx, src.Versions, e)
+	if err != nil {
+		return objects.DeclaredAnalysis{}, err
+	}
 	primaries := make([]analysis.DeclaredPrimary, len(e.Comparisons))
 	for i := range primaries {
-		primaries[i].Metric = primaryMetric
+		primaries[i].Metric, _ = declaredPrimary(e.Comparisons[i], su.suite.PrimaryMetric)
 	}
-	return declaredRecord(e, analysis.CorrectDeclared(primaries, analysis.Defaults().FalseDiscoveryRate))
+	rec := declaredRecord(e, analysis.CorrectDeclared(primaries, analysis.Defaults().FalseDiscoveryRate))
+	if e.Independence != nil {
+		// A read assembles stored figures and computes none: the test is
+		// answered with its declaration until the declared analysis holds
+		// it.
+		if rec.Independence, _, err = independence(ctx, e, su, src, true); err != nil {
+			return objects.DeclaredAnalysis{}, err
+		}
+		rec.Final = false
+	}
+	return rec, nil
 }
 
 // declaredRecord is a declared family as the store keeps it.
@@ -369,13 +412,10 @@ func declaredRecord(e objects.Experiment, fam analysis.DeclaredFamily) objects.D
 	return out
 }
 
-// primaryRow is a declared comparison's primary result: the primary
-// metric's suite-level result, or across tasks its one task-level result.
-func primaryRow(c objects.Comparison, primary string) (objects.ResultRow, bool) {
-	level := "suite"
-	if c.ReferenceTask != "" {
-		level = "task"
-	}
+// primaryRow is a declared comparison's primary result: its metric's
+// result at the level its declaration reads it.
+func primaryRow(c objects.Comparison, metric, level string) (objects.ResultRow, bool) {
+	primary := metric
 	for _, r := range c.Results {
 		if r.Metric == primary && r.Level == level {
 			return r, true

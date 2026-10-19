@@ -96,10 +96,11 @@ type createBody struct {
 		Baseline  string `json:"baseline"`
 		Candidate string `json:"candidate"`
 	} `json:"reference"`
-	Mode        string            `json:"mode"`
-	Scheduling  string            `json:"scheduling"`
-	Comparisons []declaredBody    `json:"comparisons"`
-	Metadata    map[string]string `json:"metadata"`
+	Mode         string            `json:"mode"`
+	Scheduling   string            `json:"scheduling"`
+	Comparisons  []declaredBody    `json:"comparisons"`
+	Independence *independenceBody `json:"independence"`
+	Metadata     map[string]string `json:"metadata"`
 	// SignIn is an opaque value the client's installation gave it for this
 	// create, passed to the authorizer on experiment.create and kept
 	// nowhere: not on the experiment, in an answer, an event or a log.
@@ -107,14 +108,29 @@ type createBody struct {
 }
 
 // declaredBody is one comparison a create declares: a pair of candidates,
-// with an optional variable, or one candidate's pair of tasks by name or
-// digest.
+// with an optional variable; one candidate's pair of tasks by name or
+// digest; or the general form, a cell variable and its two levels with an
+// optional where and by. Each takes an optional metric.
 type declaredBody struct {
-	Candidate          string `json:"candidate"`
-	ReferenceCandidate string `json:"reference_candidate"`
-	Variable           string `json:"variable"`
-	Task               string `json:"task"`
-	ReferenceTask      string `json:"reference_task"`
+	Candidate          string            `json:"candidate"`
+	ReferenceCandidate string            `json:"reference_candidate"`
+	Variable           string            `json:"variable"`
+	Task               string            `json:"task"`
+	ReferenceTask      string            `json:"reference_task"`
+	Levels             []string          `json:"levels"`
+	Where              map[string]string `json:"where"`
+	By                 []string          `json:"by"`
+	Metric             string            `json:"metric"`
+}
+
+// independenceBody is a create's test of independence: a label metric
+// against a cell variable, stratified by others, over the cells where
+// selects; the candidate by task when variable and by are absent.
+type independenceBody struct {
+	Metric   string            `json:"metric"`
+	Variable string            `json:"variable"`
+	By       []string          `json:"by"`
+	Where    map[string]string `json:"where"`
 }
 
 // plan is a create's body, read and resolved in one owner's context.
@@ -209,6 +225,9 @@ func checkCreate(in createBody) (suiteDigest string, candDigests []string, err e
 	if err := checkDeclared(in.Comparisons, candDigests); err != nil {
 		return "", nil, err
 	}
+	if in.Independence != nil && in.Independence.Metric == "" {
+		return "", nil, apierr.OnField(apierr.CodeMissingField, "independence.metric", "a test of independence names its label metric")
+	}
 	return suiteDigest, candDigests, objects.ValidateMetadata("metadata", in.Metadata)
 }
 
@@ -222,9 +241,24 @@ func checkDeclared(list []declaredBody, candDigests []string) error {
 	if len(list) > limits.MaxDeclaredComparisons {
 		return apierr.Exceeds("MAX_DECLARED_COMPARISONS", "comparisons", "more declared comparisons than MAX_DECLARED_COMPARISONS ("+itoa(limits.MaxDeclaredComparisons)+")")
 	}
-	pairs := map[[2]string]bool{}
+	pairs := map[[3]string]bool{}
 	for i, d := range list {
 		f := "comparisons[" + itoa(i) + "]"
+		if d.Levels != nil {
+			// The general form names its sides by a variable's levels,
+			// which are resolved against the experiment's cells
+			// (declarations).
+			switch {
+			case d.Candidate != "" || d.ReferenceCandidate != "" || d.Task != "" || d.ReferenceTask != "":
+				return apierr.OnField(apierr.CodeInvalidField, f, "a declared comparison is in one form: a pair of candidates, a candidate's pair of tasks, or a variable and its levels")
+			case d.Variable == "":
+				return apierr.OnField(apierr.CodeMissingField, f+".variable", "a declared comparison of the general form names the variable it varies")
+			}
+			continue
+		}
+		if d.Where != nil || d.By != nil {
+			return apierr.OnField(apierr.CodeInvalidField, f, "where and by belong to a declared comparison of the general form, which names its levels")
+		}
 		if d.Candidate == "" {
 			return apierr.OnField(apierr.CodeMissingField, f+".candidate", "a declared comparison names its candidate")
 		}
@@ -262,7 +296,7 @@ func checkDeclared(list []declaredBody, candDigests []string) error {
 		case ref == cand:
 			return apierr.OnField(apierr.CodeInvalidField, f+".reference_candidate", "a declared comparison compares two different candidates")
 		}
-		key := [2]string{min(cand, ref), max(cand, ref)}
+		key := [3]string{min(cand, ref), max(cand, ref), d.Metric}
 		if pairs[key] {
 			return apierr.OnField(apierr.CodeInvalidField, f, "the pair of candidates is declared twice")
 		}
@@ -271,17 +305,52 @@ func checkDeclared(list []declaredBody, candDigests []string) error {
 	return nil
 }
 
-// declaredTasks resolves the declared comparisons of a create against its
-// suite, each task by name or digest, and refuses a task the suite does
-// not pin, one task twice, and one candidate's pair of tasks declared
-// twice in either orientation; it answers the declarations by digest.
-func declaredTasks(list []declaredBody, res objects.Resolved) ([]objects.DeclaredComparison, error) {
+// declarations resolves the declared comparisons of a create against its
+// suite and the cells its tasks and candidates make: each task by name or
+// digest, a metric by name or digest, and a declaration of the general
+// form's levels and strata. It refuses a task the suite does not pin, one
+// task twice, one candidate's pair of tasks declared twice in either
+// orientation, a metric the suite does not list at level trial or cell,
+// and a general declaration that does not read as one comparison or is
+// declared twice; it answers the declarations by digest, with each general
+// one's selection.
+func declarations(list []declaredBody, res objects.Resolved, design []objects.DesignCell) ([]objects.DeclaredComparison, []objects.Selection, error) {
 	out := make([]objects.DeclaredComparison, len(list))
-	pairs := map[[3]string]bool{}
+	selections := make([]objects.Selection, len(list))
+	pairs := map[[4]string]bool{}
+	general := map[string]bool{}
 	for i, d := range list {
 		f := "comparisons[" + itoa(i) + "]"
+		metric := ""
+		if d.Metric != "" {
+			digest, m, ok := res.MetricByRef(d.Metric)
+			if !ok || m.LevelOf() == objects.LevelCandidate {
+				return nil, nil, apierr.OnField(apierr.CodeInvalidField, f+".metric", "a declared metric is one the suite lists, of level trial or cell")
+			}
+			metric = digest
+		}
+		if d.Levels != nil {
+			dc := objects.DeclaredComparison{Variable: d.Variable, Levels: slices.Clone(d.Levels), Where: maps.Clone(d.Where), By: slices.Clone(d.By), Metric: metric}
+			if err := res.NormalizeDeclaration(&dc, f); err != nil {
+				return nil, nil, err
+			}
+			sel, err := objects.Select(dc, design, f)
+			if err != nil {
+				return nil, nil, err
+			}
+			key, err := generalKey(dc)
+			if err != nil {
+				return nil, nil, apierr.Internal(err)
+			}
+			if general[key] {
+				return nil, nil, apierr.OnField(apierr.CodeInvalidField, f, "the comparison is declared twice")
+			}
+			general[key] = true
+			out[i], selections[i] = dc, sel
+			continue
+		}
 		_, cand, _ := objects.ParseRef(f+".candidate", d.Candidate)
-		dc := objects.DeclaredComparison{Candidate: cand, Variable: d.Variable}
+		dc := objects.DeclaredComparison{Candidate: cand, Variable: d.Variable, Metric: metric}
 		if d.ReferenceCandidate != "" {
 			_, dc.ReferenceCandidate, _ = objects.ParseRef(f+".reference_candidate", d.ReferenceCandidate)
 			out[i] = dc
@@ -297,21 +366,88 @@ func declaredTasks(list []declaredBody, res objects.Resolved) ([]objects.Declare
 				digest, ok = res.TaskByName(t.ref)
 			}
 			if !ok {
-				return nil, apierr.OnField(apierr.CodeNotInExperiment, t.field, "the suite pins no task "+t.ref)
+				return nil, nil, apierr.OnField(apierr.CodeNotInExperiment, t.field, "the suite pins no task "+t.ref)
 			}
 			*t.into = digest
 		}
 		if dc.Task == dc.ReferenceTask {
-			return nil, apierr.OnField(apierr.CodeInvalidField, f+".reference_task", "a declared comparison across tasks names two different tasks")
+			return nil, nil, apierr.OnField(apierr.CodeInvalidField, f+".reference_task", "a declared comparison across tasks names two different tasks")
 		}
-		key := [3]string{cand, min(dc.Task, dc.ReferenceTask), max(dc.Task, dc.ReferenceTask)}
+		key := [4]string{cand, min(dc.Task, dc.ReferenceTask), max(dc.Task, dc.ReferenceTask), metric}
 		if pairs[key] {
-			return nil, apierr.OnField(apierr.CodeInvalidField, f, "the candidate's pair of tasks is declared twice")
+			return nil, nil, apierr.OnField(apierr.CodeInvalidField, f, "the candidate's pair of tasks is declared twice")
 		}
 		pairs[key] = true
 		out[i] = dc
 	}
+	return out, selections, nil
+}
+
+// generalKey identifies a general declaration whatever the order of its
+// levels: two declarations of one key are one comparison.
+func generalKey(d objects.DeclaredComparison) (string, error) {
+	levels := slices.Clone(d.Levels)
+	slices.Sort(levels)
+	b, err := json.Marshal(struct {
+		Variable string            `json:"variable"`
+		Levels   []string          `json:"levels"`
+		Where    map[string]string `json:"where"`
+		By       []string          `json:"by"`
+		Metric   string            `json:"metric"`
+	}{d.Variable, levels, d.Where, d.By, d.Metric})
+	return string(b), err
+}
+
+// independenceOf resolves a create's test of independence against its
+// suite and the cells its tasks and candidates make: a trial-level label
+// metric of the suite, and a variable that holds at least two levels among
+// the cells it reads, each stratum holding at most one cell of a level.
+func independenceOf(in *independenceBody, res objects.Resolved, design []objects.DesignCell, candidates []string) (*objects.Independence, error) {
+	if in == nil {
+		return nil, nil
+	}
+	digest, m, ok := res.MetricByRef(in.Metric)
+	if !ok || m.Type != objects.TypeLabel || m.LevelOf() != objects.LevelTrial {
+		return nil, apierr.OnField(apierr.CodeInvalidField, "independence.metric", "a test of independence reads a trial-level label metric the suite lists")
+	}
+	out := &objects.Independence{Metric: digest, Variable: in.Variable, By: slices.Clone(in.By), Where: maps.Clone(in.Where)}
+	if err := res.NormalizeIndependence(out, "independence"); err != nil {
+		return nil, err
+	}
+	if _, err := objects.SelectIndependence(*out, design, candidates, "independence"); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// generalComparison is the record of a declared comparison of the general
+// form: its declaration, its candidate side's one candidate when it has
+// one, the tuple fields of its logical variable, and the sides holding an
+// external candidate's cell.
+func generalComparison(index int, dc objects.DeclaredComparison, sel objects.Selection, kinds map[string]string) objects.Comparison {
+	decl := dc
+	cmp := objects.Comparison{
+		ID: id.New(id.Comparison), Candidate: sel.CandidateOf(), DeclaredIndex: ptr(index), State: objects.ComparisonComputing,
+		Declaration: &decl, Variable: objects.Variables[objects.LogicalVariableOf(dc.Variable)],
+	}
+	if cmp.Variable == nil {
+		cmp.Variable = []string{}
+	}
+	external := [2]bool{}
+	for _, st := range sel.Strata {
+		for s, c := range []*objects.DesignCell{st.Candidate, st.Reference} {
+			if c != nil && kinds[c.Candidate] == objects.CandidateExternal {
+				external[s] = true
+			}
+		}
+	}
+	if external[0] {
+		cmp.DeclaredProvenance = append(cmp.DeclaredProvenance, "candidate")
+	}
+	if external[1] {
+		cmp.DeclaredProvenance = append(cmp.DeclaredProvenance, "reference")
+	}
+	return cmp
 }
 
 // resolvePlan reads a create's suite and candidates in an owner's
@@ -559,7 +695,12 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	if err := unbuilt(in, p, l.Budget != ""); err != nil {
 		return err
 	}
-	declared, err := declaredTasks(in.Comparisons, p.resolved)
+	design := p.resolved.Design(candDigests, p.candBodies)
+	declared, selections, err := declarations(in.Comparisons, p.resolved, design)
+	if err != nil {
+		return err
+	}
+	independence, err := independenceOf(in.Independence, p.resolved, design, candDigests)
 	if err != nil {
 		return err
 	}
@@ -573,7 +714,7 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	}
 	e := objects.Experiment{
 		ID: eid, Owner: p.owner, Suite: suiteDigest, Candidates: candDigests, Trials: trials, Budget: objects.Budget{Name: budget},
-		Parallelism: parallelism, Mode: mode, Scheduling: scheduling, Comparisons: declared, CreatedBy: c.Subject, Metadata: in.Metadata,
+		Parallelism: parallelism, Mode: mode, Scheduling: scheduling, Comparisons: declared, Independence: independence, CreatedBy: c.Subject, Metadata: in.Metadata,
 		SuiteID: p.suite.ID, SuiteName: p.suite.Name,
 	}
 	for _, v := range p.candidates {
@@ -658,11 +799,15 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 		})
 	}
 	// A declared pair that is the automatic comparison's own, in its
-	// orientation and with no variable of its own, is that comparison;
-	// every other declared comparison is a record of its own.
+	// orientation and with no variable or metric of its own, is that
+	// comparison; every other declared comparison is a record of its own.
 	for i, dc := range declared {
+		if dc.General() {
+			ne.Comparisons = append(ne.Comparisons, generalComparison(i, dc, selections[i], kinds))
+			continue
+		}
 		at, isAutomatic := automatic[dc.Candidate]
-		if isAutomatic && dc.ReferenceCandidate != "" && dc.ReferenceCandidate == e.Reference.Candidate && dc.Variable == "" {
+		if isAutomatic && dc.ReferenceCandidate != "" && dc.ReferenceCandidate == e.Reference.Candidate && dc.Variable == "" && dc.Metric == "" {
 			ne.Comparisons[at].DeclaredIndex = ptr(i)
 			continue
 		}

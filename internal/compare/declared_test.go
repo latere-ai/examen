@@ -38,6 +38,7 @@ func storedDeclared(t *testing.T, id string, index int, final, fresh bool, rows 
 func TestDeclared(t *testing.T) {
 	w := newWorld(t)
 	e := objects.Experiment{ID: "exp_new", Owner: "alice", SuiteID: "sui_new", Comparisons: make([]objects.DeclaredComparison, 6)}
+	e.Comparisons[1] = objects.DeclaredComparison{Candidate: candNew, Task: taskA, ReferenceTask: taskB}
 	f := func(v float64) *float64 { return &v }
 	pair := storedDeclared(t, "cmp_0", 0, true, true, objects.ResultRow{Level: "suite", Metric: score, Direction: "higher_is_better", P: f(0.01), Delta: json.RawMessage(`0.3`), Confounds: json.RawMessage(`[]`)})
 	tasks := storedDeclared(t, "cmp_1", 1, true, true,
@@ -78,8 +79,11 @@ func TestDeclared(t *testing.T) {
 		t.Errorf("an entry not computed %+v", got[5])
 	}
 
-	pending := Pending(e, score)
-	if pending.Family.Size != 6 || pending.Final || pending.Comparisons[0].Metric != score || pending.Family.Level != 0.05 {
+	pending, err := Pending(t.Context(), e, w.src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending.Family.Size != 6 || pending.Final || pending.Comparisons[0].Metric != score || pending.Family.Level != 0.05 || pending.Independence != nil {
 		t.Errorf("pending %+v", pending)
 	}
 

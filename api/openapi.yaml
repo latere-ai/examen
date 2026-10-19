@@ -2833,6 +2833,12 @@ components:
           type: "array"
           items:
             type: "string"
+        factors:
+          description: "The task's place in a design: each factor's name to the task's level of it, at most MAX_TASK_FACTORS. Declared comparisons and a test of independence select and stratify cells by them."
+          type: "object"
+          maxProperties: 16
+          additionalProperties:
+            type: "string"
         metadata:
           type: "object"
           additionalProperties:
@@ -3164,21 +3170,51 @@ components:
                 type: "string"
               variable:
                 type: "string"
-                enum:
-                  - "agent"
-                  - "model"
-                  - "reasoning"
-                  - "tools"
-                  - "environment"
-                  - "workspace"
-                  - "task"
+                description: "On a pair of candidates, one logical variable: agent, model, reasoning, tools, environment or workspace. In the general form, the cell variable compared: candidate, task, model, reasoning or a task factor's name."
               task:
                 type: "string"
               reference_task:
                 type: "string"
-            required:
-              - "candidate"
+              levels:
+                description: "The general form: the variable's two levels, the candidate side's first. A candidate's level is its digest and a task's its name or digest."
+                type: "array"
+                minItems: 2
+                maxItems: 2
+                items:
+                  type: "string"
+              where:
+                description: "The general form: cell variables each held to one level."
+                type: "object"
+                additionalProperties:
+                  type: "string"
+              by:
+                description: "The general form: the cell variables the comparison is stratified by; without it, each side is one cell."
+                type: "array"
+                items:
+                  type: "string"
+              metric:
+                description: "The metric whose result is the comparison's primary result, by name or digest; the suite's primary metric when absent."
+                type: "string"
             additionalProperties: false
+        independence:
+          description: "The experiment's test of independence: a trial-level label metric of the suite against a cell variable, `candidate` when absent, stratified by the cell variables of `by`, `[\"task\"]` when absent, over the cells `where` selects. Fixed at create."
+          type: "object"
+          properties:
+            metric:
+              type: "string"
+            variable:
+              type: "string"
+            by:
+              type: "array"
+              items:
+                type: "string"
+            where:
+              type: "object"
+              additionalProperties:
+                type: "string"
+          required:
+            - "metric"
+          additionalProperties: false
         scheduling:
           type: "string"
           description: "How the experiment's cells take its parallelism and its external trials are leased: `task_by_task`, the default, a task's cells before the next task's, or `interleaved`, every cell of every task in turn, so trial i of every cell runs in one window. Fixed at create."
@@ -3227,6 +3263,25 @@ components:
           additionalProperties: false
         mode:
           type: "string"
+        independence:
+          description: "The experiment's test of independence: a trial-level label metric of the suite against a cell variable, `candidate` when absent, stratified by the cell variables of `by`, `[\"task\"]` when absent, over the cells `where` selects. Fixed at create; absent when the experiment declares none."
+          type: "object"
+          properties:
+            metric:
+              type: "string"
+            variable:
+              type: "string"
+            by:
+              type: "array"
+              items:
+                type: "string"
+            where:
+              type: "object"
+              additionalProperties:
+                type: "string"
+          required:
+            - "metric"
+          additionalProperties: false
         scheduling:
           type: "string"
           enum:
@@ -3245,20 +3300,31 @@ components:
                 type: "string"
               variable:
                 type: "string"
-                enum:
-                  - "agent"
-                  - "model"
-                  - "reasoning"
-                  - "tools"
-                  - "environment"
-                  - "workspace"
-                  - "task"
+                description: "On a pair of candidates, one logical variable: agent, model, reasoning, tools, environment or workspace. In the general form, the cell variable compared: candidate, task, model, reasoning or a task factor's name."
               task:
                 type: "string"
               reference_task:
                 type: "string"
-            required:
-              - "candidate"
+              levels:
+                description: "The general form: the variable's two levels, the candidate side's first. A candidate's level is its digest and a task's its name or digest."
+                type: "array"
+                minItems: 2
+                maxItems: 2
+                items:
+                  type: "string"
+              where:
+                description: "The general form: cell variables each held to one level."
+                type: "object"
+                additionalProperties:
+                  type: "string"
+              by:
+                description: "The general form: the cell variables the comparison is stratified by; without it, each side is one cell."
+                type: "array"
+                items:
+                  type: "string"
+              metric:
+                description: "The metric whose result is the comparison's primary result, by name or digest; the suite's primary metric when absent."
+                type: "string"
             additionalProperties: false
         state:
           type: "string"
@@ -3899,6 +3965,26 @@ components:
         declared:
           type: "integer"
           description: "For a comparison its experiment declared, its position in the experiment's comparisons; absent otherwise."
+        declaration:
+          description: "For a declared comparison of the general form, its declaration: the cell variable it compares, its two levels, where and by, and the metric of its primary result."
+          type: "object"
+          properties:
+            variable:
+              type: "string"
+            levels:
+              type: "array"
+              items:
+                type: "string"
+            where:
+              type: "object"
+              additionalProperties:
+                type: "string"
+            by:
+              type: "array"
+              items:
+                type: "string"
+            metric:
+              type: "string"
         exploratory:
           type: "boolean"
         state:

@@ -18,8 +18,7 @@ import (
 // member is missing, a reference is named twice or not at all, a candidate
 // is compared with itself, a pair is declared twice in either orientation,
 // a variable does not fit, a task or a candidate is not the experiment's,
-// or there are more than MAX_DECLARED_COMPARISONS; a test of independence
-// is not accepted before label tests are built.
+// or there are more than MAX_DECLARED_COMPARISONS.
 func TestDeclaredComparisonsRefused(t *testing.T) {
 	x := newAPI(t, nil)
 	f := x.fixture()
@@ -63,9 +62,6 @@ func TestDeclaredComparisonsRefused(t *testing.T) {
 			t.Errorf("%s: the refusal names %q", c.name, field)
 		}
 	}
-	body := create([]any{pair(f.low, f.high)})
-	body["independence"] = map[string]any{"metric": f.theme}
-	x.refuse(400, apierr.CodeUnknownField, http.MethodPost, "/v1/experiments", "t-alice", body)
 }
 
 // An experiment's declared comparisons are made with it, the automatic

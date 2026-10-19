@@ -183,6 +183,49 @@ func TestComputeDeclares(t *testing.T) {
 	}
 }
 
+// independent is an analyzer whose declared analysis holds a test of
+// independence and no declared comparison.
+type independent struct {
+	figures
+	asked *int
+}
+
+func (d independent) Declared(_ context.Context, e objects.Experiment, family []objects.Comparison, _ compare.Source) (objects.DeclaredAnalysis, error) {
+	*d.asked++
+	return objects.DeclaredAnalysis{Experiment: e.ID, Family: objects.DeclaredFamily{Method: "benjamini_hochberg", Level: 0.05},
+		Comparisons: []objects.DeclaredResult{}, Independence: json.RawMessage(`{"p":0.5}`)}, nil
+}
+
+// An experiment that declares a test of independence and no comparison has
+// its declared analysis recomputed whenever one of its comparisons is, and
+// one that declares neither is never asked for one.
+func TestComputeDeclaresIndependence(t *testing.T) {
+	st := pgtest.Open(t, false, postgres.Options{})
+	eid, _ := seedWith(t, st, func(ne *store.NewExperiment) {
+		ne.Experiment.Independence = &objects.Independence{Metric: "builtin:completed", Variable: "candidate", By: []string{"task"}}
+	})
+	if e, err := st.Experiments().Get(t.Context(), eid); err != nil || e.Independence == nil || e.Independence.Variable != "candidate" {
+		t.Fatalf("the stored test %+v %v", e.Independence, err)
+	}
+	asked := 0
+	e := &Engine{Store: st, Authz: &gate{}, Analyzer: independent{asked: &asked}}
+	if err := e.Compute(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	a, found, err := st.Experiments().DeclaredAnalysis(t.Context(), eid)
+	if err != nil || !found || string(a.Independence) != `{"p": 0.5}` || asked != 1 {
+		t.Fatalf("the declared analysis %s %v %v, asked %d", a.Independence, found, err, asked)
+	}
+	plain, _ := seed(t, st)
+	asked = 0
+	if err := e.Compute(t.Context()); err != nil || asked != 0 {
+		t.Fatalf("an experiment that declares nothing was asked %d times: %v", asked, err)
+	}
+	if _, found, err := st.Experiments().DeclaredAnalysis(t.Context(), plain); err != nil || found {
+		t.Fatalf("an experiment that declares nothing has a declared analysis: %v %v", found, err)
+	}
+}
+
 // mustComparison is an experiment's first comparison.
 func mustComparison(t *testing.T, st store.Store, eid string) objects.Comparison {
 	t.Helper()

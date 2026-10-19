@@ -95,11 +95,10 @@ func (s *Server) declaredAnalysis(w http.ResponseWriter, r *http.Request, c acce
 		return storeError(err, missing{apierr.CodeExperimentNotFound, r.PathValue("id")})
 	}
 	if !found {
-		res, err := s.experimentSuite(r, e)
-		if err != nil {
-			return err
+		src := compare.Source{Experiments: s.Store.Experiments(), Versions: s.Store.Versions(), Baselines: s.Store.Baselines(), Taxonomies: s.Store.Taxonomies()}
+		if a, err = compare.Pending(r.Context(), e, src); err != nil {
+			return apierr.Internal(err)
 		}
-		a = compare.Pending(e, res.Suite.PrimaryMetric)
 	}
 	reply(w, http.StatusOK, a)
 	return nil

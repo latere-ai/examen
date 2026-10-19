@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"latere.ai/x/examen/internal/analysis"
 	"latere.ai/x/examen/internal/objects"
@@ -24,8 +25,11 @@ const trialPage = 1000
 type suiteOf struct {
 	resolved  objects.Resolved
 	producers map[string]map[string]string
-	suite     analysis.Suite
-	name      objects.SuiteName
+	// candidateProducers maps each candidate-level metric to the one grader
+	// of level candidate among the suite's graders that produces it.
+	candidateProducers map[string]string
+	suite              analysis.Suite
+	name               objects.SuiteName
 }
 
 // readSuite reads the suite version an experiment runs and every version it
@@ -94,7 +98,18 @@ func readSuite(ctx context.Context, vs store.Versions, e objects.Experiment) (su
 	if err := grader(su.DeclineJudge); err != nil {
 		return suiteOf{}, err
 	}
-	out := suiteOf{resolved: res, producers: res.Producers(), name: objects.SuiteName{Owner: v.Owner, Name: v.Name}}
+	out := suiteOf{resolved: res, producers: res.Producers(), candidateProducers: map[string]string{}, name: objects.SuiteName{Owner: v.Owner, Name: v.Name}}
+	for _, md := range su.Metrics {
+		if res.Metrics[md].LevelOf() != objects.LevelCandidate {
+			continue
+		}
+		for _, gd := range su.Graders {
+			if g := res.Graders[gd]; g.LevelOf() == objects.LevelCandidate && slices.Contains(g.Produces, md) {
+				out.candidateProducers[md] = gd
+				break
+			}
+		}
+	}
 	out.suite = analysis.Suite{PrimaryMetric: su.PrimaryMetric, Weights: su.Weights}
 	for _, d := range su.Tasks {
 		out.suite.Tasks = append(out.suite.Tasks, analysis.SuiteTask{Name: res.Tasks[d].Name, Digest: d})
@@ -233,6 +248,35 @@ func trialsOf(ctx context.Context, x store.Experiments, experiment string, cells
 	for _, t := range all {
 		out[t.Cell] = append(out[t.Cell], trialOf(t, byTrial[t.ID]))
 	}
+	return out, nil
+}
+
+// candidateValues reads the current candidate-level values of one
+// candidate in one experiment, every page of them, as the analysis reads
+// them: each grader's latest generation.
+func candidateValues(ctx context.Context, x store.Experiments, experiment, candidate string) ([]analysis.Measurement, error) {
+	f := store.MeasurementFilter{Experiment: experiment, Candidate: candidate, CandidateLevel: true}
+	p := store.Page{Limit: trialPage}
+	var out []analysis.Measurement
+	for {
+		page, err := x.Measurements(ctx, f, p)
+		if err != nil {
+			return nil, fmt.Errorf("compare: reading the candidate-level values of %s: %w", candidate, err)
+		}
+		more := len(page) > p.Limit
+		if more {
+			page = page[:p.Limit]
+		}
+		for _, m := range page {
+			out = append(out, analysis.Measurement{ID: m.ID, Metric: m.Metric, Grader: m.Grader, Generation: m.Generation, Value: m.Value, SelfReported: m.SelfReported})
+		}
+		if !more {
+			break
+		}
+		p.After = page[len(page)-1].ID
+	}
+	// The store pages newest first; the analysis reads values by id.
+	slices.SortFunc(out, func(a, b analysis.Measurement) int { return strings.Compare(a.ID, b.ID) })
 	return out, nil
 }
 
