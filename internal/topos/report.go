@@ -33,6 +33,25 @@ const (
 	errSpendExceeded   = "spend_exceeded"
 )
 
+// infraErrors are the session.error codes that make a run infra_failed
+// wherever they occur in its log, though the agent went on and the session
+// ended as if the turn were whole: the agent then worked without the
+// machine or a service its run needs, so the outcome is not the agent's.
+var infraErrors = map[string]bool{
+	"machine_lost":           true,
+	"machine_unavailable":    true,
+	"model_unavailable":      true,
+	"model_busy":             true,
+	"model_error":            true,
+	"files_unavailable":      true,
+	"authorizer_unavailable": true,
+	"agent_identity_missing": true,
+}
+
+// machineReplaced is the session.machine reason of a new, empty machine in
+// the place of a lost one: the working directory the agent built is gone.
+const machineReplaced = "replaced"
+
 // Report is what a session's state and log make of its trial
 // (specs/005-execution.md, the `topos` outcome table).
 type Report struct {
@@ -80,7 +99,8 @@ func Read(s Session, events []Event) (Report, error) {
 	if s.Model != nil {
 		reasoning = s.Model.Reasoning
 	}
-	var lastError, lastDetail, lastStop string
+	// infra is the first code in the log that makes the run infra_failed.
+	var lastError, lastDetail, lastStop, infra string
 	turned := false
 	for _, e := range events {
 		line, err := json.Marshal(e)
@@ -115,6 +135,19 @@ func Read(s Session, events []Event) (Report, error) {
 				return r, fmt.Errorf("topos: decode session.error %d: %w", e.Seq, err)
 			}
 			lastError = p.Code
+			if infraErrors[p.Code] && infra == "" {
+				infra = p.Code
+			}
+		case EventSessionMachine:
+			var p struct {
+				Reason string `json:"reason"`
+			}
+			if err := json.Unmarshal(e.Payload, &p); err != nil {
+				return r, fmt.Errorf("topos: decode session.machine %d: %w", e.Seq, err)
+			}
+			if p.Reason == machineReplaced && infra == "" {
+				infra = machineReplaced
+			}
 		case EventAgentMessage:
 			var p struct {
 				StopReason string `json:"stop_reason"`
@@ -139,6 +172,24 @@ func Read(s Session, events []Event) (Report, error) {
 	h.Write(r.Log)
 	r.LogDigest = "sha256:" + hex.EncodeToString(h.Sum(nil))
 	refused := lastDetail == "refusal" || lastStop == "refusal"
+	if s.Status == StatusRunning {
+		return r, nil
+	}
+	outcome(&r, s, lastError, refused)
+	if infra != "" && r.Done {
+		switch r.Outcome {
+		case objects.OutcomeCanceled, objects.OutcomeOverBudget, objects.OutcomeInfraFailed:
+		default:
+			r.Outcome, r.Failure = objects.OutcomeInfraFailed, &objects.Failure{Code: infra, Detail: "the session met " + infra + " and the agent went on without what failed"}
+		}
+	}
+	return r, nil
+}
+
+// outcome reads a session that is no longer running as its trial's
+// outcome by the stop it made: refused is whether the agent's last answer
+// refused, and lastError the last session.error code in its log.
+func outcome(r *Report, s Session, lastError string, refused bool) {
 	fail := func(code string) {
 		if code == "" {
 			code = CodeSessionFailed
@@ -146,8 +197,6 @@ func Read(s Session, events []Event) (Report, error) {
 		r.Outcome, r.Failure = objects.OutcomeInfraFailed, &objects.Failure{Code: code, Detail: "the session stopped " + s.StopReason}
 	}
 	switch s.Status {
-	case StatusRunning:
-		return r, nil
 	case StatusEnded:
 		r.Done = true
 		switch s.StopReason {
@@ -163,7 +212,7 @@ func Read(s Session, events []Event) (Report, error) {
 		default:
 			fail(lastError)
 		}
-		return r, nil
+		return
 	}
 	// Idle: the turn stopped short of its end, and no person attends the
 	// run to resume it, so the stop is its outcome and the session is
@@ -203,7 +252,6 @@ func Read(s Session, events []Event) (Report, error) {
 	default:
 		fail(s.StopReason)
 	}
-	return r, nil
 }
 
 // call is a model request as the layers read it: the model it named,

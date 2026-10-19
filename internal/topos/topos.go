@@ -49,13 +49,14 @@ const (
 
 // The event types the executor reads of a session's log.
 const (
-	EventModelRequest  = "model.request"
-	EventAgentMessage  = "agent.message"
-	EventAgentToolUse  = "agent.tool_use"
-	EventSessionStatus = "session.status"
-	EventSessionError  = "session.error"
-	EventUserMessage   = "user.message"
-	EventModelChanged  = "session.model_changed"
+	EventModelRequest   = "model.request"
+	EventAgentMessage   = "agent.message"
+	EventAgentToolUse   = "agent.tool_use"
+	EventSessionStatus  = "session.status"
+	EventSessionError   = "session.error"
+	EventSessionMachine = "session.machine"
+	EventUserMessage    = "user.message"
+	EventModelChanged   = "session.model_changed"
 )
 
 // callTimeout bounds one call to Topos.

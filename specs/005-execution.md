@@ -755,13 +755,13 @@ if a handle is ever lost.
 
 | Topos end | Outcome |
 |---|---|
-| the turn ended `end_turn` and the session ended `completed` | `completed` |
+| the turn ended `end_turn` and the session ended `completed`, with none of the `infra_failed` row's events in its log | `completed` |
 | the same, with the last `agent.message`'s `stop_reason` `refusal` | `declined` |
 | stop reason `turn_limit`: the harness's turn deadline, which is wall time | `timed_out` |
 | the step bound of R7 | `turn_limit` |
 | stop reason `output_limit`; `session.error` `repeated_call` | `turn_limit` |
 | stop reason `budget`; a request refused `budget_exhausted` or `spend_exceeded` | `over_budget` |
-| `session.machine` reason `replaced`; `session.error` `machine_lost`, `machine_unavailable`, `model_unavailable`, `model_busy`, `model_error`, `files_unavailable`, `authorizer_unavailable`, `agent_identity_missing`; session ended `failed` or `expired`; the machine lost during the checks (R8); an evidence write that failed (R9) | `infra_failed`, the `session.error` code or the reason as the failure code |
+| `session.machine` reason `replaced`; `session.error` `machine_lost`, `machine_unavailable`, `model_unavailable`, `model_busy`, `model_error`, `files_unavailable`, `authorizer_unavailable`, `agent_identity_missing`, anywhere in the log on any thread, though the agent went on and the session then ended as a whole turn, unless it ended `canceled` or over budget; session ended `failed` or `expired`; the machine lost during the checks (R8); an evidence write that failed (R9) | `infra_failed`, the `session.error` code or the reason as the failure code |
 | session ended `canceled` by a cancel | `canceled` |
 
 A session idle with `tool_confirmation` cannot occur under R1, which

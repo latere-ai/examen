@@ -26,6 +26,16 @@ func TestOutcomes(t *testing.T) {
 	errorOf := func(code string) []Event {
 		return []Event{ev(EventSessionError, "", time.Second, `{"code":"`+code+`"}`)}
 	}
+	machine := func(reason string) []Event {
+		return []Event{ev(EventSessionMachine, "", time.Second, `{"machine":{"kind":"cella","id":"sbx_1"},"reason":"`+reason+`"}`)}
+	}
+	// noMachine is a run whose every tool call met a full sandbox
+	// ceiling: the agent answered without a machine and ended its turn.
+	noMachine := []Event{
+		ev(EventSessionError, "", time.Second, `{"code":"machine_unavailable"}`),
+		ev(EventSessionError, "thr_1", 2*time.Second, `{"code":"machine_unavailable"}`),
+		ev(EventAgentMessage, "", 3*time.Second, `{"stop_reason":"end_turn"}`),
+	}
 	for _, c := range []struct {
 		name, status, stop string
 		events             []Event
@@ -54,6 +64,16 @@ func TestOutcomes(t *testing.T) {
 		{"end of turn while idle", StatusIdle, StopEndTurn, nil, true, objects.OutcomeCompleted, "", StopCompleted},
 		{"declined while idle", StatusIdle, StopEndTurn, refusal, true, objects.OutcomeDeclined, "", StopCompleted},
 		{"an unknown stop", StatusIdle, "something_new", nil, true, objects.OutcomeInfraFailed, "something_new", StopCompleted},
+		{"no machine to work on", StatusEnded, StopCompleted, noMachine, true, objects.OutcomeInfraFailed, "machine_unavailable", ""},
+		{"no machine while idle", StatusIdle, StopEndTurn, noMachine, true, objects.OutcomeInfraFailed, "machine_unavailable", StopCompleted},
+		{"a model error the agent went on from", StatusIdle, StopEndTurn, errorOf("model_busy"), true, objects.OutcomeInfraFailed, "model_busy", StopCompleted},
+		{"a machine replaced", StatusEnded, StopCompleted, machine("replaced"), true, objects.OutcomeInfraFailed, "replaced", ""},
+		{"a machine attached", StatusEnded, StopCompleted, machine("attached"), true, objects.OutcomeCompleted, "", ""},
+		{"an error that is the agent's", StatusEnded, StopCompleted, errorOf("repeated_call"), true, objects.OutcomeCompleted, "", ""},
+		{"canceled with no machine", StatusEnded, StopCanceled, noMachine, true, objects.OutcomeCanceled, "session_canceled", ""},
+		{"over budget with no machine", StatusIdle, StopBudget, noMachine, true, objects.OutcomeOverBudget, StopBudget, StopCompleted},
+		{"failed with no machine", StatusEnded, StopFailed, noMachine, true, objects.OutcomeInfraFailed, "machine_unavailable", ""},
+		{"running with no machine", StatusRunning, "", noMachine, false, "", "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r, err := Read(Session{ID: "ses_1", Status: c.status, StopReason: c.stop}, c.events)
@@ -108,7 +128,7 @@ func TestReadTheLog(t *testing.T) {
 	if failedWithCost.Status != "failed" || failedWithCost.Cost != 9 {
 		t.Fatalf("a priced request that did not end ok: %+v", failedWithCost)
 	}
-	for _, typ := range []string{EventSessionStatus, EventSessionError, EventAgentMessage, EventModelRequest} {
+	for _, typ := range []string{EventSessionStatus, EventSessionError, EventSessionMachine, EventAgentMessage, EventModelRequest} {
 		if _, err := Read(Session{Status: StatusEnded}, []Event{ev(typ, "", 0, `[`)}); err == nil {
 			t.Fatalf("a %s that does not parse was read", typ)
 		}
