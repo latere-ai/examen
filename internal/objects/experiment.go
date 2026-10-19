@@ -34,9 +34,41 @@ func (v Version) Answer() (map[string]any, error) {
 	return out, nil
 }
 
-// Budget is the Lux Budget an experiment is metered against.
+// Budget is the Lux Budget an experiment is metered against, and its
+// figures as the key source read them when the answer was built: the cap,
+// what was spent and the least remainder across it and what pays for it,
+// in micro-USD. The figures are absent when no key source answered them,
+// and are never stored.
 type Budget struct {
-	Name string `json:"name"`
+	Name              string `json:"name"`
+	CapUSDMicro       *int64 `json:"cap_usd_micro,omitempty"`
+	SpentUSDMicro     *int64 `json:"spent_usd_micro,omitempty"`
+	RemainingUSDMicro *int64 `json:"remaining_usd_micro,omitempty"`
+	// Currency is the Budget's currency when it is not USD, in which case
+	// the figures are absent.
+	Currency string `json:"currency,omitempty"`
+}
+
+// Usage is what Lux recorded of the calls made with an experiment's
+// external Key (specs/005-execution.md), computed when the answer is
+// built: every call, and apart the calls no trial claims, which count
+// toward the experiment and no trial. CostUSDMicro sums the priced calls;
+// UnpricedRequests counts the calls Lux could not price, whose cost is
+// unknown. ReadTo is how far the records were read.
+type Usage struct {
+	Requests         int64        `json:"requests"`
+	CostUSDMicro     int64        `json:"cost_usd_micro"`
+	UnpricedRequests int64        `json:"unpriced_requests"`
+	Unattributed     UsageFigures `json:"unattributed"`
+	ReadTo           *time.Time   `json:"read_to,omitempty"`
+}
+
+// UsageFigures are the requests and the priced cost of some of an
+// experiment's calls.
+type UsageFigures struct {
+	Requests         int64 `json:"requests"`
+	CostUSDMicro     int64 `json:"cost_usd_micro"`
+	UnpricedRequests int64 `json:"unpriced_requests"`
 }
 
 // Reference is what every other candidate of an experiment is compared
@@ -76,6 +108,7 @@ type Experiment struct {
 	CreatedBy    string            `json:"created_by"`
 	Judgments    []json.RawMessage `json:"judgments"`
 	Progress     *Progress         `json:"progress,omitempty"`
+	Usage        *Usage            `json:"usage,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
@@ -165,15 +198,44 @@ const (
 
 // Observed is what happened in a trial: from the executor's and Lux's
 // records, and what a harness submitted about the services it called.
+// Served and the token counts are read from Lux's records of the trial's
+// calls; they are absent until those are read.
 type Observed struct {
 	CostState       string                  `json:"cost_state,omitempty"`
 	CostUSD         *float64                `json:"cost_usd,omitempty"`
+	Served          []ModelCount            `json:"served,omitempty"`
+	InputTokens     *int64                  `json:"input_tokens,omitempty"`
+	OutputTokens    *int64                  `json:"output_tokens,omitempty"`
+	ReasoningTokens *int64                  `json:"reasoning_tokens,omitempty"`
 	Duration        *float64                `json:"duration,omitempty"`
 	ServiceVersions map[string]string       `json:"service_versions,omitempty"`
 	ServiceUsage    map[string]ServiceUsage `json:"service_usage,omitempty"`
 	// LuxRequests are the Lux request ids an external harness submitted
 	// for the trial's model calls, kept as given.
 	LuxRequests []string `json:"lux_requests,omitempty"`
+}
+
+// ModelCount is a model and how many of a trial's requests it served.
+type ModelCount struct {
+	Model    string `json:"model"`
+	Requests int64  `json:"requests"`
+}
+
+// Sent is what a trial's requests named (specs/007-measurements-and-evidence.md):
+// how many it made, and one entry per distinct model and reasoning level,
+// sorted by model and then reasoning. Reasoning is "" where the records
+// carry none.
+type Sent struct {
+	Requests  int64         `json:"requests"`
+	BySetting []SentSetting `json:"by_setting"`
+}
+
+// SentSetting is one model and reasoning level a trial's requests named,
+// and how many named it.
+type SentSetting struct {
+	Model     string `json:"model"`
+	Reasoning string `json:"reasoning,omitempty"`
+	Requests  int64  `json:"requests"`
 }
 
 // Declared is what an external harness declared about its own run.
@@ -214,6 +276,7 @@ type Trial struct {
 	Outcome      string            `json:"outcome,omitempty"`
 	Failure      *Failure          `json:"failure,omitempty"`
 	RetryOf      string            `json:"retry_of,omitempty"`
+	Sent         *Sent             `json:"sent,omitempty"`
 	Observed     Observed          `json:"observed"`
 	Declared     *Declared         `json:"declared,omitempty"`
 	Checks       []json.RawMessage `json:"checks"`

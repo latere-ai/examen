@@ -436,16 +436,16 @@ func (x experiments) Counts(ctx context.Context, eid string) (map[string]store.T
 
 const trialColumns = `id, owner, experiment, cell, idx, rollout, executor_ref, coalesce(lease_id, ''), coalesce(lease_subject, ''), lease_expires_at,
 	state, coalesce(outcome, ''), failure, coalesce(retry_of, ''), retried, auto_retry, observed, declared, evidence, outputs, imported,
-	started_at, agent_ended_at, ended_at, created_at`
+	started_at, agent_ended_at, ended_at, created_at, sent`
 
 func scanTrial(row pgx.Row) (objects.Trial, error) {
 	var t objects.Trial
 	var leaseID, leaseSubject string
 	var leaseExpires *time.Time
-	var failure, observed, declared, evidence, outputs []byte
+	var failure, observed, declared, evidence, outputs, sent []byte
 	if err := row.Scan(&t.ID, &t.Owner, &t.Experiment, &t.Cell, &t.Index, &t.Rollout, &t.ExecutorRef, &leaseID, &leaseSubject, &leaseExpires,
 		&t.State, &t.Outcome, &failure, &t.RetryOf, &t.Retried, &t.AutoRetry, &observed, &declared, &evidence, &outputs, &t.Imported,
-		&t.StartedAt, &t.AgentEndedAt, &t.EndedAt, &t.CreatedAt); err != nil {
+		&t.StartedAt, &t.AgentEndedAt, &t.EndedAt, &t.CreatedAt, &sent); err != nil {
 		return objects.Trial{}, err
 	}
 	t.CreatedAt = t.CreatedAt.UTC()
@@ -459,7 +459,7 @@ func scanTrial(row pgx.Row) (objects.Trial, error) {
 	for _, c := range []struct {
 		raw []byte
 		v   any
-	}{{failure, &t.Failure}, {observed, &t.Observed}, {declared, &t.Declared}, {evidence, &t.Evidence}, {outputs, &t.Outputs}} {
+	}{{failure, &t.Failure}, {observed, &t.Observed}, {declared, &t.Declared}, {evidence, &t.Evidence}, {outputs, &t.Outputs}, {sent, &t.Sent}} {
 		if err := unmarshal(c.raw, c.v); err != nil {
 			return objects.Trial{}, err
 		}

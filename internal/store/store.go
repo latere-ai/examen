@@ -14,6 +14,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -46,6 +47,8 @@ type Store interface {
 	Baselines() Baselines
 	// Taxonomies keeps taxonomy records.
 	Taxonomies() Taxonomies
+	// Usage keeps what each experiment's external Key was used for.
+	Usage() Usage
 	// Ready answers whether the store can serve: the database answers and
 	// its schema holds every migration this binary carries.
 	Ready(ctx context.Context) error
@@ -451,4 +454,77 @@ type Experiments interface {
 	// DeclaredAnalysis reads an experiment's stored declared analysis;
 	// false when none is computed yet.
 	DeclaredAnalysis(ctx context.Context, experiment string) (objects.DeclaredAnalysis, bool, error)
+}
+
+// Usage keeps what each experiment's external Key was used for
+// (specs/005-execution.md, "Attribution and cost"): the Key's id at the key
+// source, Lux's records of its calls attributed to the experiment's
+// trials, and each trial's cost and sent and observed layers read from
+// them.
+type Usage interface {
+	// Hold records that an experiment's runs call models through the Key
+	// keyID; a second hold of the experiment keeps the first Key's id.
+	Hold(ctx context.Context, experiment, owner, keyID string) error
+	// Unreleased answers the Keys of experiments that ended and that
+	// Examen has not released, at most limit; one experiment's alone when
+	// experiment is not "".
+	Unreleased(ctx context.Context, experiment string, limit int) ([]KeyHold, error)
+	// Released records that an experiment's Key was released.
+	Released(ctx context.Context, experiment string) error
+	// Due answers the experiments whose records are due a read: not done,
+	// and last read no later than before, oldest read first, at most limit.
+	Due(ctx context.Context, before time.Time, limit int) ([]UsageRead, error)
+	// Read keeps the records read over a window up to to, each once by its
+	// request id, attributed to a trial of the experiment, and moves the
+	// experiment's read to to; done ends its reads. A record of a trial
+	// whose cost was settled unsettles it.
+	Read(ctx context.Context, experiment string, records []UsageRecord, to time.Time, done bool) error
+	// Settle settles the cost of every done trial of the experiment that
+	// ended no later than before and is not settled: its sent and observed
+	// layers from its records, and a generation of the built-in grader's
+	// values with its cost and tokens. It answers how many it settled.
+	Settle(ctx context.Context, experiment string, before time.Time) (int, error)
+	// Summary answers the experiment's usage, nil when its runs hold no
+	// Key.
+	Summary(ctx context.Context, experiment string) (*objects.Usage, error)
+	// KeyID answers the id of the experiment's Key, "" for none.
+	KeyID(ctx context.Context, experiment string) (string, error)
+}
+
+// KeyHold is an experiment's Key.
+type KeyHold struct {
+	Experiment string
+	Owner      string
+	KeyID      string
+}
+
+// UsageRead is where an experiment's records were read to: its window's
+// end, nil before the first read; when it was created; and, once a read
+// found it ended, when.
+type UsageRead struct {
+	Experiment string
+	Owner      string
+	State      string
+	CreatedAt  time.Time
+	ReadTo     *time.Time
+	EndedAt    *time.Time
+}
+
+// UsageRecord is one of Lux's records of a call made with an experiment's
+// Key, as the store keeps it: Label is the trial id the call's request
+// label examen.trial named, "" for none.
+type UsageRecord struct {
+	RequestID string
+	At        time.Time
+	Label     string
+	SentModel string
+	Served    string
+	Provider  string
+	Status    string
+	Error     string
+	Tokens    json.RawMessage
+	CostMicro int64
+	Currency  string
+	Priced    bool
+	Record    json.RawMessage
 }

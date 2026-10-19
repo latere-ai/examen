@@ -81,6 +81,8 @@ const (
 	ExternalLease                 = 10 * time.Minute
 	ReportInterval                = 15 * time.Second
 	UsageSettleDelay              = 2 * time.Minute
+	UsageEvery                    = time.Minute
+	UsageLookback                 = 30 * time.Minute
 	AdoptionMaxAge                = 30 * 24 * time.Hour
 	AgentJudgeTimeout             = 30 * time.Minute
 	AnnotationClaimTTL            = 30 * time.Minute

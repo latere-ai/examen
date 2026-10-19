@@ -44,6 +44,8 @@ var constants = map[string]any{
 	"EXTERNAL_LEASE":                   ExternalLease,
 	"REPORT_INTERVAL":                  ReportInterval,
 	"USAGE_SETTLE_DELAY":               UsageSettleDelay,
+	"USAGE_EVERY":                      UsageEvery,
+	"USAGE_LOOKBACK":                   UsageLookback,
 	"COST_ESTIMATE_MARGIN":             CostEstimateMargin,
 	"ADOPTION_MAX_AGE":                 AdoptionMaxAge,
 	"CHECK_MAX_OUTPUT_BYTES":           CheckMaxOutputBytes,
