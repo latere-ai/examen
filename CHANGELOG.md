@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.6.4 - 2026-10-21
+
 ### Added
 
 - With `OTEL_EXPORTER_OTLP_ENDPOINT` set, the server also exports the Go
