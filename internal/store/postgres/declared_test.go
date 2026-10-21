@@ -8,6 +8,7 @@ import (
 	"errors"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -359,4 +360,44 @@ func TestDeclareReadsWithNoTransactionHeld(t *testing.T) {
 	if stored() != "later" || !marked() {
 		t.Fatalf("after a failed analysis: %q, marked %v", stored(), marked())
 	}
+}
+
+// A fault in any write of a recomputation fails it whole, and one in the
+// mark a failed analysis leaves fails it with the analysis's error beside
+// the fault.
+func TestDeclareFaults(t *testing.T) {
+	ctx := t.Context()
+	w := newWorld(t)
+	p := w.plan()
+	declaring := func() string {
+		ne, _ := w.experiment(p, objects.ModeImport, 2)
+		ne.Experiment.Independence = &objects.Independence{Metric: "builtin:completed", Variable: "candidate", By: []string{"task"}}
+		ne.Experiment.Comparisons = []objects.DeclaredComparison{{Candidate: p.b.Digest, ReferenceCandidate: p.a.Digest}}
+		zero := 0
+		ne.Comparisons[0].DeclaredIndex = &zero
+		if err := w.st.Experiments().Create(ctx, ne); err != nil {
+			t.Fatal(err)
+		}
+		return ne.Experiment.ID
+	}
+	w.eachFault("declare", func() func() error {
+		eid := declaring()
+		return func() error {
+			return w.st.Experiments().Declare(ctx, eid, func(e objects.Experiment, _ []objects.Comparison) (objects.DeclaredAnalysis, error) {
+				return objects.DeclaredAnalysis{Experiment: e.ID, Comparisons: []objects.DeclaredResult{}}, nil
+			})
+		}
+	})
+	eid := declaring()
+	// The claim clears the mark and moves the event log, two updates of
+	// the experiment; the mark the failed analysis leaves is the third.
+	w.fault("experiments", "UPDATE", 3)
+	broke := errors.New("the analysis broke")
+	err := w.st.Experiments().Declare(ctx, eid, func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error) {
+		return objects.DeclaredAnalysis{}, broke
+	})
+	if !errors.Is(err, broke) || !strings.Contains(err.Error(), "an injected fault") {
+		t.Fatalf("a failed analysis whose mark failed: %v", err)
+	}
+	w.fault("", "", 0)
 }
