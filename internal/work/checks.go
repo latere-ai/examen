@@ -288,6 +288,36 @@ type manifestFile struct {
 	Kept   bool   `json:"kept"`
 }
 
+// archive is a tar stream being written, keeping the first error a write
+// met, after which it writes nothing.
+type archive struct {
+	tw   *tar.Writer
+	dirs map[string]bool
+	err  error
+}
+
+// dir writes a directory and each one above it not yet written.
+func (a *archive) dir(p string) {
+	for _, d := range parents(p) {
+		if a.err != nil || a.dirs[d] {
+			continue
+		}
+		a.dirs[d] = true
+		a.err = a.tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: d + "/", Mode: 0o755, ModTime: time.Unix(0, 0).UTC()})
+	}
+}
+
+// file writes a regular file with its mode, and the directories above it.
+func (a *archive) file(p string, mode int64, data []byte) {
+	a.dir(path.Dir(p))
+	if a.err == nil {
+		a.err = a.tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: p, Mode: mode, Size: int64(len(data)), ModTime: time.Unix(0, 0).UTC()})
+	}
+	if a.err == nil {
+		_, a.err = a.tw.Write(data)
+	}
+}
+
 // checkArchive is the tar stream written below the check sandbox's
 // workspace: the kept working directory under examen/outputs/workspace/,
 // the output manifest, the log and the final message, each check's files,
@@ -295,74 +325,38 @@ type manifestFile struct {
 // workspace the checks run in.
 func checkArchive(r gradedRun, work []workFile, checks []checkGrader) ([]byte, error) {
 	var buf bytes.Buffer
-	tw := tar.NewWriter(&buf)
-	now := time.Unix(0, 0).UTC()
-	dirs := map[string]bool{}
-	dir := func(p string) error {
-		for _, d := range parents(p) {
-			if dirs[d] {
-				continue
-			}
-			dirs[d] = true
-			if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeDir, Name: d + "/", Mode: 0o755, ModTime: now}); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	file := func(p string, mode int64, data []byte) error {
-		if err := dir(path.Dir(p)); err != nil {
-			return err
-		}
-		if err := tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: p, Mode: mode, Size: int64(len(data)), ModTime: now}); err != nil {
-			return err
-		}
-		_, err := tw.Write(data)
-		return err
-	}
+	a := &archive{tw: tar.NewWriter(&buf), dirs: map[string]bool{}}
 	for _, d := range []string{"work", "examen/inputs", "examen/reference", "examen/outputs/workspace"} {
-		if err := dir(d); err != nil {
-			return nil, fmt.Errorf("work: write the check archive: %w", err)
-		}
+		a.dir(d)
 	}
 	manifest := make([]manifestFile, 0, len(work))
 	for _, f := range work {
 		manifest = append(manifest, manifestFile{Path: "workspace/" + f.Path, Size: f.Size, SHA256: "sha256:" + f.SHA256, Kept: f.Data != nil})
-		if f.Data == nil {
-			continue
-		}
-		mode := int64(fs.FileMode(f.Mode).Perm() | 0o600)
-		if err := file("examen/outputs/workspace/"+f.Path, mode, f.Data); err != nil {
-			return nil, fmt.Errorf("work: write the check archive: %w", err)
+		if f.Data != nil {
+			a.file("examen/outputs/workspace/"+f.Path, int64(fs.FileMode(f.Mode).Perm()|0o600), f.Data)
 		}
 	}
 	raw, err := json.Marshal(map[string]any{"files": manifest})
 	if err != nil {
 		return nil, fmt.Errorf("work: render the output manifest: %w", err)
 	}
-	for _, f := range []struct {
-		name string
-		data []byte
-	}{{"examen/outputs.manifest.json", raw}, {"examen/transcript.jsonl", r.ev.Log}, {"examen/final_message.txt", []byte(r.ev.FinalMessage)}} {
-		if err := file(f.name, 0o644, f.data); err != nil {
-			return nil, fmt.Errorf("work: write the check archive: %w", err)
-		}
-	}
+	a.file("examen/outputs.manifest.json", 0o644, raw)
+	a.file("examen/transcript.jsonl", 0o644, r.ev.Log)
+	a.file("examen/final_message.txt", 0o644, []byte(r.ev.FinalMessage))
 	for _, c := range checks {
-		base := "examen/check-files/" + graderDir(c.row.Grader) + "/"
+		base := "examen/check-files/" + graderDir(c.row.Grader)
 		if c.grader.Check.Files != nil {
-			if err := dir(strings.TrimSuffix(base, "/")); err != nil {
-				return nil, fmt.Errorf("work: write the check archive: %w", err)
-			}
+			a.dir(base)
 		}
 		for _, f := range c.files {
-			if err := file(base+f.Path, int64(fs.FileMode(f.Mode).Perm()|0o400)&^0o222, f.Data); err != nil {
-				return nil, fmt.Errorf("work: write the check archive: %w", err)
-			}
+			a.file(base+"/"+f.Path, int64(fs.FileMode(f.Mode).Perm()|0o400)&^0o222, f.Data)
 		}
 	}
-	if err := tw.Close(); err != nil {
-		return nil, fmt.Errorf("work: close the check archive: %w", err)
+	if a.err == nil {
+		a.err = a.tw.Close()
+	}
+	if a.err != nil {
+		return nil, fmt.Errorf("work: write the check archive: %w", a.err)
 	}
 	return buf.Bytes(), nil
 }

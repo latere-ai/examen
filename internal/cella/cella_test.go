@@ -30,7 +30,10 @@ func TestTheClient(t *testing.T) {
 		got = append(got, r.Method+" "+r.URL.RequestURI())
 		body, _ := io.ReadAll(r.Body)
 		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/environments/environments/default":
+			_, _ = io.WriteString(w, `{"apiVersion":"cella.example/v9","kind":"Environment"}`)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/environments/sandboxes":
+			create = nil
 			_ = json.Unmarshal(body, &create)
 			_, _ = io.WriteString(w, `{"spec":{"image":"base@sha256:aa","workspace":{"path":"/workspace"}},"status":{"id":"sbx_1","phase":"Running"}}`)
 		case r.Method == http.MethodGet:
@@ -58,6 +61,14 @@ func TestTheClient(t *testing.T) {
 	if err != nil || sb != (Sandbox{ID: "sbx_1", Image: "base@sha256:aa", Workspace: "/workspace", Phase: PhaseRunning}) {
 		t.Fatalf("create: %+v %v", sb, err)
 	}
+	if create["apiVersion"] != "cella.example/v9" {
+		t.Fatalf("the manifest's version is not the server's: %v", create["apiVersion"])
+	}
+	first := create
+	if _, err := c.Create(ctx, "tok", Spec{Name: "again", Environment: "default", TTL: time.Hour}, time.Minute); err != nil || got[len(got)-1] != "POST /v1/environments/sandboxes?wait=1&timeout=1m0s" {
+		t.Fatalf("a second create read the version again: %v %v", got, err)
+	}
+	got, create = append(got[:2], got[3:]...), first
 	spec := create["spec"].(map[string]any)
 	if spec["network"].(map[string]any)["egress"].(map[string]any)["mode"] != "none" || spec["image"] != "base" || spec["environment"] != "default" ||
 		spec["lifecycle"].(map[string]any)["ttl"] != "1h0m0s" || create["metadata"].(map[string]any)["labels"].(map[string]any)["a"] != "b" {
@@ -81,7 +92,7 @@ func TestTheClient(t *testing.T) {
 			t.Fatalf("delete %s: %v", id, err)
 		}
 	}
-	if !strings.Contains(got[0], "wait=1") || !strings.Contains(got[2], "dest=%2Fworkspace") {
+	if !strings.Contains(got[1], "wait=1") || !strings.Contains(got[3], "dest=%2Fworkspace") {
 		t.Fatalf("the calls: %v", got)
 	}
 }
@@ -97,6 +108,10 @@ func TestRefusalsAndOutages(t *testing.T) {
 		_, _ = io.WriteString(w, body)
 	}))
 	c := New(srv.URL, srv.Client())
+	if _, err := c.Create(t.Context(), "tok", Spec{TTL: time.Minute}, time.Second); err == nil {
+		t.Fatal("a create with no version read went ahead")
+	}
+	c.apiVersion = "v"
 	_, err := c.Create(t.Context(), "tok", Spec{TTL: time.Minute}, time.Second)
 	var refused *RefusedError
 	if !errors.As(err, &refused) || refused.Code != CodeQuotaExceeded || refused.Status != http.StatusForbidden || !strings.Contains(refused.Error(), "at the limit") {

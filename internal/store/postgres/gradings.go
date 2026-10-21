@@ -162,7 +162,7 @@ func (g gradings) End(ctx context.Context, end store.GradingEnd) error {
 	if err := one(err, "a grading"); err != nil {
 		return err
 	}
-	x := experiments{g.s}
+	x := experiments(g)
 	return x.begin(ctx, eid, func(c *change) error {
 		gr, err := scanGrading(c.tx.QueryRow(ctx, `SELECT `+gradingColumns+` FROM gradings WHERE id = $1 FOR UPDATE`, end.ID))
 		if err := one(err, "a grading"); err != nil {

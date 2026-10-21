@@ -221,37 +221,11 @@ func (e *Engine) runOfTrial(ctx context.Context, tid, purpose string) (gradedRun
 		return r, err
 	}
 	r.exp, r.trial, r.taskDigest = exp, t, cell.Task
-	vs := e.Store.Versions()
-	tv, err := vs.ByDigest(ctx, objects.KindTask, exp.Owner, cell.Task)
-	if err != nil {
-		return r, fmt.Errorf("work: reading trial %s's task: %w", tid, err)
+	if err := e.version(ctx, objects.KindTask, exp.Owner, cell.Task, &r.task); err != nil {
+		return r, err
 	}
-	if err := json.Unmarshal(tv.Body, &r.task); err != nil {
-		return r, fmt.Errorf("work: decoding trial %s's task: %w", tid, err)
-	}
-	sv, err := vs.ByDigest(ctx, objects.KindSuite, exp.Owner, exp.Suite)
-	if err != nil {
-		return r, fmt.Errorf("work: reading trial %s's suite: %w", tid, err)
-	}
-	var su objects.Suite
-	if err := json.Unmarshal(sv.Body, &su); err != nil {
-		return r, fmt.Errorf("work: decoding trial %s's suite: %w", tid, err)
-	}
-	r.metrics = map[string]objects.Metric{}
-	for _, md := range su.Metrics {
-		if b, ok := objects.Builtin(md); ok {
-			r.metrics[md] = b
-			continue
-		}
-		mv, err := vs.ByDigest(ctx, objects.KindMetric, exp.Owner, md)
-		if err != nil {
-			return r, fmt.Errorf("work: reading a metric of trial %s's suite: %w", tid, err)
-		}
-		var m objects.Metric
-		if err := json.Unmarshal(mv.Body, &m); err != nil {
-			return r, fmt.Errorf("work: decoding a metric of trial %s's suite: %w", tid, err)
-		}
-		r.metrics[md] = m
+	if _, r.metrics, err = e.suiteOf(ctx, exp); err != nil {
+		return r, err
 	}
 	var transcript *objects.EvidenceRef
 	for i, ref := range t.Evidence {
@@ -384,6 +358,35 @@ func produced(g objects.Grader, metrics map[string]objects.Metric) []grade.Produ
 	return out
 }
 
+// suiteOf reads an experiment's suite version and each metric it lists, by
+// digest, the built-ins among them.
+func (e *Engine) suiteOf(ctx context.Context, exp objects.Experiment) (objects.Suite, map[string]objects.Metric, error) {
+	var su objects.Suite
+	if err := e.version(ctx, objects.KindSuite, exp.Owner, exp.Suite, &su); err != nil {
+		return su, nil, err
+	}
+	metrics := map[string]objects.Metric{}
+	for _, md := range su.Metrics {
+		m, ok := objects.Builtin(md)
+		if !ok {
+			if err := e.version(ctx, objects.KindMetric, exp.Owner, md, &m); err != nil {
+				return su, nil, err
+			}
+		}
+		metrics[md] = m
+	}
+	return su, metrics, nil
+}
+
+// version reads one version of an owner's by digest into v.
+func (e *Engine) version(ctx context.Context, kind, owner, digest string, v any) error {
+	ver, err := e.Store.Versions().ByDigest(ctx, kind, owner, digest)
+	if err != nil {
+		return fmt.Errorf("work: reading %s %s: %w", kind, digest, err)
+	}
+	return json.Unmarshal(ver.Body, v)
+}
+
 // graderOf reads a grader version of the experiment's owner by digest,
 // and its version id.
 func (e *Engine) graderOf(ctx context.Context, owner, digest string) (objects.Grader, string, error) {
@@ -392,10 +395,7 @@ func (e *Engine) graderOf(ctx context.Context, owner, digest string) (objects.Gr
 		return objects.Grader{}, "", fmt.Errorf("work: reading grader %s: %w", digest, err)
 	}
 	var g objects.Grader
-	if err := json.Unmarshal(v.Body, &g); err != nil {
-		return objects.Grader{}, "", fmt.Errorf("work: decoding grader %s: %w", digest, err)
-	}
-	return g, v.ID, nil
+	return g, v.ID, json.Unmarshal(v.Body, &g)
 }
 
 // ReleaseJudgeKeys releases the judge Keys of experiments that ended.
@@ -432,14 +432,9 @@ func (e *Engine) gradingsOf(ctx context.Context, run toposRun, outcome string) (
 	if g == nil || objects.Excluded(outcome) {
 		return nil, nil
 	}
-	vs := e.Store.Versions()
-	sv, err := vs.ByDigest(ctx, objects.KindSuite, run.exp.Owner, run.exp.Suite)
+	su, metrics, err := e.suiteOf(ctx, run.exp)
 	if err != nil {
-		return nil, fmt.Errorf("work: reading experiment %s's suite: %w", run.exp.ID, err)
-	}
-	var su objects.Suite
-	if err := json.Unmarshal(sv.Body, &su); err != nil {
-		return nil, fmt.Errorf("work: decoding experiment %s's suite: %w", run.exp.ID, err)
+		return nil, err
 	}
 	var out []objects.NewGrading
 	if g.Checks() {
@@ -460,20 +455,9 @@ func (e *Engine) gradingsOf(ctx context.Context, run toposRun, outcome string) (
 		}
 		applies := false
 		for _, md := range gr.Produces {
-			if !su.Lists(md) {
-				continue
+			if m, ok := metrics[md]; ok && m.Applies(outcome) {
+				applies = true
 			}
-			m, ok := objects.Builtin(md)
-			if !ok {
-				mv, err := vs.ByDigest(ctx, objects.KindMetric, run.exp.Owner, md)
-				if err != nil {
-					return nil, fmt.Errorf("work: reading a metric of grader %s: %w", d, err)
-				}
-				if err := json.Unmarshal(mv.Body, &m); err != nil {
-					return nil, fmt.Errorf("work: decoding a metric of grader %s: %w", d, err)
-				}
-			}
-			applies = applies || m.Applies(outcome)
 		}
 		if applies {
 			out = append(out, objects.NewGrading{Grader: d, Kind: objects.GraderModelJudge, Position: len(out)})

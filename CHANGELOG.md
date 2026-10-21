@@ -46,6 +46,8 @@ here is refused before it is pushed.
 
 ### Changed
 
+- Built with Go 1.27.3, which fixes the reachable crypto/x509
+  vulnerability GO-2026-6809.
 - An experiment of `topos` candidates whose tasks have checks, or whose
   suite or tasks have model judges, is created where Cella, Arca, Lux
   and the key source are configured, and refused `422

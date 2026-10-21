@@ -22,6 +22,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"latere.ai/x/pkg/otel"
@@ -75,6 +76,11 @@ func (e *RefusedError) Error() string {
 type Client struct {
 	URL  string
 	HTTP *http.Client
+
+	mu sync.Mutex
+	// apiVersion is the manifest version the server answers its own
+	// objects with, read once from the environment a sandbox runs on.
+	apiVersion string
 }
 
 // New is the client of the API at base. A nil client is the traced default
@@ -130,9 +136,41 @@ func (w wire) sandbox() Sandbox {
 	return Sandbox{ID: w.Status.ID, Image: w.Spec.Image, Workspace: ws, Phase: w.Status.Phase, Reason: w.Status.Reason}
 }
 
+// version is the manifest version the server writes its own objects
+// under, read from the environment a sandbox runs on, so a manifest names
+// the version the server it is sent to serves.
+func (c *Client) version(ctx context.Context, token, environment string) (string, error) {
+	c.mu.Lock()
+	v := c.apiVersion
+	c.mu.Unlock()
+	if v != "" {
+		return v, nil
+	}
+	if environment == "" {
+		environment = "default"
+	}
+	var env struct {
+		APIVersion string `json:"apiVersion"`
+	}
+	if err := c.call(ctx, token, http.MethodGet, "/environments/"+url.PathEscape(environment), "", nil, callTimeout, &env); err != nil {
+		return "", err
+	}
+	if env.APIVersion == "" {
+		return "", fmt.Errorf("%w: the environment names no apiVersion", ErrUnavailable)
+	}
+	c.mu.Lock()
+	c.apiVersion = env.APIVersion
+	c.mu.Unlock()
+	return env.APIVersion, nil
+}
+
 // Create creates a sandbox with egress none and holds the answer until it
 // left its start, at most hold.
 func (c *Client) Create(ctx context.Context, token string, s Spec, hold time.Duration) (Sandbox, error) {
+	apiVersion, err := c.version(ctx, token, s.Environment)
+	if err != nil {
+		return Sandbox{}, err
+	}
 	spec := map[string]any{
 		"network":   map[string]any{"egress": map[string]any{"mode": "none"}},
 		"lifecycle": map[string]any{"ttl": s.TTL.String()},
@@ -147,7 +185,7 @@ func (c *Client) Create(ctx context.Context, token string, s Spec, hold time.Dur
 	if len(s.Labels) > 0 {
 		meta["labels"] = s.Labels
 	}
-	body := map[string]any{"apiVersion": "cella.latere.ai/v1beta1", "kind": "Sandbox", "metadata": meta, "spec": spec}
+	body := map[string]any{"apiVersion": apiVersion, "kind": "Sandbox", "metadata": meta, "spec": spec}
 	raw, err := json.Marshal(body)
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("cella: encode the manifest: %w", err)

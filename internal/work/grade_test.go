@@ -107,6 +107,10 @@ type sandboxes struct {
 	deleted   []string
 	answers   map[string]cella.Result
 	refuse    string
+	// phase is the phase a create answers, Running when empty; put and
+	// exec are the statuses a write and a command answer, 2xx when zero.
+	phase     string
+	put, exec int
 }
 
 func (c *sandboxes) serve(w http.ResponseWriter, r *http.Request) {
@@ -114,6 +118,8 @@ func (c *sandboxes) serve(w http.ResponseWriter, r *http.Request) {
 	defer c.mu.Unlock()
 	body, _ := io.ReadAll(r.Body)
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/environments/default":
+		_, _ = io.WriteString(w, `{"apiVersion":"cella.example/v1","kind":"Environment"}`)
 	case r.Method == http.MethodPost && r.URL.Path == "/sandboxes":
 		if c.refuse != "" {
 			w.WriteHeader(http.StatusForbidden)
@@ -123,7 +129,17 @@ func (c *sandboxes) serve(w http.ResponseWriter, r *http.Request) {
 		var m map[string]any
 		_ = json.Unmarshal(body, &m)
 		c.manifests = append(c.manifests, m)
-		_, _ = io.WriteString(w, `{"spec":{"image":"base@sha256:`+strings.Repeat("b", 64)+`","workspace":{"path":"/workspace"}},"status":{"id":"sbx_`+itoa(len(c.manifests))+`","phase":"Running"}}`)
+		phase := c.phase
+		if phase == "" {
+			phase = cella.PhaseRunning
+		}
+		_, _ = io.WriteString(w, `{"spec":{"image":"base@sha256:`+strings.Repeat("b", 64)+`","workspace":{"path":"/workspace"}},"status":{"id":"sbx_`+itoa(len(c.manifests))+`","phase":"`+phase+`"}}`)
+	case r.Method == http.MethodPut && c.put != 0:
+		w.WriteHeader(c.put)
+		_, _ = io.WriteString(w, `{"error":{"code":"invalid_field"}}`)
+	case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/exec") && c.exec != 0:
+		w.WriteHeader(c.exec)
+		_, _ = io.WriteString(w, `{"error":{"code":"invalid_field","details":{"detail":"no such command"}}}`)
 	case r.Method == http.MethodPut:
 		c.archives[strings.Split(r.URL.Path, "/")[2]] = body
 		w.WriteHeader(http.StatusNoContent)
@@ -146,13 +162,18 @@ func itoa(n int) string { return strconv.Itoa(n) }
 // gateway is Lux's door answering each judgment with the tool call the
 // test set, or a refusal.
 type gateway struct {
-	mu      sync.Mutex
-	calls   []map[string]any
-	keys    []string
-	labels  []string
-	answers []string
-	status  int
-	code    string
+	stop string
+	// raw, when set, is the whole answer to a call; unpriced leaves the
+	// cost out of an answer.
+	raw      string
+	unpriced bool
+	mu       sync.Mutex
+	calls    []map[string]any
+	keys     []string
+	labels   []string
+	answers  []string
+	status   int
+	code     string
 }
 
 func (g *gateway) serve(w http.ResponseWriter, r *http.Request) {
@@ -178,7 +199,23 @@ func (g *gateway) serve(w http.ResponseWriter, r *http.Request) {
 		g.answers = g.answers[1:]
 	}
 	w.Header().Set("Lux-Request-Id", "req_"+itoa(len(g.calls)))
-	_, _ = io.WriteString(w, `{"id":"msg_1","model":"anthropic/claude-haiku-5.5","stop_reason":"tool_use","usage":{"input_tokens":900,"output_tokens":60,"cost_usd_micro":1500},
+	if g.raw != "" {
+		_, _ = io.WriteString(w, g.raw)
+		return
+	}
+	stop := g.stop
+	if stop == "" {
+		stop = "tool_use"
+	}
+	cost := `,"cost_usd_micro":1500`
+	if g.unpriced {
+		cost = ""
+		w.Header().Del("Lux-Request-Id")
+	}
+	if g.unpriced {
+		w.Header().Del("Lux-Request-Id")
+	}
+	_, _ = io.WriteString(w, `{"id":"msg_1","model":"anthropic/claude-haiku-5.5","stop_reason":"`+stop+`","usage":{"input_tokens":900,"output_tokens":60`+cost+`},
 		"blocks":[{"type":"tool_use","tool_use":{"id":"tu_1","name":"record_judgment","args":`+args+`}}]}`)
 }
 
@@ -591,11 +628,16 @@ func TestGradingWaitsOutAnOutage(t *testing.T) {
 	if _, err := st.Gradings().Hold(ctx, []string{list[0].ID, list[1].ID}, -time.Hour); err != nil {
 		t.Fatal(err)
 	}
+	for _, g := range list {
+		if err := st.Gradings().Wait(ctx, g.ID, -time.Hour, g.Attempts); err != nil {
+			t.Fatal(err)
+		}
+	}
 	fs.outage, cl.refuse = false, cella.CodeQuotaExceeded
 	if err := e.Grade(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if list, _ = st.Gradings().OfTrials(ctx, []string{trial.ID}); list[0].State != objects.GradingPending {
+	if list, _ = st.Gradings().OfTrials(ctx, []string{trial.ID}); list[0].State != objects.GradingPending || len(cl.manifests) != 0 {
 		t.Fatalf("a sandbox limit ended the checks: %+v", list)
 	}
 	if e2 := (&Engine{}); e2.Grade(ctx) != nil || (&Grading{}).Checks() || (*Grading)(nil).Judges() {

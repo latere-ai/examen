@@ -532,7 +532,7 @@ func (x experiments) withGradings(ctx context.Context, trials []objects.Trial) e
 	for i, t := range trials {
 		ids[i], at[t.ID] = t.ID, i
 	}
-	list, err := gradings{x.s}.OfTrials(ctx, ids)
+	list, err := gradings(x).OfTrials(ctx, ids)
 	if err != nil {
 		return err
 	}

@@ -27,6 +27,8 @@ import (
 	"latere.ai/x/pkg/authz/stub"
 
 	"latere.ai/x/examen/authorizer"
+	"latere.ai/x/examen/internal/config"
+	"latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store/migrations"
 	"latere.ai/x/examen/internal/store/postgres/pgtest"
 	"latere.ai/x/examen/internal/version"
@@ -496,4 +498,37 @@ func (b *batches) Prune(context.Context, int) (int, error) {
 	n := b.answers[0]
 	b.answers = b.answers[1:]
 	return n, nil
+}
+
+// TestServeGradesWhereItsCoresAre: with Topos and the minter, the server
+// grades topos trials: checks where Cella and Arca are named, judges where
+// Lux and Arca are, and says so at start; with neither, it grades nothing.
+func TestServeGradesWhereItsCoresAre(t *testing.T) {
+	authz := stub.New(t, stub.WithVocabulary(authorizer.Vocabulary()))
+	dir := t.TempDir()
+	write := func(name, content string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	s := start(t, env{
+		"EXAMEN_AUTHORIZER_URL": authz.URL(), "EXAMEN_AUTHORIZER_TOKEN_FILE": write("authz", authz.Token()),
+		"EXAMEN_KEYS_URL": "http://127.0.0.1:1", "EXAMEN_KEYS_TOKEN_FILE": write("keys", "k"),
+		"EXAMEN_MINTER_URL": "http://127.0.0.1:4", "EXAMEN_MINTER_TOKEN_FILE": write("minter", "m"),
+		"EXAMEN_TOPOS_URL": "http://127.0.0.1:5", "EXAMEN_CELLA_URL": "http://127.0.0.1:6", "EXAMEN_CELLA_ENVIRONMENT": "default",
+		"EXAMEN_LUX_URL": "http://127.0.0.1:2", "EXAMEN_ARCA_URL": "http://localhost:3",
+	})
+	if !strings.Contains(s.logs.String(), `"checks":true`) || !strings.Contains(s.logs.String(), `"model_judges":true`) {
+		t.Errorf("the start log does not say what grades: %s", s.logs.String())
+	}
+	cfg := config.Settings{}
+	if grading(cfg, nil) != nil {
+		t.Error("a server with no core of grading grades")
+	}
+	cfg.ArcaURL, cfg.CellaURL = "http://a", "http://c"
+	if g := grading(cfg, &owner.Minter{}); g == nil || !g.Checks() || g.Judges() {
+		t.Errorf("Cella and Arca run checks alone: %+v", g)
+	}
 }
