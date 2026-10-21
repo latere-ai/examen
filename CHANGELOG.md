@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.7.1 - 2026-10-21
+
 ### Fixed
 
 - A comparison reads the values of a task's own graders, such as a model
