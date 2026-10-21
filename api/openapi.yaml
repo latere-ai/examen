@@ -4188,12 +4188,6 @@ components:
           required:
             - "candidate"
             - "reference"
-        a:
-          type: "string"
-          description: "On a pair result of two benchmark entries, the first entry; absent on a comparison's result."
-        b:
-          type: "string"
-          description: "On a pair result of two benchmark entries, the second entry; absent on a comparison's result."
         candidate:
           "$ref": "#/components/schemas/Summary"
         reference:
@@ -4243,7 +4237,7 @@ components:
           description: "The value after the correction at FALSE_DISCOVERY_RATE."
         h:
           type: "number"
-          description: "On a pair result of two benchmark entries, the Holm-adjusted value, in place of q."
+          description: "On a pair result of two benchmark entries, the Holm-adjusted value, in place of q; absent on a comparison's result."
         verdict:
           type: "string"
           description: "Absent on a descriptive result."
@@ -4273,6 +4267,103 @@ components:
         - "candidate"
         - "reference"
         - "reason"
+    Window:
+      type: "object"
+      description: "A side's time window: the earliest started_at and the latest ended_at of the trials read."
+      properties:
+        from:
+          type: "string"
+          format: "date-time"
+        to:
+          type: "string"
+          format: "date-time"
+      required:
+        - "from"
+        - "to"
+    Windows:
+      type: "object"
+      description: "Each side's window over every trial the comparison read; a side that read none has none."
+      properties:
+        candidate:
+          "$ref": "#/components/schemas/Window"
+        reference:
+          "$ref": "#/components/schemas/Window"
+    UnpairedTasks:
+      type: "object"
+      description: "The task names one side holds alone."
+      properties:
+        candidate_only:
+          type: "array"
+          items:
+            type: "string"
+        reference_only:
+          type: "array"
+          items:
+            type: "string"
+      required:
+        - "candidate_only"
+        - "reference_only"
+    Correction:
+      type: "object"
+      description: "The correction applied to the comparison's p-values."
+      properties:
+        method:
+          type: "string"
+          description: "benjamini_hochberg."
+        primary:
+          type: "string"
+          description: "The digest of the metric whose primary result is out of the family, tested alone and reported uncorrected, or for a declared comparison corrected in the declared family; absent on an exploratory comparison."
+        family:
+          type: "integer"
+          description: "How many p-values the one corrected family held."
+        declared:
+          type: "integer"
+          description: "On a declared comparison, the size of the declared family its primary result is corrected in."
+      required:
+        - "method"
+        - "family"
+    Resamples:
+      type: "object"
+      description: "PERMUTATION_RESAMPLES as resolved for the primary result and for the family."
+      properties:
+        primary:
+          type: "integer"
+        family:
+          type: "integer"
+      required:
+        - "primary"
+        - "family"
+    Parameters:
+      type: "object"
+      description: "The values the comparison was computed with."
+      properties:
+        false_discovery_rate:
+          type: "number"
+        confidence_level:
+          type: "number"
+        min_trials_for_verdict:
+          type: "integer"
+        min_trials_per_task_in_suite:
+          type: "integer"
+        min_suite_coverage:
+          type: "number"
+        min_trials_for_p90_interval:
+          type: "integer"
+        bootstrap_resamples:
+          type: "integer"
+        permutation_exact_max:
+          type: "integer"
+        permutation_stop_exceedances:
+          type: "integer"
+        boschloo_grid_points:
+          type: "integer"
+        tie_tolerance:
+          type: "number"
+        window_tolerance:
+          type: "string"
+          description: "A duration, such as 24h0m0s."
+        permutation_resamples:
+          "$ref": "#/components/schemas/Resamples"
     Comparison:
       type: "object"
       properties:
@@ -4284,16 +4375,22 @@ components:
           type: "string"
         candidate:
           type: "string"
+          description: "The candidate's digest."
         baseline:
           type: "string"
+          description: "The baseline record the reference side reads, when it is one."
         reference_candidate:
           type: "string"
+          description: "The reference candidate's digest, when the reference side is a candidate."
         task:
           type: "string"
+          description: "For a comparison across tasks, the candidate's task."
         reference_task:
           type: "string"
+          description: "For a comparison across tasks, the reference task."
         automatic:
           type: "boolean"
+          description: "True for the comparison Examen keeps of a candidate against its experiment's reference."
         declared:
           type: "integer"
           description: "For a comparison its experiment declared, its position in the experiment's comparisons; absent otherwise."
@@ -4320,6 +4417,7 @@ components:
           additionalProperties: false
         exploratory:
           type: "boolean"
+          description: "True for a comparison computed on request, and for an automatic one against a reference set after a cell left pending: it is never headlined."
         state:
           type: "string"
           enum:
@@ -4328,24 +4426,64 @@ components:
             - "failed"
         final:
           type: "boolean"
+          description: "True once both sides are final; false while a figure can still change."
         variable:
           type: "array"
+          description: "The tuple fields the comparison intends to vary."
           items:
             type: "string"
         declared_provenance:
           type: "array"
+          description: "The sides, candidate and reference, whose candidate is of kind external, so whose tuple its harness declared."
           items:
             type: "string"
         single_variable:
           type: "boolean"
+          description: "No tuple field besides variable differs on any paired task; absent until computed."
         confounds:
           type: "array"
+          description: "The name of every confound of its results."
           items:
             type: "string"
         results:
           type: "array"
+          description: "Its results; GET /comparisons/{id} answers the suite-level and candidate-level ones, and /rows the task-level ones."
           items:
             "$ref": "#/components/schemas/Result"
+        taxonomies:
+          type: "object"
+          description: "For each open-vocabulary metric it reads, the id of the taxonomy record its canonical labels were read at."
+          additionalProperties:
+            type: "string"
+        unpaired_tasks:
+          "$ref": "#/components/schemas/UnpairedTasks"
+        candidate_suite:
+          type: "object"
+          description: "Per metric, the candidate's own suite-level summary over the tasks of its suite with weight greater than zero."
+          additionalProperties:
+            "$ref": "#/components/schemas/Summary"
+        windows:
+          "$ref": "#/components/schemas/Windows"
+        verdict_counts:
+          type: "object"
+          description: "Per metric, the number of task-level results with each verdict."
+          additionalProperties:
+            type: "object"
+            additionalProperties:
+              type: "integer"
+        correction:
+          "$ref": "#/components/schemas/Correction"
+        analysis_version:
+          type: "string"
+          description: "examen.analysis/v1."
+        parameters:
+          "$ref": "#/components/schemas/Parameters"
+        inputs_digest:
+          type: "string"
+          description: "The digest of its inputs document."
+        seed:
+          type: "string"
+          description: "The root seed, hex."
         computed_at:
           type: "string"
           format: "date-time"

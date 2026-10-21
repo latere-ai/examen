@@ -4,6 +4,7 @@
 package api_test
 
 import (
+	"encoding/json"
 	"maps"
 	"reflect"
 	"regexp"
@@ -16,7 +17,9 @@ import (
 	"latere.ai/x/examen/api"
 	"latere.ai/x/examen/internal/analysis"
 	"latere.ai/x/examen/internal/apierr"
+	"latere.ai/x/examen/internal/compare"
 	"latere.ai/x/examen/internal/httpapi"
+	"latere.ai/x/examen/internal/objects"
 )
 
 // document is the contract, read.
@@ -89,41 +92,62 @@ func TestDocumentListsEveryErrorCode(t *testing.T) {
 }
 
 // members is the JSON member names of the struct v, as encoding/json writes
-// them.
+// them: an embedded struct without a name of its own contributes its
+// members, and a field tagged "-" none.
 func members(v any) []string {
 	var names []string
-	t := reflect.TypeOf(v)
-	for f := range t.Fields() {
-		if !f.IsExported() {
-			continue
+	var walk func(t reflect.Type)
+	walk = func(t reflect.Type) {
+		for f := range t.Fields() {
+			name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			switch {
+			case f.Anonymous && name == "" && f.Type.Kind() == reflect.Struct:
+				walk(f.Type)
+				continue
+			case !f.IsExported() || name == "-":
+				continue
+			case name == "":
+				name = f.Name
+			}
+			names = append(names, name)
 		}
-		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
-		if name == "-" {
-			continue
-		}
-		if name == "" {
-			name = f.Name
-		}
-		names = append(names, name)
 	}
+	walk(reflect.TypeOf(v))
 	slices.Sort(names)
 	return names
 }
 
-// A comparison's result, and each object inside it, is documented with
-// every member the analysis writes and no other.
-func TestDocumentDescribesTheResults(t *testing.T) {
+// A comparison, its results and each object inside them are documented
+// with every member the server answers and no other: the comparison and
+// its result rows as the store keeps them, and the objects inside, which
+// the analysis writes.
+func TestDocumentDescribesTheComparisons(t *testing.T) {
+	recorded, err := compare.Record(analysis.Comparison{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parameters map[string]any
+	if err := json.Unmarshal(recorded.Parameters, &parameters); err != nil {
+		t.Fatal(err)
+	}
 	schemas := read(t).Components.Schemas
-	for name, v := range map[string]any{
-		"Result":     analysis.Result{},
-		"Summary":    analysis.Summary{},
-		"LabelShare": analysis.LabelShare{},
-		"LeftOut":    analysis.LeftOut{},
-		"Confound":   analysis.Confound{},
+	for name, want := range map[string][]string{
+		"Comparison":    members(objects.Comparison{}),
+		"Result":        members(objects.ResultRow{}),
+		"Summary":       members(analysis.Summary{}),
+		"LabelShare":    members(analysis.LabelShare{}),
+		"LeftOut":       members(analysis.LeftOut{}),
+		"Confound":      members(analysis.Confound{}),
+		"Correction":    members(analysis.Correction{}),
+		"Windows":       members(analysis.Windows{}),
+		"Window":        members(analysis.Window{}),
+		"UnpairedTasks": members(analysis.UnpairedTasks{}),
+		"Resamples":     members(analysis.Resolved{}),
+		"Parameters":    slices.Sorted(maps.Keys(parameters)),
 	} {
 		got := slices.Sorted(maps.Keys(schemas[name].Properties))
-		if want := members(v); !slices.Equal(got, want) {
-			t.Errorf("%s documents\n  %v\nthe analysis writes\n  %v", name, got, want)
+		if !slices.Equal(got, want) {
+			t.Errorf("%s documents\n  %v\nthe server answers\n  %v", name, got, want)
 		}
 	}
 }

@@ -12,11 +12,14 @@ here is refused before it is pushed.
   `external` and `topos`, with the checks and judges that grade a `topos`
   experiment's trials. It said a `topos` candidate was refused
   `executor_unavailable`, which it has not been since `topos` trials ran.
-  A comparison's result is documented with every member the server
-  answers: each side's summary as a `Summary`, the delta, its interval or
-  the sentence saying why there is none, the test and its statistic, the
-  seed, `p`, `q` and `h`, the tasks a suite-level result leaves out, and
-  its confounds, where it listed seven members.
+  A comparison is documented with every member the server answers: its
+  `correction`, `windows`, `verdict_counts`, `unpaired_tasks`,
+  `candidate_suite`, `taxonomies`, `parameters`, `analysis_version`,
+  `inputs_digest` and `seed` beside the members it listed; and each
+  result with each side's summary as a `Summary`, the delta, its interval
+  or the sentence saying why there is none, the test and its statistic,
+  the seed, `p`, `q` and `h`, the tasks a suite-level result leaves out,
+  and its confounds, where it listed seven members.
 
 ## v0.7.0 - 2026-10-21
 
