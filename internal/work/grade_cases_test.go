@@ -291,7 +291,7 @@ func TestJudgeEvidenceReadsTheRun(t *testing.T) {
 	if _, ok := signInEnded(errors.New("other")); ok {
 		t.Fatal("another error read as a sign-in that ended")
 	}
-	if scrubURL(&url.Error{Op: "Get", URL: "http://x", Err: io.EOF}) != io.EOF || scrubURL(io.EOF) != io.EOF {
+	if !errors.Is(scrubURL(&url.Error{Op: "Get", URL: "http://x", Err: io.EOF}), io.EOF) || !errors.Is(scrubURL(io.EOF), io.EOF) {
 		t.Fatal("scrubURL")
 	}
 	if (&luxError{status: 403, code: "forbidden"}).Error() == "" || !hasCode([]byte(`{"error":{"code":"spend_exceeded"}}`), spendCodes) || hasCode([]byte("x"), spendCodes) {

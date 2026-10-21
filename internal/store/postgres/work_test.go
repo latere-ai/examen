@@ -69,7 +69,7 @@ func newClockedWorld(t *testing.T, now func() time.Time) *world {
 	return w
 }
 
-var faultTables = []string{"versions", "heads", "experiments", "cells", "trials", "measurements", "events", "baselines", "taxonomies", "comparisons", "comparison_inputs"}
+var faultTables = []string{"versions", "heads", "experiments", "cells", "trials", "measurements", "events", "baselines", "taxonomies", "comparisons", "comparison_inputs", "gradings"}
 
 func (w *world) exec(sql string, args ...any) {
 	w.t.Helper()

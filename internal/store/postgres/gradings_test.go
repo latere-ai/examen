@@ -178,10 +178,34 @@ func TestACancelEndsOpenGradings(t *testing.T) {
 // nothing of it, and it ends once the fault is gone.
 func TestAGradingsEndFailsWhole(t *testing.T) {
 	w := newWorld(t)
-	w.exec(`CREATE TRIGGER a_test_fault BEFORE INSERT OR UPDATE OR DELETE ON gradings FOR EACH ROW EXECUTE FUNCTION examen_test_fault()`)
 	p := w.plan()
 	ctx := t.Context()
 	g := w.st.Gradings()
+	x := w.st.Experiments()
+	w.eachFault("a done trial's gradings", func() func() error {
+		ne, cells := w.experiment(p, objects.ModeExecute, 1)
+		ne.Experiment.Candidates, ne.Experiment.CandidateIDs, ne.Cells, ne.Comparisons = ne.Experiment.Candidates[:1], ne.Experiment.CandidateIDs[:1], ne.Cells[:1], nil
+		if err := x.Create(ctx, ne); err != nil {
+			t.Fatal(err)
+		}
+		if err := x.SubmitRollout(ctx, cells[0], cells[0]+".smoke"); err != nil {
+			t.Fatal(err)
+		}
+		l, err := x.Lease(ctx, store.LeaseRequest{Experiment: ne.Experiment.ID, Candidate: p.a.Digest, Subject: owner, Cells: cells[:1]})
+		if err != nil || len(l.Trials) != 1 {
+			t.Fatalf("lease %+v %v", l, err)
+		}
+		o := outcome(objects.OutcomeCompleted)
+		o.Gradings = []objects.NewGrading{{Grader: checkDigest, Kind: objects.GraderCheck}}
+		return func() error {
+			_, err := x.Submit(ctx, store.Submission{Trial: l.Trials[0].ID, Lease: l.Lease, Subject: owner, Digest: "d", Outcome: o})
+			return err
+		}
+	})
+	w.eachFault("a cancel that ends gradings", func() func() error {
+		eid, _, _ := w.gradedTrial(ctx, p)
+		return func() error { _, err := x.Cancel(ctx, eid); return err }
+	})
 	w.eachFault("end a grading", func() func() error {
 		_, _, trial := w.gradedTrial(ctx, p)
 		list, err := g.OfTrials(ctx, []string{trial.ID})
