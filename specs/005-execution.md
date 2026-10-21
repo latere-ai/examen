@@ -1588,9 +1588,10 @@ the sandbox is created from the installation's default image in
 everything examend writes is under the sandbox's workspace, whose root
 file system is read-only, so `EXAMEN_OUTPUTS` is
 `<workspace>/examen/outputs`, the run's files are under its
-`workspace/`, `EXAMEN_CHECK_FILES` is
-`<workspace>/examen/check-files/<grader hex>` and `EXAMEN_WORKSPACE`
-the empty `<workspace>/work`; a check's files are written with their
+`workspace/`, which is `EXAMEN_WORKSPACE` and a check's default working
+directory, the working directory the agent left as spec 006 names it,
+and `EXAMEN_CHECK_FILES` is
+`<workspace>/examen/check-files/<grader hex>`; a check's files are written with their
 write bits cleared, which the sandbox's one user could set again, and no
 system under test ever ran in the sandbox; the labels the minter
 answers with its token are written on the sandbox, so it is in the

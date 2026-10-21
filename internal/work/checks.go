@@ -48,7 +48,7 @@ const quotaWait = 2 * time.Minute
 type sandboxPaths struct{ root string }
 
 func (p sandboxPaths) at(rel string) string     { return path.Join(p.root, rel) }
-func (p sandboxPaths) workspace() string        { return p.at("work") }
+func (p sandboxPaths) workspace() string        { return p.at("examen/outputs/workspace") }
 func (p sandboxPaths) examen(rel string) string { return p.at("examen/" + rel) }
 
 // checkGrader is one check of a trial: its grading and its grader.
@@ -321,12 +321,11 @@ func (a *archive) file(p string, mode int64, data []byte) {
 // checkArchive is the tar stream written below the check sandbox's
 // workspace: the kept working directory under examen/outputs/workspace/,
 // the output manifest, the log and the final message, each check's files,
-// and the empty directories of the inputs, the references and the
-// workspace the checks run in.
+// and the empty directories of the inputs and the references.
 func checkArchive(r gradedRun, work []workFile, checks []checkGrader) ([]byte, error) {
 	var buf bytes.Buffer
 	a := &archive{tw: tar.NewWriter(&buf), dirs: map[string]bool{}}
-	for _, d := range []string{"work", "examen/inputs", "examen/reference", "examen/outputs/workspace"} {
+	for _, d := range []string{"examen/inputs", "examen/reference", "examen/outputs/workspace"} {
 		a.dir(d)
 	}
 	manifest := make([]manifestFile, 0, len(work))

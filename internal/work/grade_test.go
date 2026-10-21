@@ -403,7 +403,7 @@ func TestEvalsGradesARun(t *testing.T) {
 	}
 	env := cl.execs[0]["env"].(map[string]any)
 	for k, want := range map[string]string{"EXAMEN_TRIAL": trial.ID, "EXAMEN_CHECK": g.inventory, "EXAMEN_OUTPUTS": "/workspace/examen/outputs",
-		"EXAMEN_CHECK_FILES": "/workspace/examen/check-files/" + strings.TrimPrefix(g.inventory, "sha256:"), "EXAMEN_WORKSPACE": "/workspace/work", "HOME": "/tmp"} {
+		"EXAMEN_CHECK_FILES": "/workspace/examen/check-files/" + strings.TrimPrefix(g.inventory, "sha256:"), "EXAMEN_WORKSPACE": "/workspace/examen/outputs/workspace", "HOME": "/tmp"} {
 		if env[k] != want {
 			t.Errorf("%s is %v, want %s", k, env[k], want)
 		}

@@ -24,8 +24,9 @@ here is refused before it is pushed.
   check's files, an Arca folder pinned by its content digest; every
   file read from Arca is checked against the digest its log or its pin
   records. The checks run in the task's order through Cella's exec with
-  spec 006's `EXAMEN_` variables, under one `CHECK_TIMEOUT`, and the
-  sandbox is deleted after. A trial's `checks` hold each run's record.
+  spec 006's `EXAMEN_` variables, `EXAMEN_WORKSPACE` and a check's
+  working directory being the run's kept working directory, under one
+  `CHECK_TIMEOUT`, and the sandbox is deleted after. A trial's `checks` hold each run's record.
 - Model judges call their model through Lux's native door at
   `EXAMEN_LUX_URL`, one structured call with the one tool
   `record_judgment` required, on a Key the key source leases with the
