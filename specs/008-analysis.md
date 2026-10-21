@@ -1338,9 +1338,14 @@ or a test of independence, `examend` keeps one more record (spec 002):
   its reason, and whether that comparison is final;
 - the experiment's test of independence when it declared one (below).
 
-It is recomputed by the work queue, under the experiment's row lock,
-each time a declared comparison is computed, and replaces the record
-before; it computes no test, only the correction of the p-values the
+It is recomputed by the work queue each time a declared comparison is
+computed, and replaces the record before. The newest record of each
+declared comparison is read under the experiment's row lock, the
+correction computes with no transaction held, and the record is stored
+under the lock again only when those records are still the newest and
+no other recomputation stored one meanwhile; otherwise, as when a cell
+of the test of independence changed meanwhile, the experiment stays
+marked and the next tick recomputes it; it computes no test, only the correction of the p-values the
 comparisons store, so recomputing it from the same comparisons gives
 the same record bit for bit. It is `final` once every declared
 comparison's newest record is final, and the test of independence's
@@ -1961,3 +1966,14 @@ once both its sides are final; and cell-level metrics are accepted,
 pinned and computed in served comparisons, ahead of the label tests
 step of the build order, as are open vocabularies and their
 taxonomies.
+
+From v0.7.1 a comparison reads the values of a task's own graders, the
+model judge a task names beside its checks among them, as it reads the
+suite's (`compare.TestATaskGraderProducesItsValues`); v0.7.0 resolved a
+task's checks alone, so a comparison of a judge's metric that only a
+task named read no values. And the declared analysis is computed with no
+transaction held (`postgres.TestDeclareReadsWithNoTransactionHeld`):
+v0.7.0 computed it under the experiment's row lock while the analysis
+read through the pool, and with a pooler in transaction mode of one
+server connection per replica, two replicas recomputing one experiment
+held every connection until the pooler's wait timed out.

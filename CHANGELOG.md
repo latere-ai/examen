@@ -8,6 +8,19 @@ here is refused before it is pushed.
 
 ### Fixed
 
+- A comparison reads the values of a task's own graders, such as a model
+  judge a task names beside its checks, as it reads the suite's. In
+  v0.7.0 it resolved a task's checks alone, so a comparison of a metric
+  that only a task's judge produced read no trials and gave no verdict.
+- An experiment's declared analysis is computed with no transaction held.
+  It was computed under the experiment's row lock while the analysis read
+  cells and values through the pool, so behind a pooler in transaction
+  mode with one server connection per replica, two replicas recomputing
+  one experiment took every connection until the pooler's wait timed out,
+  and `/readyz` and the API failed meanwhile. A recomputation now stores
+  its analysis only when the declared comparisons it read are still the
+  newest and no other one stored meanwhile, and otherwise leaves the
+  experiment marked for the next tick.
 - The API document describes what a create runs: candidates of kind
   `external` and `topos`, with the checks and judges that grade a `topos`
   experiment's trials. It said a `topos` candidate was refused
