@@ -9,7 +9,7 @@ depends_on:
 affects: [authorizer/, internal/access/, internal/owner/, internal/keys/, internal/httpapi/, internal/execute/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-19
+updated: 2026-10-21
 author: changkun
 ---
 
@@ -768,6 +768,7 @@ Authorization: Bearer <the content of EXAMEN_MINTER_TOKEN_FILE>
 | `claims` | `examen: {experiment, purpose}`, or `examen: {publication, purpose}` for the purpose `publish`, and `examen: {publication, experiment, purpose}` for a `prepare` job's input links, for the minter to place on the token where its issuer can (above) |
 | `ttl` | the lifetime asked: `OWNER_TOKEN_MAX_LIFETIME`, in seconds |
 | `token`, `expires_in` | the answer: the token and its lifetime in seconds |
+| `labels` | optional in the answer: labels the installation holds an object the token creates at a core to, such as the owner's tenancy; Examen writes them on the check sandbox it creates as the owner (spec 005), and a minter that answers none leaves the sandbox with Examen's own labels alone |
 
 The minter's obligations, which the cores and not Examen check: the
 token is addressed to `audience` alone and verifies against that core's

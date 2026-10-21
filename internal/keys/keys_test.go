@@ -238,18 +238,30 @@ func TestTheCacheAsksOnceWithinItsTTL(t *testing.T) {
 	}
 }
 
-// TestTheMemorySource: one Key per experiment until it is released, the
-// figures a test set, its records a page at a time behind a cursor, and
-// its error answered by every call.
+// TestTheMemorySource: one Key per experiment until it is released, one
+// per judge beside it, none for another purpose, the figures a test set,
+// its records a page at a time behind a cursor, and its error answered by
+// every call.
 func TestTheMemorySource(t *testing.T) {
 	m := NewMemory()
 	ctx := t.Context()
-	if _, err := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeJudge}); err == nil {
-		t.Error("a judge's Key was answered")
+	if _, err := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeReport}); err == nil {
+		t.Error("a report's Key was answered")
+	}
+	judge := func(grader string) Lease {
+		l, err := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeJudge, Labels: map[string]string{"examen.grader": grader}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	j1, j1again, j2 := judge("grd_1"), judge("grd_1"), judge("grd_2")
+	if j1.ID != j1again.ID || j1.ID == j2.ID {
+		t.Errorf("judges' Keys: %v %v %v", j1.ID, j1again.ID, j2.ID)
 	}
 	a, _ := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeExternal})
 	b, _ := m.Lease(ctx, Request{Experiment: "exp_1", Purpose: PurposeExternal})
-	if a.ID != b.ID || len(m.Asked()) != 3 {
+	if a.ID != b.ID || a.ID == j1.ID || len(m.Asked()) != 6 {
 		t.Fatalf("two asks answered %v and %v", a.ID, b.ID)
 	}
 	if err := m.Release(ctx, a.ID); err != nil || !m.Released(a.ID) {

@@ -7,7 +7,7 @@ depends_on:
 affects: [api/, internal/store/, internal/id/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-19
+updated: 2026-10-21
 author: changkun
 ---
 
@@ -309,7 +309,7 @@ refused.
 | `level` | enum | `trial` (the default): grades one trial at a time; `candidate`: for a `model_judge` alone, grades once per candidate of an experiment over all the candidate's finished trials, and produces only candidate-level metrics (spec 006) |
 | `produces` | []metric digest | the metrics it fills |
 | `check` | object | for `check`: `command` ([]string, run in the trial's machine or the check sandbox), `workdir`, `env`, `files` (optional: an owner's Arca path and its content digest, delivered read-only to the check), and `image` (optional: an image pinned by digest, mounted read-only while the check runs, from which `command[0]` runs; Examen's comparator image is one). Output contract and the comparators in spec 006 |
-| `model_judge` | object | for `model_judge`: `model` (a pinned model id), `prompt` (text), `rubric` (text), `inputs` (which evidence it reads: `transcript`, `final_message`, named `files`, named `outputs`, a directory output by one file of it, `<output>/<path>`, or whole, `<output>/`, whose UTF-8 text files it reads in path order, spec 006), `temperature`, `reasoning` (optional: the reasoning level the call names; the model's default when absent), `preamble` (Examen's judge preamble, pinned at apply), and `role`: `grade` (the default), or `canonicalize` for a canonicalizer, which produces exactly one open-vocabulary metric, reads that metric's raw labels and no evidence, and answers taxonomy versions instead of measurements (spec 006). Which providers may keep what a judge sends is the key source's, not the grader's (spec 004) |
+| `model_judge` | object | for `model_judge`: `model` (a pinned model id), `prompt` (text), `rubric` (text), `inputs` (which evidence it reads: `transcript`, `final_message`, named `files`, named `outputs`, a directory output by one file of it, `<output>/<path>`, or whole, `<output>/`, whose UTF-8 text files it reads in path order, and `checks`, the values the trial's checks recorded, spec 006), `temperature`, `reasoning` (optional: the reasoning level the call names; the model's default when absent), `preamble` (Examen's judge preamble, pinned at apply), and `role`: `grade` (the default), or `canonicalize` for a canonicalizer, which produces exactly one open-vocabulary metric, reads that metric's raw labels and no evidence, and answers taxonomy versions instead of measurements (spec 006). Which providers may keep what a judge sends is the key source's, not the grader's (spec 004) |
 | `agent_judge` | object | for `agent_judge`: `agent` (a pinned Topos agent version digest), `inputs`, `instructions`, `preamble` (Examen's agent judge preamble, pinned at apply) |
 | `annotation` | object | for `annotation`: `instructions` for the person, `sample` (the fraction of trials to queue) |
 
@@ -320,8 +320,8 @@ makes a new grader version, and its measurements are a new generation
 
 **One producer per metric.** For each task of a suite version, each
 trial-level metric the suite lists has at most one producer that is not
-an annotation grader: one of the task's `checks`, the suite's `graders`
-and, for `declined`, the suite's decline judge; `builtin` for the other
+an annotation grader: one of the task's `checks`, the task's `graders`, the suite's
+`graders` and, for `declined`, the suite's decline judge; `builtin` for the other
 built-in metrics. A candidate-level metric has exactly one producer,
 one of the suite's `graders` of level `candidate`. A cell-level metric
 has none, since Examen computes it, and a canonicalizer produces no
@@ -346,6 +346,7 @@ One versioned unit of work.
 | `workspace` | object | where the trial starts: `none`, `origo` (a repository and a full commit id), or `arca` (an owner's path and its content digest) |
 | `environment` | object | the Cella sandbox template the trial runs in, pinned by image digest, with its resources and network policy; the image must be one Cella's admission accepts, checked when an experiment that uses the task is created (spec 003) |
 | `checks` | []grader digest | graders of kind `check`, run in order after the agent ends |
+| `graders` | []grader digest | judges and annotation queues of level `trial` applied to this task's trials alone, beside the suite's `graders`, such as a judge whose prompt speaks of the task's seed project; none of them is one of the suite's graders |
 | `timeout` | duration | the trial's wall time, at most `MAX_TRIAL_TIMEOUT`; `DEFAULT_TRIAL_TIMEOUT` when unset |
 | `max_turns` | int | optional bound on the model responses of the agent's own thread; the `topos` executor needs a step bound Topos does not have today (spec 005, requirement R7), and the `cella` and `external` executors pass it on as advice |
 | `evidence` | []path | files of the workspace kept as evidence besides the transcript |
@@ -423,7 +424,8 @@ empty. `model` and `reasoning` are a candidate's own, and for an
 declare one external harness and model and differ only in `reasoning` are
 compared on `reasoning` alone.
 `grader_digests` holds every grader of the cell's trials: the task's
-checks, the suite's graders and the suite's decline judge. Every field
+checks, the task's graders, the suite's graders and the suite's decline
+judge. Every field
 is pinned: an agent named without a version digest, a model alias with
 nothing recording what served it, an image by tag, a workspace by
 branch, is refused when applied. An `external` candidate's fields are
@@ -535,7 +537,7 @@ One attempt by a candidate at a task.
 | `sent` | object | what was sent: the model and reasoning settings of each request, from the executor (spec 007) |
 | `observed` | object | what happened: the model that served, token usage including reasoning, cost, from the executor's and Lux's records, and the service versions and the usage figures of the APIs it called that a program recorded or an external harness submitted (spec 007) |
 | `declared` | object | for an `external` trial: what its external harness declared about the trial that Examen cannot observe, `harness_version` and `image`, a tag or a digest as the external harness names it (spec 005) |
-| `checks` | []object | one check run record per check of the task, in order: `{grader, state, exit_code, reason, duration, stdout_size, stdout_sha256, stderr_tail}`, `state` one of spec 006's check run states |
+| `checks` | []object | one check run record per check of the task, in order: `{grader, state, exit_code, reason, duration, stdout_size, stdout_sha256, stderr_tail, image, generation}`, `state` one of spec 006's check run states, or `pending` until the run ended; `image` the image of the check sandbox it ran in, `generation` the generation its values appended |
 | `judgments` | []object | one judgment record per judge grading: `{grader, generation, state, attempts, request_digest, cuts, boundary, served_model, tokens, cost}`, `attempts` each `{lux_request, state}`, `state` one of spec 006's judgment states |
 | `evidence` | []evidence ref | spec 007 |
 | `outputs` | object | a summary of the trial's output manifest (spec 005): `{files, bytes, kept_bytes, not_kept, over_limit}`, the files and bytes its outputs held, the bytes kept, the files kept by digest and size alone, and, when its outputs passed `MAX_OUTPUT_FILES` or `MAX_OUTPUT_BYTES`, the constant they passed |

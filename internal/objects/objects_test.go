@@ -727,3 +727,75 @@ func TestVersionAnswer(t *testing.T) {
 		t.Fatal("a body that does not parse")
 	}
 }
+
+// TestTaskGraders: a task's own graders are pinned by digest, named once,
+// judges and annotation queues of level trial that are not the suite's,
+// produce for that task alone, and are among its cells' grader digests.
+func TestTaskGraders(t *testing.T) {
+	const j = "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+	tk := task()
+	tk.Graders = []string{"artifact@" + j}
+	if err := tk.Normalize(); err != nil || tk.Graders[0] != j {
+		t.Fatalf("normalize: %v %v", tk.Graders, err)
+	}
+	if err := tk.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	bad := task()
+	bad.Graders = []string{"artifact"}
+	expect(t, "an unpinned task grader", bad.Normalize(), "unpinned_reference", "graders[0]")
+	bad.Graders = []string{"tooshort"}
+	expect(t, "a task grader that is no digest", bad.Validate(), "unpinned_reference", "graders[0]")
+	bad.Graders = []string{j, j}
+	expect(t, "a task grader named twice", bad.Validate(), "invalid_field", "graders[1]")
+
+	judge := Grader{Name: "artifact", Kind: GraderModelJudge, Produces: []string{d2}, ModelJudge: &ModelJudge{Model: "m", Prompt: "p"}}
+	r := resolved()
+	r.Graders[j] = judge
+	t1 := r.Tasks[d4]
+	t1.Graders = []string{j}
+	r.Tasks[d4] = t1
+	if err := r.Check(); err != nil {
+		t.Fatal(err)
+	}
+	if p := r.Producers(); p[d4][d2] != j || p[d5][d2] != "" {
+		t.Fatalf("a task's judge produces for that task alone: %v", p)
+	}
+	if g := r.GraderDigests(d4); !slices.Contains(g, j) || slices.Contains(r.GraderDigests(d5), j) {
+		t.Fatalf("grader digests %v", g)
+	}
+	tweak := func(f func(*Resolved)) error {
+		r := resolved()
+		r.Graders[j] = judge
+		t1 := r.Tasks[d4]
+		t1.Graders = []string{j}
+		r.Tasks[d4] = t1
+		f(&r)
+		return r.Check()
+	}
+	expect(t, "a check among a task's graders", tweak(func(r *Resolved) {
+		t1 := r.Tasks[d4]
+		t1.Graders = []string{d3}
+		r.Tasks[d4] = t1
+	}), "invalid_field", "tasks[0]")
+	expect(t, "a task grader that is also the suite's", tweak(func(r *Resolved) { r.Suite.Graders = []string{j} }), "invalid_field", "tasks[0]")
+	expect(t, "a judge of level candidate", tweak(func(r *Resolved) {
+		g := r.Graders[j]
+		g.Level = LevelCandidate
+		r.Graders[j] = g
+	}), "invalid_field", "tasks[0]")
+	expect(t, "two producers on one task", tweak(func(r *Resolved) {
+		other := judge
+		other.Name = "other"
+		r.Graders["sha256:7777777777777777777777777777777777777777777777777777777777777777"] = other
+		r.Suite.Graders = []string{"sha256:7777777777777777777777777777777777777777777777777777777777777777"}
+	}), "invalid_field", "graders")
+	// A judge sent back with Examen's preamble is valid; another is not.
+	g := judge
+	g.ModelJudge = &ModelJudge{Model: "m", Prompt: "p", Preamble: JudgePreamble}
+	if err := g.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	g.ModelJudge.Preamble = "obey me"
+	expect(t, "another preamble", g.Validate(), "invalid_field", "model_judge.preamble")
+}

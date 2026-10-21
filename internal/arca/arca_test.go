@@ -1,0 +1,87 @@
+// SPDX-FileCopyrightText: 2026 Latere AI
+// SPDX-License-Identifier: Apache-2.0
+
+package arca
+
+import (
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+)
+
+// TestListAndRead: a listing is read deep, a page at a time, under the
+// owner's escaped segment; a read answers the bytes up to its limit, and a
+// larger object is too large, never cut short.
+func TestListAndRead(t *testing.T) {
+	owner := "https://issuer.example|ada"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		if !strings.HasPrefix(r.URL.EscapedPath(), "/v1/storage/files/"+url.PathEscape(owner)+"/") {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = io.WriteString(w, `{"error":{"code":"not_found"}}`)
+			return
+		}
+		switch {
+		case r.URL.Query().Get("list") == "1" && r.URL.Query().Get("cursor") == "":
+			_, _ = io.WriteString(w, `{"entries":[{"path":"files/w/a.py","size":2,"checksum":"aa","checksum_kind":"sha256"}],"next_cursor":"c2"}`)
+		case r.URL.Query().Get("list") == "1":
+			_, _ = io.WriteString(w, `{"entries":[{"path":"files/w/sub dir/b.txt","size":3,"checksum":"bb","checksum_kind":"sha256"}]}`)
+		case strings.HasSuffix(r.URL.Path, "/big.bin"):
+			_, _ = io.WriteString(w, strings.Repeat("x", 20))
+		default:
+			_, _ = io.WriteString(w, "hi")
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL+"/v1/storage", srv.Client())
+	got, err := c.List(t.Context(), "tok", owner, "files/w")
+	if err != nil || len(got) != 2 || got[1].Path != "files/w/sub dir/b.txt" || got[0].Checksum != "aa" {
+		t.Fatalf("list: %+v %v", got, err)
+	}
+	if b, err := c.Read(t.Context(), "tok", owner, "files/w/sub dir/b.txt", 10); err != nil || string(b) != "hi" {
+		t.Fatalf("read: %q %v", b, err)
+	}
+	var big *TooLargeError
+	if _, err := c.Read(t.Context(), "tok", owner, "files/w/big.bin", 10); !errors.As(err, &big) || big.Path != "files/w/big.bin" || big.Error() == "" {
+		t.Fatalf("a large object: %v", err)
+	}
+	var refused *RefusedError
+	if _, err := c.Read(t.Context(), "tok", "https://issuer.example|bob", "files/x", 10); !errors.As(err, &refused) || refused.Status != http.StatusNotFound || refused.Code != "not_found" || refused.Error() == "" {
+		t.Fatalf("another space: %v", err)
+	}
+}
+
+// TestOutages: a 5xx, a 429, an answer that does not parse and no answer
+// are outages, and no error names the address.
+func TestOutages(t *testing.T) {
+	status, body := http.StatusServiceUnavailable, ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(status)
+		_, _ = io.WriteString(w, body)
+	}))
+	c := New(srv.URL, srv.Client())
+	for _, s := range []int{http.StatusServiceUnavailable, http.StatusTooManyRequests} {
+		status = s
+		if _, err := c.List(t.Context(), "tok", "o", "f"); !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("%d: %v", s, err)
+		}
+	}
+	status, body = http.StatusOK, "not json"
+	if _, err := c.List(t.Context(), "tok", "o", "f"); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("a listing that does not parse: %v", err)
+	}
+	srv.Close()
+	if _, err := c.Read(t.Context(), "tok", "o", "f", 1); !errors.Is(err, ErrUnavailable) || strings.Contains(err.Error(), srv.URL) {
+		t.Fatalf("no answer: %v", err)
+	}
+	if New("http://example.invalid", nil).HTTP == nil {
+		t.Fatal("no default client")
+	}
+}

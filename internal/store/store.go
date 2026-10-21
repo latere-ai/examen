@@ -537,18 +537,18 @@ type Usage interface {
 // runs, and ends once, appending its grader's next generation when its run
 // gave values.
 type Gradings interface {
-	// Due answers pending gradings a run may start on at now, at most
-	// limit, oldest first: held by no replica past now, due no later than
-	// now, of an experiment that is not finished; a judge only once every
-	// check of its trial ended.
-	Due(ctx context.Context, now time.Time, limit int) ([]objects.Grading, error)
-	// Hold takes the named gradings for a run until until, and answers
-	// those it took: one another replica holds, or that ended, is left
-	// out.
-	Hold(ctx context.Context, ids []string, now, until time.Time) ([]string, error)
-	// Wait leaves a held grading pending and lets it go, due again at due,
-	// its attempts counted at attempts.
-	Wait(ctx context.Context, id string, due time.Time, attempts int) error
+	// Due answers pending gradings a run may start on now, by the store's
+	// clock, at most limit, oldest first: held by no replica, due, of an
+	// experiment that is not finished; a judge only once every check of
+	// its trial ended.
+	Due(ctx context.Context, limit int) ([]objects.Grading, error)
+	// Hold takes the named gradings for a run for the duration, and
+	// answers those it took: one another replica holds, or that ended, is
+	// left out.
+	Hold(ctx context.Context, ids []string, hold time.Duration) ([]string, error)
+	// Wait leaves a held grading pending and lets it go, due again after
+	// the duration, its attempts counted at attempts.
+	Wait(ctx context.Context, id string, after time.Duration, attempts int) error
 	// End ends a pending grading: its state and record, and the values
 	// its run gave, appended as the grader's next generation on the trial;
 	// it marks the experiment's comparisons, and advances the trial's cell.

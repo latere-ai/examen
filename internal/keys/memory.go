@@ -13,11 +13,12 @@ import (
 
 // Memory is a key source held in memory, for a test: one Key per
 // experiment, as an installation's key endpoint answers its external Key,
+// and one per judge, by the grader its label examen.grader names,
 // the records a test adds, and the Budget figures a test sets. Err, when
 // set, is answered by every call.
 type Memory struct {
 	mu       sync.Mutex
-	keys     map[string]Lease // by experiment
+	keys     map[string]Lease // by experiment, purpose and grader
 	released map[string]bool  // by Key id
 	records  map[string][]Record
 	budgets  map[string]Budget
@@ -41,14 +42,18 @@ func (m *Memory) Lease(_ context.Context, r Request) (Lease, error) {
 	if m.Err != nil {
 		return Lease{}, m.Err
 	}
-	if r.Purpose != PurposeExternal {
+	if r.Purpose != PurposeExternal && r.Purpose != PurposeJudge {
 		return Lease{}, &RefusedError{Reason: "purpose_not_served"}
 	}
-	l, ok := m.keys[r.Experiment]
+	key := r.Experiment
+	if r.Purpose == PurposeJudge {
+		key += "\x00judge\x00" + r.Labels["examen.grader"]
+	}
+	l, ok := m.keys[key]
 	if !ok || m.released[l.ID] {
 		n := len(m.keys) + len(m.released) + 1
 		l = Lease{Value: fmt.Sprintf("lux_value%04d", n), ID: fmt.Sprintf("key-%04d", n), Remaining: 1_000_000, Currency: "USD"}
-		m.keys[r.Experiment] = l
+		m.keys[key] = l
 	}
 	return l, nil
 }

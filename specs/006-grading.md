@@ -11,7 +11,7 @@ depends_on:
 affects: [internal/grade/, internal/grade/check/, internal/grade/judge/, internal/grade/annotate/, internal/calibrate/, cmd/examen-compare/]
 effort: large
 created: 2026-10-17
-updated: 2026-10-19
+updated: 2026-10-21
 author: changkun
 ---
 
@@ -710,13 +710,9 @@ calibration (spec 010); the threats to judges (spec 012).
 
 ## Outcome
 
-In progress since v0.1.0, which grades with the built-ins alone. A
-grader of every kind is applied and checked at apply, and none runs:
-an experiment whose suite pins a task with checks is refused `422
-core_not_configured` with `core: cella`, and one whose graders,
-canonicalizers or decline judge are model judges with `core: lux`, or
-agent judges with `core: topos` (`httpapi.TestCreateRefusals`). What
-runs is the part of this spec that needs no core:
+In progress since v0.1.0, which grades with the built-ins alone. The
+release after v0.6.4 runs checks and model judges of `topos` trials; a
+grader of every kind is still applied and checked at apply. What runs:
 
 - **The built-in decline judge.** `builtin:decline` writes `declined`
   from a finished trial's outcome, with no model call, beside the
@@ -733,21 +729,69 @@ runs is the part of this spec that needs no core:
   label metric it reads, from the owner's annotated trials, so a result
   read from a judge carries `uncalibrated` while the judge has too few
   pairs; until annotations are served no judge has one.
+- **Checks of a `topos` trial** run in a check sandbox (spec 005, "A
+  `topos` trial's checks run in a check sandbox"), not in the trial's
+  machine, which waits on Topos's check phase (R8). The output contract
+  is read as above: every row of the state table, the JSON form and the
+  exit-status form, a run giving all its values or none, `null` as no
+  value. A run's state, exit code, reason, duration, stdout size and
+  digest and stderr tail are its check run record, with the image Cella
+  ran it in and the generation its values appended; its whole stdout and
+  stderr are not kept as evidence. Not built: `CHECK_TIMEOUT` read from
+  a check that started late (each command is given what is left of it),
+  the comparators and a grader's `image`.
+- **Model judges of level `trial`** of a `topos` trial run as above: the
+  Key from the key source with the purpose `judge`, `models` the
+  grader's model and the labels `examen.experiment` and `examen.grader`
+  (the grader's version id); one call per attempt through Lux's native
+  door (`EXAMEN_LUX_URL` + `/lux/v1/generate`), `Lux-Labels:
+  examen.trial=<trial>`, `record_judgment` offered and required, the
+  grader's temperature and reasoning level, at most
+  `JUDGE_MAX_OUTPUT_TOKENS`; the input assembly, its bound, its cuts and
+  its boundary; the answer validated whatever the provider enforced and
+  tried again up to `JUDGE_MAX_ATTEMPTS`; each state of the judgment
+  table, `over_budget` parking the cell; the judgment record with each
+  attempt's Lux request id, the served model, the tokens and the cost
+  Lux reported in its answer. A judge's inputs are a `topos` trial's:
+  `final_message`, the agent's last answer on its own thread;
+  `transcript`, the session's log as JSONL rather than spec 007's text
+  rendering; `outputs`, of which a `topos` trial has `workspace/`, its
+  kept working directory, whole or by one file; and the input `checks`,
+  added here, the values the trial's checks recorded as one JSON object
+  by metric name, a judge running only once every check of its trial
+  ended. A task's own `graders` (spec 002) apply a judge to that task's
+  trials alone. Examen's preamble is pinned on every model judge at
+  apply. The judge Keys are released when the experiment ends.
 
 | # | Verdict | Held by |
 |---|---|---|
+| 1 | Met for checks of a `topos` trial | `grade.TestRunStates`, `grade.TestTaskFailureIsAValue`, `work.TestEvalsGradesARun`, `work.TestCheckRunsThatFailThemselves` |
+| 2 | Met | `grade.TestMalformedYieldsNothing`, `grade.FuzzParse` |
+| 3 | Met | `grade.TestRunStates` |
+| 4 | Met in the check sandbox of a `topos` trial; the trial's model key is never in it, since the trial's Keys are Topos's | `work.TestEvalsGradesARun` |
 | 5 | Partly met: a check `env` key beginning `EXAMEN_` and a `workdir` that leaves the workspace are refused at apply; an absolute `workdir` is refused by the same rule and has no case of its own | `objects.TestGraderRules` |
-| 20 | Partly met: `builtin:decline` fills `declined` from the outcome with no model call, and no grading changes an outcome; the suite's own `decline_judge` is refused at create until model judges run | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `postgres.TestMeasurementsAreAppendOnly` |
+| 6 | Partly met: `EXAMEN_OUTPUTS`, `EXAMEN_CHECK_FILES` and the others in a `topos` trial's check sandbox; `EXAMEN_CHECK_IMAGE` waits on a grader's `image` | `work.TestEvalsGradesARun` |
+| 9 | Met | `grade.TestAssemblyIsDeterministic` |
+| 10 | Met | `grade.TestInputBound` |
+| 11 | Partly met for the one directory output of a `topos` trial, read from its kept files rather than an archive, their digests checked against the session's log | `grade.TestInputBound`, `work.TestEvalsGradesARun` |
+| 12 | Met | `grade.TestEvidenceStaysInTheUserTurn`, `grade.FuzzBoundary` |
+| 13 | Met against a stub of Lux | `grade.TestMalformedAnswers`, `work.TestGradingsThatCannotRun` |
+| 14 | Met against a stub of Lux | `grade.TestJudgmentStates`, `work.TestJudgmentStatesAtLux`, `work.TestGradingsThatCannotRun` |
+| 15 | Met for the `endpoint` key source | `work.TestEvalsGradesARun`, `keys.TestTheMemorySource` |
+| 16 | Met | `work.TestEvidenceThatChanged` |
+| 20 | Partly met: `builtin:decline` fills `declined` from the outcome with no model call, and no grading changes an outcome; the suite's own `decline_judge` is refused at create | `objects.TestValuesAndCurrent`, `httpapi.TestTheExternalFlow`, `postgres.TestMeasurementsAreAppendOnly` |
+| 22 | Met in a `topos` trial's check sandbox | `work.TestEvalsGradesARun` |
 | 23 | Partly met (v0.5.0): Krippendorff's alpha matches reference values for nominal and interval data, a judge below `CALIBRATION_MIN_PAIRS` pairs or `CALIBRATION_MIN_AGREEMENT` is uncalibrated, and every comparison and test of independence reads the calibration of each judge that produces a label metric it reads, from the owner's annotated trials; no interval or people's alpha is computed and `GET /graders/{ref}/calibration` is not served, which wait on the annotation routes and their actions (spec 004), so no judge has a pair yet | `calibrate.TestAlpha`, `calibrate.TestCalibrated`, `calibrate.TestPeoplesValue`, `compare.TestServedCalibration`, `postgres.TestCalibrationPairs` |
-| 24 | Partly met: a value is stored normalized and never rewritten; no grader run exists to end `malformed`, so a reported or imported label longer than `LABEL_MAX_BYTES` is refused `invalid_field` instead, and no test reaches that bound | `objects.TestValuesAndCurrent`, `httpapi.TestTaxonomies`, `postgres.TestMeasurementsAreAppendOnly` |
+| 24 | Met: a check's or a judge's open-vocabulary value is stored normalized, and one longer than `LABEL_MAX_BYTES` makes the run `malformed` | `grade.TestMalformedYieldsNothing`, `objects.TestValuesAndCurrent` |
 | 25 | Met; the store's trigger that refuses changing a taxonomy row has no test of its own | `httpapi.TestTaxonomies`, `analysis.TestTaxonomyReads` |
+| 27 | Met in a `topos` trial's check sandbox, created with egress `none` | `work.TestEvalsGradesARun`, `cella.TestTheClient` |
 
-Every other criterion waits on what runs a grader: 1 to 4, 6, 22 and
-27 on the check sandbox and Topos's check phase (spec 005); 7 and 8 on
-the comparators and their image; 9 to 16 on model judges, which need a
-Key from the key source (spec 004); 17 on agent judges; 18 and 19 on
+Every other criterion waits on what runs a grader: 7 and 8 on the
+comparators and their image; 17 on agent judges; 18 and 19 on
 annotation queues, which are stored and fill nothing; 21 on re-grading;
-26 on the canonicalizer; 28 on candidate-level judges. Calibration
-reads only judges' values: a value an external harness reported
-itself, its own judge's included, is never calibrated (above). The criteria cite tests of packages not yet written; the table
+26 on the canonicalizer; 28 on candidate-level judges; and the checks and
+judges of `cella` and `external` trials on their check sandbox and file
+store. Calibration reads only judges' values: a value an external
+harness reported itself, its own judge's included, is never calibrated
+(above). The criteria cite tests of packages not yet written; the table
 names the tests that hold the same behavior.

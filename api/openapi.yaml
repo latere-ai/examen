@@ -2689,6 +2689,9 @@ components:
               type: "number"
             reasoning:
               type: "string"
+            preamble:
+              description: "Examen's judge preamble, pinned on the grader at apply and covered by its digest. A body may leave it out or send it as answered; any other text is refused."
+              type: "string"
             role:
               type: "string"
               enum:
@@ -2739,6 +2742,9 @@ components:
           type: "array"
           items:
             type: "string"
+        checks:
+          description: "Read the values the trial's checks recorded, by metric name, as one block, once every check of the trial ended."
+          type: "boolean"
       additionalProperties: false
     FileSource:
       type: "object"
@@ -2826,6 +2832,11 @@ components:
             - "image"
           additionalProperties: false
         checks:
+          type: "array"
+          items:
+            type: "string"
+        graders:
+          description: "Judges and annotation queues by digest, applied to this task's trials alone beside the suite's graders."
           type: "array"
           items:
             type: "string"
@@ -3550,10 +3561,12 @@ components:
               type: "string"
           additionalProperties: false
         checks:
+          description: "One check run record per check of the task, in order: {grader, state, exit_code, reason, duration, stdout_size, stdout_sha256, stderr_tail, image, generation}; state is pending until the run ended."
           type: "array"
           items:
             type: "object"
         judgments:
+          description: "One judgment record per model judge of the trial: {grader, generation, state, attempts, request_digest, cuts, boundary, served_model, tokens, cost_usd_micro, reason}; state is pending until the judgment ended."
           type: "array"
           items:
             type: "object"

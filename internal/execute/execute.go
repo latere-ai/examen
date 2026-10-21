@@ -376,17 +376,19 @@ func Advance(c Cell, just objects.Trial) Step {
 				return s
 			}
 		}
-		// A smoke trial's checks gate the cell (specs/005-execution.md): it
-		// waits for them, and a check that could not do its job on a
-		// smoke trial blocks it before the main rollout spends on checks
-		// that would fail the same way.
+		// A smoke trial's checks gate the cell's main rollout
+		// (specs/005-execution.md): it waits for them, and a check that
+		// could not do its job on a smoke trial blocks the cell before the
+		// main rollout spends on checks that would fail the same way. A
+		// cell whose every index is a smoke trial has no main rollout to
+		// hold, and grades.
 		for i := range smoke(c.N) {
-			if c.Checking[attempts[i].ID] {
+			if c.N > smoke(c.N) && c.Checking[attempts[i].ID] {
 				return s
 			}
 		}
 		for i := range smoke(c.N) {
-			if t := attempts[i]; c.CheckFailed[t.ID] != "" {
+			if t := attempts[i]; c.N > smoke(c.N) && c.CheckFailed[t.ID] != "" {
 				s.State, s.Reason = objects.StateBlocked, "smoke_check_failed: "+t.ID+": "+c.CheckFailed[t.ID]
 				return s
 			}

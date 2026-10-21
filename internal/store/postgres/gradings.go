@@ -110,12 +110,12 @@ func (c *change) graded(ctx context.Context, view *execute.Cell) error {
 }
 
 // Due answers pending gradings a run may start on.
-func (g gradings) Due(ctx context.Context, now time.Time, limit int) ([]objects.Grading, error) {
+func (g gradings) Due(ctx context.Context, limit int) ([]objects.Grading, error) {
 	rows, err := g.s.pool.Query(ctx, `SELECT `+prefixed("g.", gradingColumns)+` FROM gradings g JOIN experiments e ON e.id = g.experiment
-		WHERE g.state = 'pending' AND g.due_at <= $1 AND (g.held_until IS NULL OR g.held_until <= $1)
+		WHERE g.state = 'pending' AND g.due_at <= coalesce($1::timestamptz, now()) AND (g.held_until IS NULL OR g.held_until <= coalesce($1::timestamptz, now()))
 			AND e.state NOT IN ('complete', 'canceled')
 			AND (g.kind = 'check' OR NOT EXISTS (SELECT 1 FROM gradings c WHERE c.trial = g.trial AND c.kind = 'check' AND c.state = 'pending'))
-		ORDER BY g.due_at, g.trial, g.position LIMIT $2`, now, limit)
+		ORDER BY g.due_at, g.trial, g.position LIMIT $2`, g.s.at(), limit)
 	if err != nil {
 		return nil, fmt.Errorf("postgres: reading the gradings due: %w", err)
 	}
@@ -131,10 +131,10 @@ func prefixed(alias, columns string) string {
 	return strings.Join(cols, ", ")
 }
 
-// Hold takes the named gradings for a run until until.
-func (g gradings) Hold(ctx context.Context, ids []string, now, until time.Time) ([]string, error) {
-	rows, err := g.s.pool.Query(ctx, `UPDATE gradings SET held_until = $3, updated_at = $2
-		WHERE id = ANY($1) AND state = 'pending' AND (held_until IS NULL OR held_until <= $2) RETURNING id`, ids, now, until)
+// Hold takes the named gradings for a run for the duration.
+func (g gradings) Hold(ctx context.Context, ids []string, hold time.Duration) ([]string, error) {
+	rows, err := g.s.pool.Query(ctx, `UPDATE gradings SET held_until = coalesce($2::timestamptz, now()) + $3::interval, updated_at = coalesce($2::timestamptz, now())
+		WHERE id = ANY($1) AND state = 'pending' AND (held_until IS NULL OR held_until <= coalesce($2::timestamptz, now())) RETURNING id`, ids, g.s.at(), interval(hold))
 	if err != nil {
 		return nil, fmt.Errorf("postgres: holding gradings: %w", err)
 	}
@@ -145,10 +145,11 @@ func (g gradings) Hold(ctx context.Context, ids []string, now, until time.Time) 
 	return out, nil
 }
 
-// Wait leaves a held grading pending, due again at due.
-func (g gradings) Wait(ctx context.Context, id string, due time.Time, attempts int) error {
-	if _, err := g.s.pool.Exec(ctx, `UPDATE gradings SET held_until = NULL, due_at = $2, attempts = $3, updated_at = coalesce($4::timestamptz, now())
-		WHERE id = $1 AND state = 'pending'`, id, due, attempts, g.s.at()); err != nil {
+// Wait leaves a held grading pending, due again after the duration.
+func (g gradings) Wait(ctx context.Context, id string, after time.Duration, attempts int) error {
+	if _, err := g.s.pool.Exec(ctx, `UPDATE gradings SET held_until = NULL, due_at = coalesce($4::timestamptz, now()) + $2::interval, attempts = $3,
+			updated_at = coalesce($4::timestamptz, now())
+		WHERE id = $1 AND state = 'pending'`, id, interval(after), attempts, g.s.at()); err != nil {
 		return fmt.Errorf("postgres: putting off a grading: %w", err)
 	}
 	return nil
@@ -236,6 +237,11 @@ func recordWith(record any, generation *int) (string, error) {
 	}
 	m["generation"] = *generation
 	return marshal(m)
+}
+
+// interval is a duration as Postgres reads an interval.
+func interval(d time.Duration) string {
+	return strconv.FormatInt(d.Microseconds(), 10) + " microseconds"
 }
 
 // OfTrials reads every grading of the trials.

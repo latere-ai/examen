@@ -350,3 +350,53 @@ func TestRolloutsKeepTheCellsExecutor(t *testing.T) {
 		t.Fatal("a cell with no rollout runs on the external executor")
 	}
 }
+
+// TestSmokeChecksGateTheCell: a smoke trial's checks gate its cell
+// (specs/005-execution.md): the main rollout waits while one runs, and a
+// check that could not do its job on a smoke trial blocks the cell, so the
+// main rollout spends nothing on checks that would fail the same way.
+func TestSmokeChecksGateTheCell(t *testing.T) {
+	smokeTrial := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted)
+	c := Cell{ID: "c", State: objects.StateSmoking, N: 3, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{smokeTrial},
+		Ungraded: map[string]bool{"t1": true}, Checking: map[string]bool{"t1": true}}
+	// A cell of smoke trials alone has no main rollout to hold, and grades.
+	one := c
+	one.N = 1
+	if s := Advance(one, smokeTrial); s.State != objects.StateGrading {
+		t.Fatalf("one trial with its checks open: %+v", s)
+	}
+	if s := Advance(c, smokeTrial); len(s.Queue) != 0 || s.State != "" {
+		t.Fatalf("the main rollout went ahead of the smoke trial's checks: %+v", s)
+	}
+	c.Checking, c.CheckFailed = nil, map[string]string{"t1": "sha256:run: not_runnable"}
+	if s := Graded(c); s.State != objects.StateBlocked || s.Reason != "smoke_check_failed: t1: sha256:run: not_runnable" {
+		t.Fatalf("a smoke check that could not run: %+v", s)
+	}
+	// A judgment still open holds no main rollout: only checks gate.
+	c.CheckFailed = nil
+	if s := Graded(c); s.State != objects.StateRunning || len(s.Queue) != 1 {
+		t.Fatalf("checks done, a judgment open: %+v", s)
+	}
+}
+
+// TestACellIsGradingUntilEveryGradingEnds: a cell whose trials are all
+// done is grading while a check run or a judgment of them is open, and
+// complete once every one ended.
+func TestACellIsGradingUntilEveryGradingEnds(t *testing.T) {
+	done := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted)
+	c := Cell{ID: "c", State: objects.StateSmoking, N: 1, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{done},
+		Ungraded: map[string]bool{"t1": true}}
+	if s := Advance(c, done); s.State != objects.StateGrading {
+		t.Fatalf("an ungraded cell: %+v", s)
+	}
+	ended := rollout("c.smoke", objects.RolloutSmoke, objects.ExecutorTopos)
+	ended.State = objects.RolloutEnded
+	c.State, c.Rollouts = objects.StateGrading, []objects.Rollout{ended}
+	if s := Graded(c); s.Changed() {
+		t.Fatalf("still grading: %+v", s)
+	}
+	c.Ungraded = nil
+	if s := Graded(c); s.State != objects.StateComplete {
+		t.Fatalf("every grading ended: %+v", s)
+	}
+}

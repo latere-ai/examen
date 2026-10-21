@@ -312,7 +312,7 @@ func keepEnds(s string, n int) (string, int) {
 	for start < len(s) && !utf8.RuneStart(s[start]) {
 		start++
 	}
-	return first + "\n" + s[start:], len(s) - len(first) - (len(s) - start)
+	return first + "\n" + s[start:], start - len(first) - 1
 }
 
 // boundaryFor is the hex of the first 8 bytes of SHA-256 of the grader's

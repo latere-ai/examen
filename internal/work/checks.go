@@ -92,9 +92,12 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		return errors.Join(errs...)
 	}
 	r, err := e.runOfTrial(ctx, first.Trial, tokens.PurposeTrial)
+	why, ended := signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
 		return endAll(objects.CheckNotRun, "evidence_changed: "+err.Error(), checks)
+	case ended:
+		return endAll(objects.CheckNotRun, why, checks)
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -108,9 +111,12 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		checks[i].grader = g
 	}
 	work, err := e.readWork(ctx, r, tokens.PurposeTrial)
+	why, ended = signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
 		return endAll(objects.CheckNotRun, "evidence_changed: "+err.Error(), checks)
+	case ended:
+		return endAll(objects.CheckNotRun, why, checks)
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -118,6 +124,9 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	}
 	for i := range checks {
 		files, why, err := e.checkFiles(ctx, r, checks[i].grader)
+		if reason, ended := signInEnded(err); ended {
+			return endAll(objects.CheckNotRun, reason, checks)
+		}
 		switch {
 		case outage(err):
 			return wait(err)
@@ -128,10 +137,10 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	}
 	g := e.Grading
 	token, err := g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.CellaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial})
-	var mint *tokens.RefusedError
+	why, ended = signInEnded(err)
 	switch {
-	case errors.As(err, &mint):
-		return endAll(objects.CheckNotRun, "the owner's sign-in no longer acts for them: "+mint.Reason, checks)
+	case ended:
+		return endAll(objects.CheckNotRun, why, checks)
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -150,7 +159,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	case errors.As(err, &refused) && refused.Code == cella.CodeQuotaExceeded:
 		var errs []error
 		for _, c := range checks {
-			errs = append(errs, e.Store.Gradings().Wait(ctx, c.row.ID, e.now().Add(quotaWait), c.row.Attempts))
+			errs = append(errs, e.Store.Gradings().Wait(ctx, c.row.ID, quotaWait, c.row.Attempts))
 		}
 		e.log().InfoContext(ctx, "a trial's checks wait for a place in the owner's sandbox limit", "trial", r.trial.ID)
 		return errors.Join(errs...)

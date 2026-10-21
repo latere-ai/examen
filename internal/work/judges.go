@@ -68,9 +68,12 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 		return e.later(ctx, row, func(reason string) store.GradingEnd { return end(objects.CheckNotRun, reason) }, cause)
 	}
 	r, err := e.runOfTrial(ctx, row.Trial, tokens.PurposeJudge)
+	why, ended := signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
 		return e.Store.Gradings().End(ctx, end(objects.JudgmentEvidenceChanged, err.Error()))
+	case ended:
+		return e.Store.Gradings().End(ctx, end(objects.CheckNotRun, why))
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -90,9 +93,12 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 		return e.Store.Gradings().End(ctx, end(objects.CheckNotRun, "no metric the judge produces applies to a trial of this outcome"))
 	}
 	ev, err := e.judgeEvidence(ctx, r, g.ModelJudge.Inputs)
+	why, ended = signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
 		return e.Store.Gradings().End(ctx, end(objects.JudgmentEvidenceChanged, err.Error()))
+	case ended:
+		return e.Store.Gradings().End(ctx, end(objects.CheckNotRun, why))
 	case outage(err):
 		return wait(err)
 	case err != nil:

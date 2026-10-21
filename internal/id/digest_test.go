@@ -4,6 +4,8 @@
 package id
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
 	"strings"
 	"testing"
@@ -89,5 +91,19 @@ func TestValidDigest(t *testing.T) {
 		if ValidDigest(bad) {
 			t.Errorf("ValidDigest(%q) = true", bad)
 		}
+	}
+}
+
+// TestFolderDigest is the digest of a folder's files: the SHA-256 of the
+// sha256sum lines in path order, whatever order the files come in.
+func TestFolderDigest(t *testing.T) {
+	a := FolderDigest([]FolderFile{{Path: "b/x.py", SHA256: "bb"}, {Path: "a.py", SHA256: "aa"}})
+	b := FolderDigest([]FolderFile{{Path: "a.py", SHA256: "aa"}, {Path: "b/x.py", SHA256: "bb"}})
+	sum := sha256.Sum256([]byte("aa  a.py\nbb  b/x.py\n"))
+	if a != b || a != DigestPrefix+hex.EncodeToString(sum[:]) {
+		t.Fatalf("FolderDigest %s %s", a, b)
+	}
+	if FolderDigest(nil) == a {
+		t.Fatal("an empty folder has the digest of a full one")
 	}
 }

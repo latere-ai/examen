@@ -13,6 +13,10 @@ import (
 	"time"
 
 	"latere.ai/x/examen/internal/apierr"
+	"latere.ai/x/examen/internal/arca"
+	"latere.ai/x/examen/internal/cella"
+	keysource "latere.ai/x/examen/internal/keys"
+	"latere.ai/x/examen/internal/objects"
 	ownertoken "latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/topos"
 	"latere.ai/x/examen/internal/topos/topostest"
@@ -174,4 +178,63 @@ func TestAToposCreateIsRefusedForWhatCannotRun(t *testing.T) {
 	m.fail(nil)
 	stub.Down(true)
 	x.refuse(502, apierr.CodeCoreUnavailable, http.MethodPost, "/v1/experiments", "t-alice", create(suite("one", task), cand))
+}
+
+// TestAGradedToposCreate: where the installation grades, an experiment of
+// topos candidates is created with its tasks' checks and graders and its
+// suite's model judges, a grader's metadata answered with Examen's pinned
+// preamble; checks and judges of external candidates, a judge of level
+// candidate, a canonicalizer and a configured decline judge are refused.
+func TestAGradedToposCreate(t *testing.T) {
+	stub := topostest.New(t)
+	stub.Agent("helper", topostest.Version{Version: 7, Digest: helperDigest})
+	m := &mint{}
+	x := newAPI(t, func(s *Server) {
+		s.Engine.Topos = &work.Topos{Client: topos.New(stub.URL, stub.Client()), Tokens: m, Audience: "topos"}
+		s.Engine.Keys = keysource.NewMemory()
+		s.Engine.Grading = &work.Grading{Tokens: m, Arca: arca.New("https://arca.example", nil), Cella: cella.New("https://cella.example", nil), LuxURL: "https://lux.example"}
+	})
+	quality := x.apply("metrics", "quality", map[string]any{"type": "score", "range": []float64{0, 1}, "direction": "higher_is_better", "aggregate": "mean"})
+	theme := x.apply("metrics", "theme", map[string]any{"type": "label", "labels": []string{"a", "b"}, "direction": "none", "aggregate": "distribution"})
+	check := x.apply("graders", "tests", map[string]any{"kind": "check", "produces": []string{"quality@" + quality}, "check": map[string]any{"command": []string{"make", "test"}}})
+	judgeRef := x.apply("graders", "judge", map[string]any{"kind": "model_judge", "produces": []string{"theme@" + theme},
+		"model_judge": map[string]any{"model": "anthropic/claude-haiku-5.5", "prompt": "label", "inputs": map[string]any{"checks": true, "outputs": []string{"workspace/"}}}})
+	got := x.must(http.StatusOK, http.MethodGet, "/v1/graders/judge", "t-alice", nil)
+	if got["model_judge"].(map[string]any)["preamble"] != objects.JudgePreamble {
+		t.Fatalf("the judge's preamble is not pinned: %v", got["model_judge"])
+	}
+	// The grader as answered applies again as the same version.
+	again := x.apply("graders", "judge", map[string]any{"kind": "model_judge", "produces": []string{"theme@" + theme},
+		"model_judge": map[string]any{"model": "anthropic/claude-haiku-5.5", "prompt": "label", "preamble": objects.JudgePreamble, "inputs": map[string]any{"checks": true, "outputs": []string{"workspace/"}}}})
+	if again != judgeRef {
+		t.Fatalf("a judge sent back with its preamble is another version: %s %s", again, judgeRef)
+	}
+	task := x.apply("tasks", "build", map[string]any{"instruction": "Build something.", "checks": []string{"tests@" + check}, "graders": []string{"judge@" + judgeRef}})
+	suite := x.apply("suites", "graded", map[string]any{"tasks": []string{"build@" + task}, "metrics": []string{"builtin:completed", "quality@" + quality, "theme@" + theme}, "primary_metric": "builtin:completed"})
+	cand := x.apply("candidates", "helper", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "helper@" + helperDigest, "model": "anthropic/claude-haiku-5.5"}})
+	x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{"suite": "graded@" + suite, "candidates": []string{cand}, "trials": 1, "budget": map[string]any{"name": "b"}})
+
+	ext := x.apply("candidates", "mine", map[string]any{"kind": "external", "external": map[string]any{"harness": "h", "version": "1"}})
+	if d := x.refuse(422, apierr.CodeExecutorUnavailable, http.MethodPost, "/v1/experiments", "t-alice",
+		map[string]any{"suite": "graded@" + suite, "candidates": []string{ext}, "trials": 1, "budget": map[string]any{"name": "b"}}); d["field"] != "suite.tasks[0].checks" {
+		t.Fatalf("checks of an external candidate: %v", d)
+	}
+	plain := x.apply("tasks", "plain", map[string]any{"instruction": "Go."})
+	profile := x.apply("graders", "profile", map[string]any{"kind": "model_judge", "level": "candidate", "produces": []string{"theme@" + theme},
+		"model_judge": map[string]any{"model": "anthropic/claude-haiku-5.5", "prompt": "profile"}})
+	decline := x.apply("graders", "decline", map[string]any{"kind": "model_judge", "produces": []string{"builtin:declined"},
+		"model_judge": map[string]any{"model": "anthropic/claude-haiku-5.5", "prompt": "declined?", "inputs": map[string]any{"final_message": true, "transcript": true}}})
+	for name, c := range map[string]struct {
+		suite map[string]any
+		field string
+	}{
+		"a judge of level candidate": {map[string]any{"tasks": []string{"plain@" + plain}, "metrics": []string{"builtin:completed", "theme@" + theme}, "primary_metric": "builtin:completed", "graders": []string{"profile@" + profile}}, "suite.graders[0]"},
+		"a decline judge":            {map[string]any{"tasks": []string{"plain@" + plain}, "metrics": []string{"builtin:completed", "builtin:declined"}, "primary_metric": "builtin:completed", "decline_judge": "decline@" + decline}, "suite.decline_judge"},
+	} {
+		s := x.apply("suites", strings.ReplaceAll(name, " ", "-"), c.suite)
+		if d := x.refuse(422, apierr.CodeExecutorUnavailable, http.MethodPost, "/v1/experiments", "t-alice",
+			map[string]any{"suite": strings.ReplaceAll(name, " ", "-") + "@" + s, "candidates": []string{cand}, "trials": 1, "budget": map[string]any{"name": "b"}}); d["field"] != c.field {
+			t.Errorf("%s: %v", name, d)
+		}
+	}
 }

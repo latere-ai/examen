@@ -72,6 +72,39 @@ func TestTokensAreKeptUntilTheirRenewal(t *testing.T) {
 	}
 }
 
+// TestTheLabelsComeWithTheToken: the labels a minter answers with a token
+// are the minter's Labels for its ask, kept with the token, and a minter
+// that answers none gives an empty map.
+func TestTheLabelsComeWithTheToken(t *testing.T) {
+	labels := true
+	m, n, _ := minter(t, func(w http.ResponseWriter, body map[string]any) {
+		out := map[string]any{"token": "tok", "expires_in": 300}
+		if labels {
+			out["labels"] = map[string]string{"tenant": "p-1"}
+		}
+		_ = json.NewEncoder(w).Encode(out)
+	})
+	got, err := m.Labels(t.Context(), ask)
+	if err != nil || got["tenant"] != "p-1" || len(got) != 1 {
+		t.Fatalf("labels %v, %v", got, err)
+	}
+	got["tenant"] = "changed"
+	if again, _ := m.Labels(t.Context(), ask); again["tenant"] != "p-1" || n.Load() != 1 {
+		t.Fatalf("the kept labels were changed or asked again: %v, %d asks", again, n.Load())
+	}
+	labels = false
+	other := ask
+	other.Audience = "cella"
+	if got, err := m.Labels(t.Context(), other); err != nil || len(got) != 0 {
+		t.Fatalf("a minter with no labels: %v %v", got, err)
+	}
+	m.URL = "http://127.0.0.1:1"
+	other.Audience = "lux"
+	if _, err := m.Labels(t.Context(), other); err == nil {
+		t.Fatal("a minter not reached answered labels")
+	}
+}
+
 // TestALongTokenIsUsedNoLongerThanTheMaxLifetime: a token that lives an
 // hour is used OWNER_TOKEN_MAX_LIFETIME at most.
 func TestALongTokenIsUsedNoLongerThanTheMaxLifetime(t *testing.T) {

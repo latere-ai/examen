@@ -10,7 +10,7 @@ depends_on:
 affects: [internal/execute/, internal/execute/topos/, internal/execute/cella/, internal/execute/external/, internal/queue/, internal/luxread/, cmd/examen-trial/, cmd/examen-http/]
 effort: xlarge
 created: 2026-10-17
-updated: 2026-10-19
+updated: 2026-10-21
 author: changkun
 ---
 
@@ -1512,7 +1512,8 @@ deadlines and `TRIAL_START_TIMEOUT`, but a `topos` trial's deadline
 (below); 16, adoption; 17, imports; 25 and 26, the `topos` executor's
 rollout, which runs as one session per trial (below); 20 and 28, the
 prepare job; 27, 31 and 36 to 38, the `cella`
-executor and the trial driver; 29 and 30, the check sandbox; 32, the
+executor and the trial driver; 29 and 30, the check sandbox of a
+`cella` or `external` trial (a `topos` trial's is built, above); 32, the
 HTTP runner; 35, directory outputs.
 
 The work queue as built differs from the design above: there is no
@@ -1568,3 +1569,47 @@ Held by `work.TestToposRunsEachTrialAsASession`,
 `topos.TestReadTheLog`, `topos.TestTheClient`,
 `httpapi.TestAToposExperimentRunsItsTrialsAsSessions` and
 `httpapi.TestAToposCreateIsRefusedForWhatCannotRun`.
+
+**A `topos` trial's checks run in a check sandbox.** Built before Topos
+has a check phase (R8), and the way the platform this release is
+deployed on runs them: once a `topos` trial ends finished, its session's
+log is read through the transcript's pinned event, and the trial is
+`done` with one grading per check of its task, in order, and one per
+model judge (spec 006), its cell `grading` until every one ended. The
+trial's evidence names the session's kept working directory as the
+output `workspace/`, with the digest of the files its log's `work.saved`
+events record (`id.FolderDigest`: the SHA-256 of one `<hex sha256>
+<path>` line per file in path order) and their bytes; Topos leaves out
+installed dependencies (`node_modules`, `.venv` and the like), so a
+check meets a program without them. Each trial's checks run together in
+one check sandbox as this spec's section says, with these differences:
+the sandbox is created from the installation's default image in
+`EXAMEN_CELLA_ENVIRONMENT`, since a `topos` task names no environment;
+everything examend writes is under the sandbox's workspace, whose root
+file system is read-only, so `EXAMEN_OUTPUTS` is
+`<workspace>/examen/outputs`, the run's files are under its
+`workspace/`, `EXAMEN_CHECK_FILES` is
+`<workspace>/examen/check-files/<grader hex>` and `EXAMEN_WORKSPACE`
+the empty `<workspace>/work`; a check's files are written with their
+write bits cleared, which the sandbox's one user could set again, and no
+system under test ever ran in the sandbox; the labels the minter
+answers with its token are written on the sandbox, so it is in the
+owner's tenancy. Every file is read from the owner's Arca space as the
+owner and its SHA-256 checked against the log's record, and a check's
+files against its pin; a mismatch, a log gone at Topos, or a sign-in
+that no longer acts for the owner ends the checks `not_run` with the
+reason. An outage of a core waits a minute and is taken again, up to 30
+times; Cella's sandbox limit waits two minutes and spends nothing. The
+gradings are rows of their own (`gradings`), held by one replica while
+they run, and taken by a loop of their own every `REPORT_INTERVAL`, at
+most `EXAMEN_WORKERS` at once. A cell with a main rollout to come waits
+for its smoke trials' checks before queueing it, and parks `blocked`
+with `smoke_check_failed: <trial>: <grader>: <state>` when one of them
+is not `ok`; a cell of smoke trials alone grades. A parked or canceled
+cell ends its open gradings `not_run`. Held by
+`work.TestEvalsGradesARun`, `work.TestGradingsThatCannotRun`,
+`work.TestGradingWaitsOutAnOutage`, `work.TestCheckRunsThatFailThemselves`,
+`work.TestEvidenceThatChanged`, `work.TestALongOutageEnds`,
+`execute.TestSmokeChecksGateTheCell`,
+`execute.TestACellIsGradingUntilEveryGradingEnds`,
+`topos.TestEvidenceOf`, `cella.TestTheClient` and `arca.TestListAndRead`.

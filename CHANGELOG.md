@@ -6,6 +6,53 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Added
+
+- Examen grades a `topos` trial's run itself. Once its session ends, the
+  trial is `done` with one grading per check of its task and per model
+  judge of its task and suite, and its cell is `grading` until every one
+  ended; a cell with a main rollout to come waits for its smoke trials'
+  checks, and parks `blocked` with `smoke_check_failed` when one of them
+  is not `ok`. Each value a grading gives is appended under the grader's
+  digest as its next generation, so results read it as Examen's own
+  measurement, never self-reported.
+- Checks run in a check sandbox (spec 005): a Cella sandbox created as
+  the owner with egress `none`, from the environment
+  `EXAMEN_CELLA_ENVIRONMENT` and its default image, holding the run's
+  kept working directory under `examen/outputs/workspace/` with its
+  output manifest, the session's log and final message, and each
+  check's files, an Arca folder pinned by its content digest; every
+  file read from Arca is checked against the digest its log or its pin
+  records. The checks run in the task's order through Cella's exec with
+  spec 006's `EXAMEN_` variables, under one `CHECK_TIMEOUT`, and the
+  sandbox is deleted after. A trial's `checks` hold each run's record.
+- Model judges call their model through Lux's native door at
+  `EXAMEN_LUX_URL`, one structured call with the one tool
+  `record_judgment` required, on a Key the key source leases with the
+  purpose `judge` for that judge alone and labeled with the trial, and
+  validated whatever the provider enforced; a malformed answer is tried
+  again up to `JUDGE_MAX_ATTEMPTS`. A judge reads the run's final
+  message, its kept files (the output `workspace/`), its transcript and,
+  with the new input `checks`, the values its checks recorded. A trial's
+  `judgments` hold each judgment's record with its Lux request ids,
+  tokens and cost, and the judge Keys are released when the experiment
+  ends. Examen's judge preamble is pinned on every model judge at apply
+  as `model_judge.preamble`.
+- A task names `graders`: judges and annotation queues applied to that
+  task's trials alone, beside the suite's, such as a judge whose prompt
+  speaks of the task's seed project.
+- The minter's answer may carry `labels`, which Examen writes on a check
+  sandbox it creates as the owner, as an installation's tenancy needs.
+
+### Changed
+
+- An experiment of `topos` candidates whose tasks have checks, or whose
+  suite or tasks have model judges, is created where Cella, Arca, Lux
+  and the key source are configured, and refused `422
+  core_not_configured` elsewhere; checks and judges of an experiment of
+  `external` candidates, a canonicalizer, a configured decline judge and
+  a judge of level `candidate` are still refused.
+
 ## v0.6.4 - 2026-10-21
 
 ### Added

@@ -87,8 +87,7 @@ func (e *Engine) Grade(ctx context.Context) error {
 	if g == nil || (!g.Checks() && !g.Judges()) {
 		return nil
 	}
-	now := e.now().UTC()
-	due, err := e.Store.Gradings().Due(ctx, now, batch)
+	due, err := e.Store.Gradings().Due(ctx, batch)
 	if err != nil {
 		return err
 	}
@@ -121,7 +120,7 @@ func (e *Engine) Grade(ctx context.Context) error {
 		for i, r := range j.rows {
 			ids[i] = r.ID
 		}
-		held, err := e.Store.Gradings().Hold(ctx, ids, now, now.Add(j.hold))
+		held, err := e.Store.Gradings().Hold(ctx, ids, j.hold)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -181,7 +180,7 @@ func (e *Engine) later(ctx context.Context, r objects.Grading, end func(reason s
 		return e.Store.Gradings().End(ctx, end("the run waited out "+fmt.Sprint(gradeOutages)+" outages: "+apierr.LogText(cause)))
 	}
 	e.log().InfoContext(ctx, "a grading waits for a core", "trial", r.Trial, "grader", r.Grader, "error", apierr.LogText(cause))
-	return e.Store.Gradings().Wait(ctx, r.ID, e.now().Add(gradeWait), r.Attempts+1)
+	return e.Store.Gradings().Wait(ctx, r.ID, gradeWait, r.Attempts+1)
 }
 
 // gradedRun is what a trial's graders read of it: the experiment, the
@@ -275,6 +274,10 @@ func (e *Engine) runOfTrial(ctx context.Context, tid, purpose string) (gradedRun
 		return r, err
 	}
 	events, err := e.Topos.Client.Events(ctx, token, session)
+	var core *topos.RefusedError
+	if errors.As(err, &core) && core.Status == http.StatusNotFound {
+		return r, fmt.Errorf("%w: the session's log is gone at Topos", errEvidenceChanged)
+	}
 	if err != nil {
 		return r, err
 	}
@@ -351,6 +354,16 @@ func (e *Engine) readWork(ctx context.Context, r gradedRun, purpose string) ([]w
 		out = append(out, wf)
 	}
 	return out, nil
+}
+
+// signInEnded is why a minter's refusal ends a grading: the owner's
+// sign-in no longer acts for them, so nothing more is read or run as them.
+func signInEnded(err error) (string, bool) {
+	var mint *tokens.RefusedError
+	if errors.As(err, &mint) {
+		return "the owner's sign-in no longer acts for them: " + mint.Reason, true
+	}
+	return "", false
 }
 
 // outage reports whether err is a core not answering, which a grading
