@@ -1455,7 +1455,7 @@ paths:
         - "experiments"
       operationId: "createExperiment"
       summary: "Create an experiment"
-      description: "Resolves the suite and the candidates in the owner context and stores the experiment `pending`, with every cell in mode `execute`. This release runs candidates of kind `external` alone: `topos` and `program` are `422 executor_unavailable`. A suite whose tasks have checks, or whose graders, decline judge or canonicalizers are model or agent judges, is `422 core_not_configured`, as is an `execute` task with inputs and a cap no authorizer answered with a Budget. With no `owner` parameter, asks `experiment.list` for the owner context its allow names, then `experiment.create`."
+      description: "Resolves the suite and the candidates in the owner context and stores the experiment `pending`, with every cell in mode `execute`. Candidates of kind `external` and `topos` run; a candidate of kind `program` is `422 executor_unavailable`. A `topos` candidate needs an installation that starts Topos sessions, else `422 core_not_configured`; one that names `tools`, and a task it runs that names an environment or an Arca workspace, are `422 executor_unavailable`, and a task it runs without an instruction is `422 missing_field`. Checks and model judges grade the trials of an experiment in mode `execute` whose candidates are all `topos`: on any other experiment they are `422 executor_unavailable`, and on an installation without Cella for checks or Lux for judges, `422 core_not_configured`. A judge of level `candidate`, a canonicalizer and a configured decline judge are `422 executor_unavailable`, or `422 core_not_configured` without Lux; an agent judge is `422 core_not_configured`; and so are an `execute` task with inputs, and a cap no authorizer answered with a Budget. With no `owner` parameter, asks `experiment.list` for the owner context its allow names, then `experiment.create`."
       parameters:
         - name: "owner"
           in: "query"
@@ -4004,24 +4004,275 @@ components:
         - "experiment"
         - "candidate"
       additionalProperties: false
+    Interval:
+      description: "An interval, [low, high], at CONFIDENCE_LEVEL."
+      type: "array"
+      minItems: 2
+      maxItems: 2
+      items:
+        type: "number"
+    LabelShare:
+      type: "object"
+      description: "One label's count and proportion in a distribution, with the proportion's interval."
+      properties:
+        label:
+          type: "string"
+        count:
+          type: "integer"
+        proportion:
+          type: "number"
+        interval:
+          "$ref": "#/components/schemas/Interval"
+        unmapped:
+          type: "boolean"
+          description: "A raw label of an open vocabulary the taxonomy record read does not map."
+      required:
+        - "label"
+        - "count"
+        - "proportion"
+    Summary:
+      type: "object"
+      description: "One metric over one set of trials: a cell, or a candidate's tasks at suite level."
+      properties:
+        aggregate:
+          type: "string"
+          description: "The metric's aggregate; absent for a candidate-level metric."
+          enum:
+            - "rate"
+            - "mean"
+            - "median"
+            - "p90"
+            - "distribution"
+            - "repeat_rate"
+            - "mode_share"
+            - "distinct_count"
+        n:
+          type: "integer"
+          description: "The finished trials of the set that the metric applies to."
+        not_applicable:
+          type: "integer"
+          description: "The finished trials outside the metric's applies_to, in neither n nor missing."
+        value:
+          description: "The rate, mean, median or p90; for distribution, an object from each label to its share; for repeat_rate, mode_share and distinct_count, the statistic; for a candidate-level metric, its one current value. Absent when nothing is valued."
+        numerator:
+          type: "integer"
+          description: "For rate, the finished trials whose value is true; for mode_share, the trials holding the most frequent label."
+        denominator:
+          type: "integer"
+          description: "The finished trials holding a current value of the metric, less those exclude_labels leaves out."
+        excluded_labels:
+          type: "object"
+          description: "For a cell-level metric, the valued trials its exclude_labels left out, by label."
+          additionalProperties:
+            type: "integer"
+        missing:
+          type: "integer"
+          description: "n less denominator, and for a cell-level metric less the trials excluded_labels counts."
+        interval:
+          "$ref": "#/components/schemas/Interval"
+        no_interval:
+          type: "string"
+          description: "When interval is absent, one plain sentence saying why."
+        mean:
+          type: "number"
+        sd:
+          type: "number"
+        min:
+          type: "number"
+        max:
+          type: "number"
+        distribution:
+          type: "array"
+          description: "For a label metric, each label's count and proportion."
+          items:
+            "$ref": "#/components/schemas/LabelShare"
+        mode:
+          type: "string"
+          description: "For a label metric, its most frequent label."
+        unmapped:
+          type: "integer"
+          description: "For an open-vocabulary metric, the finished trials whose raw label the taxonomy record read does not map."
+        tasks:
+          type: "integer"
+          description: "At suite level, the number of tasks included."
+        coverage:
+          type: "number"
+          description: "At suite level, the share of the suite's weight the included tasks hold."
+        excluded:
+          type: "object"
+          description: "The trials of the set not counted in n, by reason: retried, infra_failed, over_budget, canceled or not_done."
+          additionalProperties:
+            type: "integer"
+        final:
+          type: "boolean"
+          description: "True once every declared trial of the set is done and graded; false while the figure can still change."
+      required:
+        - "n"
+        - "not_applicable"
+        - "denominator"
+        - "missing"
+        - "final"
+    LeftOut:
+      type: "object"
+      description: "A task of weight above zero that a suite-level result does not include, with each side's valued trials."
+      properties:
+        task:
+          type: "string"
+        why:
+          type: "string"
+          enum:
+            - "unpaired"
+            - "too_few_trials"
+        candidate:
+          type: "integer"
+        reference:
+          type: "integer"
+      required:
+        - "task"
+        - "why"
+        - "candidate"
+        - "reference"
+    Confound:
+      type: "object"
+      description: "One confound of a result: a field besides the variable compared in which the two sides differ, or a condition of the trials the result read."
+      properties:
+        name:
+          type: "string"
+        tasks:
+          type: "array"
+          description: "On a suite-level result, the task names it applies to."
+          items:
+            type: "string"
+        candidate:
+          description: "Per side: a count of requests or trials, a window {from, to}, or a taxonomy record id, by the confound's name; absent for a tuple field."
+        reference:
+          description: "As candidate, for the reference side."
+        grader:
+          type: "string"
+          description: "For uncalibrated, the judge version whose calibration the result read."
+      required:
+        - "name"
     Result:
       type: "object"
+      description: "One result of a comparison, as the analysis computed it."
       properties:
         level:
           type: "string"
+          description: "task, over one task's cells; suite, over the paired tasks it includes; or candidate, a candidate-level metric's one value per side, which is descriptive."
+          enum:
+            - "task"
+            - "suite"
+            - "candidate"
         metric:
           type: "string"
+          description: "The metric's digest."
         metric_name:
           type: "string"
         direction:
           type: "string"
+          enum:
+            - "higher_is_better"
+            - "lower_is_better"
+            - "none"
         task:
           type: "string"
+          description: "On a task-level result, the task's name; for a comparison across tasks, both names joined by ` vs `; for a declared comparison of the general form, its stratum's name."
+        task_digests:
+          type: "object"
+          description: "On a task-level result, each side's task digest."
+          properties:
+            candidate:
+              type: "string"
+            reference:
+              type: "string"
+          required:
+            - "candidate"
+            - "reference"
+        a:
+          type: "string"
+          description: "On a pair result of two benchmark entries, the first entry; absent on a comparison's result."
+        b:
+          type: "string"
+          description: "On a pair result of two benchmark entries, the second entry; absent on a comparison's result."
+        candidate:
+          "$ref": "#/components/schemas/Summary"
+        reference:
+          "$ref": "#/components/schemas/Summary"
+        delta:
+          description: "The change, candidate less reference: a number, or for a label metric an object from each label to the difference of its proportions."
+          oneOf:
+            - type: "number"
+            - type: "object"
+              additionalProperties:
+                type: "number"
+        delta_kind:
+          type: "string"
+          enum:
+            - "difference"
+            - "per_label"
+        delta_interval:
+          description: "The delta's interval at CONFIDENCE_LEVEL, for per_label an object from each label to its interval; absent where none is computed."
+          oneOf:
+            - "$ref": "#/components/schemas/Interval"
+            - type: "object"
+              additionalProperties:
+                "$ref": "#/components/schemas/Interval"
+        no_delta_interval:
+          type: "string"
+          description: "When delta_interval is absent on a result that is not insufficient, one plain sentence saying why."
+        method:
+          type: "string"
+          description: "The test: boschloo_exact, permutation, stratified_permutation, fisher_freeman_halton or chi_square_permutation; absent on a descriptive result."
+        statistic:
+          type: "string"
+          description: "The statistic the test orders by: fisher_p, welch_t, studentized_quantile, difference, table_probability, pearson_x2 or pearson_x2_sum; absent on a descriptive result."
+        exact:
+          type: "boolean"
+          description: "Whether the test enumerated every case."
+        resamples:
+          type: "integer"
+          description: "How many relabelings or tables the test enumerated or drew; absent for boschloo_exact."
+        seed:
+          type: "string"
+          description: "This result's derived seed, hex."
+        p:
+          type: "number"
+          description: "The uncorrected p-value."
+        q:
+          type: "number"
+          description: "The value after the correction at FALSE_DISCOVERY_RATE."
+        h:
+          type: "number"
+          description: "On a pair result of two benchmark entries, the Holm-adjusted value, in place of q."
         verdict:
           type: "string"
+          description: "Absent on a descriptive result."
+          enum:
+            - "improved"
+            - "regressed"
+            - "changed"
+            - "within_noise"
+            - "insufficient"
         reason:
           type: "string"
-      description: "One result of a comparison, as the analysis computed it."
+          description: "One plain sentence saying why the verdict is what it is."
+        left_out:
+          type: "array"
+          description: "On a suite-level result, each task of weight above zero the result does not include."
+          items:
+            "$ref": "#/components/schemas/LeftOut"
+        confounds:
+          type: "array"
+          items:
+            "$ref": "#/components/schemas/Confound"
+      required:
+        - "level"
+        - "metric"
+        - "metric_name"
+        - "direction"
+        - "candidate"
+        - "reference"
+        - "reason"
     Comparison:
       type: "object"
       properties:

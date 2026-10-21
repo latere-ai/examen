@@ -4,6 +4,8 @@
 package api_test
 
 import (
+	"maps"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"latere.ai/x/examen/api"
+	"latere.ai/x/examen/internal/analysis"
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/httpapi"
 )
@@ -25,7 +28,8 @@ type document struct {
 	} `yaml:"servers"`
 	Components struct {
 		Schemas map[string]struct {
-			Enum []string `yaml:"enum"`
+			Enum       []string       `yaml:"enum"`
+			Properties map[string]any `yaml:"properties"`
 		} `yaml:"schemas"`
 	} `yaml:"components"`
 }
@@ -81,5 +85,45 @@ func TestDocumentListsEveryErrorCode(t *testing.T) {
 	got := read(t).Components.Schemas["ErrorCode"].Enum
 	if !slices.Equal(got, apierr.Codes()) {
 		t.Fatalf("the document lists\n  %v\nthe table\n  %v", got, apierr.Codes())
+	}
+}
+
+// members is the JSON member names of the struct v, as encoding/json writes
+// them.
+func members(v any) []string {
+	var names []string
+	t := reflect.TypeOf(v)
+	for f := range t.Fields() {
+		if !f.IsExported() {
+			continue
+		}
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	return names
+}
+
+// A comparison's result, and each object inside it, is documented with
+// every member the analysis writes and no other.
+func TestDocumentDescribesTheResults(t *testing.T) {
+	schemas := read(t).Components.Schemas
+	for name, v := range map[string]any{
+		"Result":     analysis.Result{},
+		"Summary":    analysis.Summary{},
+		"LabelShare": analysis.LabelShare{},
+		"LeftOut":    analysis.LeftOut{},
+		"Confound":   analysis.Confound{},
+	} {
+		got := slices.Sorted(maps.Keys(schemas[name].Properties))
+		if want := members(v); !slices.Equal(got, want) {
+			t.Errorf("%s documents\n  %v\nthe analysis writes\n  %v", name, got, want)
+		}
 	}
 }
