@@ -481,11 +481,14 @@ type Experiments interface {
 	Computed(ctx context.Context, id string, state string, c objects.Computed, inputs []string) error
 	// Clean clears a comparison's dirty mark, as of the update it read.
 	Clean(ctx context.Context, id string, seen time.Time) error
-	// Declare recomputes an experiment's declared analysis under its row
-	// lock: correct is given the experiment and the newest comparison of
-	// each of its declared comparisons, and what it answers replaces the
-	// stored analysis. Serialized with every comparison's store, the last
-	// recomputation reads every comparison stored before it.
+	// Declare recomputes an experiment's declared analysis: correct is
+	// given the experiment and the newest comparison of each of its
+	// declared comparisons, read under its row lock, and runs with no
+	// transaction held; what it answers replaces the stored analysis when
+	// those comparisons are unchanged and no other recomputation stored
+	// one meanwhile. A declared comparison that changed meanwhile, or an
+	// analysis that failed, leaves the experiment marked for the next
+	// recomputation, as a cell that changed meanwhile does.
 	Declare(ctx context.Context, experiment string, correct func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error)) error
 	// DeclaredDirty are the experiments whose test of independence reads a
 	// cell that changed since their declared analysis was computed, which
