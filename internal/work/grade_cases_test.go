@@ -446,7 +446,7 @@ func TestJudgmentsThatEndEarly(t *testing.T) {
 // set, so a grading meets a store that does not answer.
 type faultStore struct {
 	store.Store
-	versions, trials, measurements, keys bool
+	versions, trials, measurements, keys, experiment, cell, hold, taken bool
 }
 
 var errStoreDown = errors.New("the store is down")
@@ -483,6 +483,20 @@ func (x faultExperiments) Trial(ctx context.Context, id string) (objects.Trial, 
 	return x.Experiments.Trial(ctx, id)
 }
 
+func (x faultExperiments) Get(ctx context.Context, id string) (objects.Experiment, error) {
+	if x.f.experiment {
+		return objects.Experiment{}, errStoreDown
+	}
+	return x.Experiments.Get(ctx, id)
+}
+
+func (x faultExperiments) Cell(ctx context.Context, id string) (objects.Cell, error) {
+	if x.f.cell {
+		return objects.Cell{}, errStoreDown
+	}
+	return x.Experiments.Cell(ctx, id)
+}
+
 func (x faultExperiments) MeasurementsOf(ctx context.Context, trials []string) ([]objects.Measurement, error) {
 	if x.f.measurements {
 		return nil, errStoreDown
@@ -493,6 +507,18 @@ func (x faultExperiments) MeasurementsOf(ctx context.Context, trials []string) (
 type faultGradings struct {
 	store.Gradings
 	f *faultStore
+}
+
+// Hold fails while hold is set, and takes nothing while taken is set, as
+// when another replica held every grading first.
+func (g faultGradings) Hold(ctx context.Context, ids []string, hold time.Duration) ([]string, error) {
+	switch {
+	case g.f.hold:
+		return nil, errStoreDown
+	case g.f.taken:
+		return nil, nil
+	}
+	return g.Gradings.Hold(ctx, ids, hold)
 }
 
 func (g faultGradings) HoldKey(ctx context.Context, experiment, grader, keyID string) error {
@@ -511,6 +537,10 @@ func TestAStoreThatDoesNotAnswer(t *testing.T) {
 		"trials":       func(f *faultStore) { f.trials = true },
 		"measurements": func(f *faultStore) { f.measurements = true },
 		"keys":         func(f *faultStore) { f.keys = true },
+		"experiment":   func(f *faultStore) { f.experiment = true },
+		"cell":         func(f *faultStore) { f.cell = true },
+		"hold":         func(f *faultStore) { f.hold = true },
+		"taken":        func(f *faultStore) { f.taken = true },
 	} {
 		b := newBench(t, st)
 		b.cl.answers[b.g.inventory] = cella.Result{Stdout: `{"metrics": {"entry_found": true, "size": 1}}`}
@@ -519,7 +549,7 @@ func TestAStoreThatDoesNotAnswer(t *testing.T) {
 		b.e.Store = f
 		for range 2 {
 			err := b.e.Grade(t.Context())
-			if name == "versions" || name == "trials" {
+			if name == "versions" || name == "trials" || name == "experiment" || name == "cell" || name == "hold" {
 				if !errors.Is(err, errStoreDown) {
 					t.Fatalf("%s: the round answered %v", name, err)
 				}
