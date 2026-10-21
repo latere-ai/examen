@@ -45,7 +45,7 @@ code.
 
 ## Supply chain
 
-Dependencies are checked for known vulnerabilities on every push. A
-release is built from a tagged commit whose verify run passed: the
-image is signed by the release workflow's identity, and the release
-carries a bill of materials with a signed checksum.
+Dependencies are checked for known vulnerabilities on every push that
+changes code. A release is built from a tagged commit whose code passed
+verify: the image is signed by the release workflow's identity, and the
+release carries a bill of materials with a signed checksum.

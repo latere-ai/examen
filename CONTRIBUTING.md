@@ -39,7 +39,9 @@ before CI does.
 Work on a branch and open a pull request. Keep one logical change per
 commit, stage the files explicitly, and write the subject as `scope:
 what changed`, for whoever reads the log. The pipeline runs the gate on
-every push to `main` and every pull request.
+every push to `main` and every pull request, except one that changes only
+specs or markdown, which no build or test reads; `lateregate release`
+runs the whole bar before every tag.
 
 A feature starts as a spec with acceptance criteria that are testable
 sentences; a design that lands without one is harder to review than one

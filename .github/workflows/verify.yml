@@ -3,12 +3,35 @@
 # cluster: a tidy module file, workflows actionlint accepts, and a server
 # image that builds, starts and stays small. Every third-party action is
 # pinned by commit.
+#
+# A push or pull request that changes only specs or markdown starts no run,
+# because no build or test reads them. The exceptions are the four specs
+# whose tables the suite holds the code to, so a change to one of them runs
+# everything. `lateregate release` runs the whole bar, the spec tree
+# included, before every tag, and release.yml reads past the commits this
+# skips. A tag is never filtered by paths.
 name: verify
 on:
   push:
     branches: [main]
     tags: ['v*']
+    paths:
+      - "**"
+      - "!specs/**"
+      - "!**.md"
+      - "specs/002-objects.md"
+      - "specs/003-api.md"
+      - "specs/004-identity-and-authorization.md"
+      - "specs/011-distribution.md"
   pull_request:
+    paths:
+      - "**"
+      - "!specs/**"
+      - "!**.md"
+      - "specs/002-objects.md"
+      - "specs/003-api.md"
+      - "specs/004-identity-and-authorization.md"
+      - "specs/011-distribution.md"
   workflow_dispatch:
 
 # A newer push to the same ref supersedes this run: its commit carries every

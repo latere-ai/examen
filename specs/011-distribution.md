@@ -75,12 +75,12 @@ files: `LICENSE` (Apache-2.0), `SECURITY.md`, `CODE_OF_CONDUCT.md`,
 
 ### The gate
 
-`make check` runs `go tool lateregate`, the bar every push and every
-hook runs: formatting, no cgo, license notices, the spec tree, the
-identity and Postgres declarations, lint, the vulnerability check, and
-the suite under the race detector with a coverage floor of 90% per
-package. `.lateregate.yaml` declares what is this repository's own:
-`identity` with `role: core`, `audience: examen`, `config_prefix:
+`make check` runs `go tool lateregate`, the bar every push that changes
+code and every hook runs: formatting, no cgo, license notices, the spec
+tree, the identity and Postgres declarations, lint, the vulnerability
+check, and the suite under the race detector with a coverage floor of
+90% per package. `.lateregate.yaml` declares what is this repository's
+own: `identity` with `role: core`, `audience: examen`, `config_prefix:
 EXAMEN`, `reached_by: self-hosted`; `postgres` with `role: pooled` and
 `prefix: EXAMEN`; the license holder; and each package that cannot clear
 the floor, with its reason. `make hooks` points git at `.githooks`,
@@ -359,13 +359,15 @@ from a green main, moves those notes under a section for the version,
 tags and pushes. A tag whose commit has no section is refused by the
 pre-push hook and by the release workflow.
 
-The release workflow waits for the verify run of the tagged commit,
-builds the five images for both platforms, signs them, attests their
-bills of materials and their provenance, checks that the `examend`
-image's `/version` reports the tag, archives `deploy/` with the image
-pinned by digest, and creates the release from the changelog section,
-naming the comparator and HTTP runner digests a grader or a candidate
-pins, and the scanner digest a publication's scan records.
+The release workflow requires a green verify run on the tagged commit,
+or on the nearest commit before it that verify ran on when the commits
+between change only specs or markdown, builds the five images for both
+platforms, signs them, attests their bills of materials and their
+provenance, checks that the `examend` image's `/version` reports the
+tag, archives `deploy/` with the image pinned by digest, and creates the
+release from the changelog section, naming the comparator and HTTP
+runner digests a grader or a candidate pins, and the scanner digest a
+publication's scan records.
 
 ### Upgrade and rollback
 

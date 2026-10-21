@@ -35,17 +35,18 @@ env:
   GH_VERSION: "2.100.0"
 
 jobs:
-  # 1. The tag's commit passed verify. `lateregate release` pushes the
-  # branch and the tag in one push, so the verify run for that commit has
-  # just started. This job reads the runs once and holds the runner for
-  # seconds: a job that polled here would hold one of the self-hosted
-  # runner's two slots while the run it waits for queues for the other, and
-  # two releases at once would hold both. The commit `lateregate release`
-  # cuts moves the notes under Unreleased into the tag's section and
-  # changes nothing else, after the whole bar ran on the tree, so while its
-  # own run has not concluded, a green run on its parent stands for it. A
-  # tag on any other commit whose gate has not run green fails here and
-  # publishes nothing. The run the tag's own push starts is not the one read.
+  # 1. The tag's commit passed verify. This job reads the runs once and
+  # holds the runner for seconds: a job that polled here would hold one of
+  # the self-hosted runner's two slots while the run it waits for queues for
+  # the other, and two releases at once would hold both. verify starts no
+  # run for a push that changes only specs or markdown, and the commit
+  # `lateregate release` cuts is one: it moves the notes under Unreleased
+  # into the tag's section and changes nothing else, after the whole bar ran
+  # on the tree. So the job reads back from the tag's commit over the
+  # commits verify skipped, each of which holds no code, to the nearest one
+  # verify ran on, and that run stands for the tag. A tag whose nearest run
+  # has not concluded, or is red, fails here and publishes nothing. The run
+  # the tag's own push starts is not the one read.
   gate-green:
     name: the tag's commit passed verify
     runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
@@ -73,15 +74,16 @@ jobs:
           tar -xzf "$dir/$archive" -C "$dir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
           echo "$dir" >> "$GITHUB_PATH"
           "$dir/gh" --version | head -n1
-      - name: The verify run on this commit, or on its parent, concluded success
+      - name: The verify run on this commit, or on the nearest commit before it that verify ran on, concluded success
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # A failed API read fails the job rather than reading as pending.
           shopt -s inherit_errexit
-          # success, failure, or pending (running, queued, superseded by a
-          # newer push, or not started) for the verify run of a commit's
+          # success, failure, pending (running, queued, or superseded by a
+          # newer push), or none (no run at all, which is verify's path
+          # filter skipping the commit) for the verify run of a commit's
           # branch push.
           verdict() {
             local runs
@@ -90,23 +92,37 @@ jobs:
             runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/verify.yml/runs?head_sha=$1&event=push&per_page=20" \
               --jq '[.workflow_runs[] | select(.head_branch != $ENV.GITHUB_REF_NAME) | .conclusion // "running"] | join(" ")')
             case " $runs " in
+              "  ") echo none ;;
               *" success "*) echo success ;;
               *" failure "*|*" timed_out "*|*" startup_failure "*|*" action_required "*) echo failure ;;
               *) echo pending ;;
             esac
           }
-          own=$(verdict "$GITHUB_SHA")
-          case "$own" in
-            success) echo "verify concluded success on ${GITHUB_SHA}"; exit 0 ;;
-            failure) echo "verify failed on ${GITHUB_SHA}; a release is cut from a green tree" >&2; exit 1 ;;
-          esac
-          parent=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" --jq '.parents[0].sha')
-          changed=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${parent}...${GITHUB_SHA}" --jq '[.files[].filename] | join(" ")')
-          if [ "$changed" = "CHANGELOG.md" ] && [ "$(verdict "$parent")" = success ]; then
-            echo "verify has not concluded on ${GITHUB_SHA}, which changes CHANGELOG.md alone; it concluded success on its parent ${parent}"
-            exit 0
-          fi
-          echo "verify has not concluded on ${GITHUB_SHA} (it changes: ${changed:-nothing}), and this job does not wait for it on the shared runner. Re-run the release once verify is green: gh run rerun ${GITHUB_RUN_ID} --failed --repo ${GITHUB_REPOSITORY}" >&2
+          # A commit verify skipped carries the code of its parent, so the
+          # walk moves to the parent only when the commit changes nothing
+          # but specs and markdown. The bound is far past any run of such
+          # commits between two that change code.
+          sha=$GITHUB_SHA
+          for _ in $(seq 1 30); do
+            v=$(verdict "$sha")
+            case "$v" in
+              success) echo "verify concluded success on ${sha}"; exit 0 ;;
+              failure) echo "verify failed on ${sha}; a release is cut from a green tree" >&2; exit 1 ;;
+              pending)
+                echo "verify has not concluded on ${sha}, and this job does not wait for it on the shared runner. Re-run the release once verify is green: gh run rerun ${GITHUB_RUN_ID} --failed --repo ${GITHUB_REPOSITORY}" >&2
+                exit 1 ;;
+            esac
+            parent=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}" --jq '.parents[0].sha')
+            code=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${parent}...${sha}" \
+              --jq '[.files[].filename | select((startswith("specs/") or endswith(".md")) | not)] | join(" ")')
+            if [ -n "$code" ]; then
+              echo "verify has no run on ${sha}, which changes ${code}; a release is cut from a tree verify ran on" >&2
+              exit 1
+            fi
+            echo "verify skipped ${sha}, which changes only specs or markdown; reading its parent ${parent}"
+            sha=$parent
+          done
+          echo "verify ran on none of the 30 commits up to ${GITHUB_SHA}" >&2
           exit 1
 
   # 2. The image, built from this checkout with the tag's build identity,
