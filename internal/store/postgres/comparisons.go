@@ -5,7 +5,9 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -235,25 +237,56 @@ func (x experiments) Clean(ctx context.Context, cid string, seen time.Time) erro
 	return nil
 }
 
+// Declare recomputes an experiment's declared analysis in three steps, so
+// no transaction is held while the analysis reads: the analysis reads
+// cells, values and versions through the pool, and a transaction that
+// waits on the pool for a second server connection starves a pooler in
+// transaction mode of the connections every other statement waits for.
+// The first step, under the row lock, reads the newest record of each
+// declared comparison and the stored analysis, and clears the mark, so a
+// cell that changes while the analysis computes marks it again; the second
+// computes; the third, under the row lock again, stores the analysis when
+// the declared comparisons are the ones it read and no recomputation
+// stored another since, and marks the experiment for the next tick when a
+// declared comparison changed meanwhile or the analysis failed.
 func (x experiments) Declare(ctx context.Context, eid string, correct func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error)) error {
-	return x.begin(ctx, eid, func(ch *change) error {
+	var (
+		exp    objects.Experiment
+		family []objects.Comparison
+		stored string
+		asked  bool
+	)
+	err := x.begin(ctx, eid, func(ch *change) error {
 		if len(ch.e.Comparisons) == 0 && ch.e.Independence == nil {
 			return nil
 		}
-		// The newest record of each declared comparison: a later grading
-		// or a retried cell makes a new one, which the analysis reads.
-		rows, err := ch.tx.Query(ctx, `SELECT DISTINCT ON (declared) `+comparisonColumns+` FROM comparisons
-			WHERE experiment = $1 AND declared IS NOT NULL ORDER BY declared, created_at DESC, id DESC`, ch.e.ID)
-		if err != nil {
-			return fmt.Errorf("postgres: reading declared comparisons: %w", err)
-		}
-		family, err := collectComparisons(rows)
+		f, err := declaredFamily(ctx, ch.tx, ch.e.ID)
 		if err != nil {
 			return err
 		}
-		a, err := correct(ch.e, family)
+		if err := ch.tx.QueryRow(ctx, `SELECT md5(coalesce(declared::text, '')) FROM experiments WHERE id = $1`, ch.e.ID).Scan(&stored); err != nil {
+			return fmt.Errorf("postgres: reading a declared analysis: %w", err)
+		}
+		if _, err := ch.tx.Exec(ctx, `UPDATE experiments SET declared_dirty = false WHERE id = $1`, ch.e.ID); err != nil {
+			return fmt.Errorf("postgres: clearing a declared analysis's mark: %w", err)
+		}
+		exp, family, asked = ch.e, f, true
+		return nil
+	})
+	if err != nil || !asked {
+		return err
+	}
+	a, err := correct(exp, family)
+	if err != nil {
+		return errors.Join(err, remark(ctx, x.s.pool, eid))
+	}
+	return x.begin(ctx, eid, func(ch *change) error {
+		now, err := declaredFamily(ctx, ch.tx, ch.e.ID)
 		if err != nil {
 			return err
+		}
+		if !sameFamily(family, now) {
+			return remark(ctx, ch.tx, ch.e.ID)
 		}
 		at := ch.now
 		a.ComputedAt = &at
@@ -261,11 +294,41 @@ func (x experiments) Declare(ctx context.Context, eid string, correct func(objec
 		if err != nil {
 			return err
 		}
-		if _, err := ch.tx.Exec(ctx, `UPDATE experiments SET declared = $2, declared_dirty = false WHERE id = $1`, ch.e.ID, raw); err != nil {
+		if _, err := ch.tx.Exec(ctx, `UPDATE experiments SET declared = $2 WHERE id = $1 AND md5(coalesce(declared::text, '')) = $3`, ch.e.ID, raw, stored); err != nil {
 			return fmt.Errorf("postgres: storing a declared analysis: %w", err)
 		}
 		return nil
 	})
+}
+
+// declaredFamily is the newest record of each of an experiment's declared
+// comparisons: a later grading or a retried cell makes a new one, which
+// the analysis reads.
+func declaredFamily(ctx context.Context, tx pgx.Tx, eid string) ([]objects.Comparison, error) {
+	rows, err := tx.Query(ctx, `SELECT DISTINCT ON (declared) `+comparisonColumns+` FROM comparisons
+		WHERE experiment = $1 AND declared IS NOT NULL ORDER BY declared, created_at DESC, id DESC`, eid)
+	if err != nil {
+		return nil, fmt.Errorf("postgres: reading declared comparisons: %w", err)
+	}
+	return collectComparisons(rows)
+}
+
+// sameFamily reports whether two reads of a declared family hold the same
+// records at the same update.
+func sameFamily(a, b []objects.Comparison) bool {
+	return slices.EqualFunc(a, b, func(x, y objects.Comparison) bool {
+		return x.ID == y.ID && x.UpdatedAt.Equal(y.UpdatedAt)
+	})
+}
+
+// remark marks an experiment's declared analysis for the next tick again,
+// as markDeclared does: only an experiment that declares a test of
+// independence is read by DeclaredDirty.
+func remark(ctx context.Context, q querier, eid string) error {
+	if _, err := q.Exec(ctx, `UPDATE experiments SET declared_dirty = true WHERE id = $1 AND independence IS NOT NULL`, eid); err != nil {
+		return fmt.Errorf("postgres: marking a declared analysis: %w", err)
+	}
+	return nil
 }
 
 func (x experiments) DeclaredDirty(ctx context.Context, limit int) ([]string, error) {

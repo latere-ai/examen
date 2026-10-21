@@ -9,10 +9,12 @@ import (
 	"slices"
 	"strconv"
 	"testing"
+	"time"
 
 	"latere.ai/x/examen/internal/id"
 	"latere.ai/x/examen/internal/objects"
 	"latere.ai/x/examen/internal/store"
+	"latere.ai/x/examen/internal/store/postgres"
 	"latere.ai/x/examen/internal/store/postgres/pgtest"
 )
 
@@ -247,5 +249,114 @@ func TestCalibrationPairs(t *testing.T) {
 	}
 	if none, err := w.st.Experiments().CalibrationPairs(ctx, owner, "sha256:other", "sha256:kind"); err != nil || len(none) != 0 {
 		t.Fatalf("a judge of no grading %+v %v", none, err)
+	}
+}
+
+// Declare holds no transaction while the analysis reads: an analysis that
+// reads through a pool of one connection finishes rather than waiting on
+// the connection Declare holds. A cell marked while it computes stays
+// marked; a recomputation that stored meanwhile is not overwritten; a
+// declared comparison that changed meanwhile leaves the stored analysis
+// as it was and the experiment marked; and an analysis that failed leaves
+// the experiment marked.
+func TestDeclareReadsWithNoTransactionHeld(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	w := newWorld(t)
+	p := w.plan()
+	ne, _ := w.experiment(p, objects.ModeImport, 2)
+	ne.Experiment.Independence = &objects.Independence{Metric: "builtin:completed", Variable: "candidate", By: []string{"task"}}
+	ne.Experiment.Comparisons = []objects.DeclaredComparison{{Candidate: p.b.Digest, ReferenceCandidate: p.a.Digest}}
+	zero := 0
+	ne.Comparisons[0].DeclaredIndex = &zero
+	if err := w.st.Experiments().Create(ctx, ne); err != nil {
+		t.Fatal(err)
+	}
+	eid := ne.Experiment.ID
+	one, _, err := postgres.Open(ctx, w.dsn, postgres.Options{MaxConns: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := one.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	analysis := func(reason string) objects.DeclaredAnalysis {
+		return objects.DeclaredAnalysis{Experiment: eid, Comparisons: []objects.DeclaredResult{{Index: 0, Reason: reason}}}
+	}
+	stored := func() string {
+		t.Helper()
+		a, found, err := w.st.Experiments().DeclaredAnalysis(ctx, eid)
+		if err != nil || !found || len(a.Comparisons) == 0 {
+			t.Fatalf("the stored analysis %+v %v %v", a, found, err)
+		}
+		return a.Comparisons[0].Reason
+	}
+	marked := func() bool {
+		t.Helper()
+		ids, err := w.st.Experiments().DeclaredDirty(ctx, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return slices.Contains(ids, eid)
+	}
+
+	// The analysis reads through the one connection, and a cell is marked
+	// while it computes.
+	if err := one.Experiments().Declare(ctx, eid, func(e objects.Experiment, _ []objects.Comparison) (objects.DeclaredAnalysis, error) {
+		if _, err := one.Experiments().AllCells(ctx, e.ID); err != nil {
+			return objects.DeclaredAnalysis{}, err
+		}
+		if err := pgtest.Exec(ctx, w.dsn, `UPDATE experiments SET declared_dirty = true WHERE id = $1`, e.ID); err != nil {
+			return objects.DeclaredAnalysis{}, err
+		}
+		return analysis("first"), nil
+	}); err != nil {
+		t.Fatalf("an analysis reading through the pool: %v", err)
+	}
+	if stored() != "first" || !marked() {
+		t.Fatalf("after the first: %q, marked %v", stored(), marked())
+	}
+
+	// Another recomputation stores while this one computes.
+	if err := one.Experiments().Declare(ctx, eid, func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error) {
+		if err := w.st.Experiments().Declare(ctx, eid, func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error) {
+			return analysis("later"), nil
+		}); err != nil {
+			return objects.DeclaredAnalysis{}, err
+		}
+		return analysis("earlier"), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if stored() != "later" || marked() {
+		t.Fatalf("after a recomputation stored meanwhile: %q, marked %v", stored(), marked())
+	}
+
+	// A newer record of the declared comparison while this one computes.
+	if err := one.Experiments().Declare(ctx, eid, func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error) {
+		newer := ne.Comparisons[0]
+		newer.ID, newer.Experiment, newer.Owner = id.New(id.Comparison), eid, owner
+		if err := w.st.Experiments().CreateComparison(ctx, newer); err != nil {
+			return objects.DeclaredAnalysis{}, err
+		}
+		return analysis("stale"), nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if stored() != "later" || !marked() {
+		t.Fatalf("after a declared comparison changed: %q, marked %v", stored(), marked())
+	}
+
+	// An analysis that fails.
+	broke := errors.New("the analysis broke")
+	if err := one.Experiments().Declare(ctx, eid, func(objects.Experiment, []objects.Comparison) (objects.DeclaredAnalysis, error) {
+		return objects.DeclaredAnalysis{}, broke
+	}); !errors.Is(err, broke) {
+		t.Fatalf("a failed analysis %v", err)
+	}
+	if stored() != "later" || !marked() {
+		t.Fatalf("after a failed analysis: %q, marked %v", stored(), marked())
 	}
 }

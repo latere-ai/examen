@@ -152,8 +152,8 @@ func (e *Engine) Compute(ctx context.Context) error {
 	// A declared comparison's primary result is corrected with every
 	// other declared comparison's, so each experiment whose declared
 	// comparisons changed, or whose test of independence is marked, has
-	// its declared analysis recomputed, under its row lock, from what they
-	// store and its cells hold now.
+	// its declared analysis recomputed from what they store and its cells
+	// hold now, with no transaction held while it reads.
 	for _, eid := range declared {
 		err := x.Declare(ctx, eid, func(exp objects.Experiment, family []objects.Comparison) (objects.DeclaredAnalysis, error) {
 			return e.Analyzer.Declared(ctx, exp, family, src)
