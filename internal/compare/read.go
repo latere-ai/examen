@@ -74,8 +74,8 @@ func readSuite(ctx context.Context, vs store.Versions, e objects.Experiment) (su
 			return suiteOf{}, err
 		}
 		res.Tasks[d] = t
-		for _, c := range t.Checks {
-			if err := grader(c); err != nil {
+		for _, g := range slices.Concat(t.Checks, t.Graders) {
+			if err := grader(g); err != nil {
 				return suiteOf{}, err
 			}
 		}

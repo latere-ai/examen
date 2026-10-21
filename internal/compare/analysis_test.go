@@ -543,3 +543,23 @@ func TestCellReads(t *testing.T) {
 		t.Fatalf("a running trial %+v", tr)
 	}
 }
+
+// A task's own graders produce its trials' values as the suite's do, so a
+// comparison reads a model judge a task names beside its checks.
+func TestATaskGraderProducesItsValues(t *testing.T) {
+	v := &versions{byID: map[string]objects.Version{}, byDigest: map[string]objects.Version{}}
+	v.put(t, objects.KindMetric, "met_topic", topic, objects.Metric{Name: "topic", Type: objects.TypeLabel, Vocabulary: objects.VocabularyOpen, Direction: objects.DirectionNone, Aggregate: objects.AggregateDistribution})
+	v.put(t, objects.KindMetric, "met_score", score, objects.Metric{Name: "quality", Type: objects.TypeScore, Range: []float64{0, 1}, Direction: objects.HigherIsBetter, Aggregate: objects.AggregateMean})
+	v.put(t, objects.KindGrader, "grd_check", check, objects.Grader{Name: "tests", Kind: objects.GraderCheck, Produces: []string{score}})
+	v.put(t, objects.KindGrader, "grd_judge", "sha256:judge", objects.Grader{Name: "artifact", Kind: objects.GraderModelJudge, Produces: []string{topic},
+		ModelJudge: &objects.ModelJudge{Model: "m", Prompt: "Name what the run made."}})
+	v.put(t, objects.KindTask, "tsk_a", taskA, objects.Task{Name: "todo-app", Checks: []string{check}, Graders: []string{"sha256:judge"}})
+	v.put(t, objects.KindSuite, "sui", "sha256:suite", objects.Suite{Name: "s", Tasks: []string{taskA}, Metrics: []string{score, topic}, PrimaryMetric: topic})
+	su, err := readSuite(context.Background(), v, objects.Experiment{ID: "exp_1", SuiteID: "sui"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := su.producers[taskA]; got[topic] != "sha256:judge" || got[score] != check {
+		t.Fatalf("the task's producers are %v", got)
+	}
+}
