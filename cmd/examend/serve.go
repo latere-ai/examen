@@ -19,6 +19,8 @@ import (
 	"latere.ai/x/pkg/otel"
 
 	"latere.ai/x/examen/internal/access"
+	"latere.ai/x/examen/internal/arca"
+	"latere.ai/x/examen/internal/cella"
 	"latere.ai/x/examen/internal/compare"
 	"latere.ai/x/examen/internal/config"
 	"latere.ai/x/examen/internal/httpapi"
@@ -67,6 +69,25 @@ type Hooks struct {
 func reserved(s config.Settings) []string {
 	out := []string{s.ToposAudience, s.CellaAudience, s.LuxAudience, s.ArcaAudience, s.OrigoAudience}
 	return append(out, s.OIDCAudiences...)
+}
+
+// grading is what grades topos trials (specs/006-grading.md): checks in a
+// check sandbox where Cella and Arca are reached, and model judges where
+// Lux and Arca are, each core with owner tokens from the minter. Nil when
+// neither runs.
+func grading(s config.Settings, minter owner.Source) *work.Grading {
+	g := &work.Grading{Tokens: minter, ArcaAudience: s.ArcaAudience, CellaAudience: s.CellaAudience, Environment: s.CellaEnvironment,
+		LuxURL: s.LuxURL, HTTP: &http.Client{Transport: otel.Transport(nil)}, Workers: s.Workers}
+	if s.ArcaURL != "" {
+		g.Arca = arca.New(s.ArcaURL, &http.Client{Transport: otel.Transport(nil)})
+	}
+	if s.CellaURL != "" {
+		g.Cella = cella.New(s.CellaURL, &http.Client{Transport: otel.Transport(nil)})
+	}
+	if !g.Checks() && !g.Judges() {
+		return nil
+	}
+	return g
 }
 
 // serve reads the configuration and serves until ctx ends, starting in the
@@ -136,13 +157,18 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	// are not built, so without the minter no topos trial runs.
 	switch {
 	case s.ToposURL != "" && s.TokenSource() == config.TokenSourceMinter:
+		minter := owner.NewMinter(s.MinterURL, s.MinterToken.Reveal, &http.Client{Transport: otel.Transport(nil)})
 		engine.Topos = &work.Topos{
 			Client:   topos.New(s.ToposURL, &http.Client{Transport: otel.Transport(nil)}),
-			Tokens:   owner.NewMinter(s.MinterURL, s.MinterToken.Reveal, &http.Client{Transport: otel.Transport(nil)}),
+			Tokens:   minter,
 			Audience: s.ToposAudience, OrigoURL: s.OrigoURL,
 		}
+		engine.Grading = grading(s, minter)
 	case s.ToposURL != "":
 		log.WarnContext(ctx, "EXAMEN_TOPOS_URL is set and EXAMEN_MINTER_URL is not: no owner token reaches Topos, so no topos candidate runs")
+	}
+	if g := engine.Grading; g != nil {
+		log.InfoContext(ctx, "grading", "checks", g.Checks(), "model_judges", g.Judges() && engine.Keys != nil)
 	}
 	httpSrv := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: readHeaderTimeout, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
 	failed := make(chan error, 1)
@@ -161,6 +187,9 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 		tick = hooks.WorkEvery
 	}
 	go engine.Loop(background, tick)
+	if engine.Grading != nil {
+		go engine.GradeLoop(background, tick)
+	}
 	if hooks.Ready != nil {
 		hooks.Ready <- ln.Addr().String()
 	}

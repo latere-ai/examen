@@ -33,9 +33,14 @@ type Task struct {
 	Workspace   *Workspace   `json:"workspace,omitempty"`
 	Environment *Environment `json:"environment,omitempty"`
 	Checks      []string     `json:"checks,omitempty"`
-	Timeout     string       `json:"timeout,omitempty"`
-	MaxTurns    int          `json:"max_turns,omitempty"`
-	Evidence    []string     `json:"evidence,omitempty"`
+	// Graders are judges and annotation queues applied to this task's
+	// trials alone, beside the suite's graders: a judge whose prompt is
+	// the task's own, such as one that reads what a run did with the
+	// task's seed project.
+	Graders  []string `json:"graders,omitempty"`
+	Timeout  string   `json:"timeout,omitempty"`
+	MaxTurns int      `json:"max_turns,omitempty"`
+	Evidence []string `json:"evidence,omitempty"`
 	// Factors place the task in a design: each factor's name to the
 	// task's level of it. A declared comparison or a test of independence
 	// selects and stratifies cells by them.
@@ -96,7 +101,7 @@ func (t Task) TimeoutOf() time.Duration {
 	return limits.DefaultTrialTimeout
 }
 
-// Normalize keeps every check reference as its digest.
+// Normalize keeps every check and grader reference as its digest.
 func (t *Task) Normalize() error {
 	for i, c := range t.Checks {
 		_, d, err := ParseRef("checks["+itoa(i)+"]", c)
@@ -104,6 +109,13 @@ func (t *Task) Normalize() error {
 			return err
 		}
 		t.Checks[i] = d
+	}
+	for i, g := range t.Graders {
+		_, d, err := ParseRef("graders["+itoa(i)+"]", g)
+		if err != nil {
+			return err
+		}
+		t.Graders[i] = d
 	}
 	return nil
 }
@@ -149,6 +161,17 @@ func (t Task) Validate() error {
 		if !id.ValidDigest(c) {
 			return unpinned("checks["+itoa(i)+"]", "a check is named by its grader digest")
 		}
+	}
+	named := map[string]bool{}
+	for i, g := range t.Graders {
+		f := "graders[" + itoa(i) + "]"
+		switch {
+		case !id.ValidDigest(g):
+			return unpinned(f, "a grader is named by its digest")
+		case named[g]:
+			return invalid(f, "a grader is named twice")
+		}
+		named[g] = true
 	}
 	if t.Timeout != "" {
 		d, err := time.ParseDuration(t.Timeout)

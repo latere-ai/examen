@@ -15,6 +15,7 @@ require (
 	golang.org/x/text v0.42.0
 	latere.ai/x/ci-gate v0.54.0
 	latere.ai/x/pkg v0.106.0
+	latere.ai/x/sdk-go v0.1.0
 )
 
 require (

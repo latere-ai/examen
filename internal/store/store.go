@@ -49,6 +49,9 @@ type Store interface {
 	Taxonomies() Taxonomies
 	// Usage keeps what each experiment's external Key was used for.
 	Usage() Usage
+	// Gradings keeps the check runs and judgments Examen runs of finished
+	// trials.
+	Gradings() Gradings
 	// Ready answers whether the store can serve: the database answers and
 	// its schema holds every migration this binary carries.
 	Ready(ctx context.Context) error
@@ -365,6 +368,10 @@ type Outcome struct {
 	Sent    *objects.Sent
 	Builtin map[string]any
 	Settled bool
+	// Gradings are the check runs and judgments a finished trial is given
+	// when it reaches done, for an executor whose trials Examen grades
+	// (the `topos` executor); none for a trial that is not finished.
+	Gradings []objects.NewGrading
 }
 
 // Submission is a submit of a leased trial.
@@ -522,6 +529,55 @@ type Usage interface {
 	Summary(ctx context.Context, experiment string) (*objects.Usage, error)
 	// KeyID answers the id of the experiment's Key, "" for none.
 	KeyID(ctx context.Context, experiment string) (string, error)
+}
+
+// Gradings keeps the check runs and judgments Examen runs of finished
+// trials (specs/006-grading.md). A grading is made pending in the
+// transaction that records its trial done, is held by one replica while it
+// runs, and ends once, appending its grader's next generation when its run
+// gave values.
+type Gradings interface {
+	// Due answers pending gradings a run may start on at now, at most
+	// limit, oldest first: held by no replica past now, due no later than
+	// now, of an experiment that is not finished; a judge only once every
+	// check of its trial ended.
+	Due(ctx context.Context, now time.Time, limit int) ([]objects.Grading, error)
+	// Hold takes the named gradings for a run until until, and answers
+	// those it took: one another replica holds, or that ended, is left
+	// out.
+	Hold(ctx context.Context, ids []string, now, until time.Time) ([]string, error)
+	// Wait leaves a held grading pending and lets it go, due again at due,
+	// its attempts counted at attempts.
+	Wait(ctx context.Context, id string, due time.Time, attempts int) error
+	// End ends a pending grading: its state and record, and the values
+	// its run gave, appended as the grader's next generation on the trial;
+	// it marks the experiment's comparisons, and advances the trial's cell.
+	// A grading that already ended is left as it is.
+	End(ctx context.Context, end GradingEnd) error
+	// OfTrials reads every grading of the trials, each trial's in its
+	// order.
+	OfTrials(ctx context.Context, trials []string) ([]objects.Grading, error)
+	// HoldKey records that a judge of an experiment calls through the Key
+	// keyID.
+	HoldKey(ctx context.Context, experiment, grader, keyID string) error
+	// UnreleasedKeys answers the judge Keys of experiments that ended and
+	// that Examen has not released, at most limit.
+	UnreleasedKeys(ctx context.Context, limit int) ([]KeyHold, error)
+	// ReleasedKey records that a judge Key was released.
+	ReleasedKey(ctx context.Context, experiment, keyID string) error
+}
+
+// GradingEnd is how a grading ended: its state, its check run or judgment
+// record, and the values its run gave, none for a run that is not ok.
+type GradingEnd struct {
+	ID     string
+	State  string
+	Record any
+	Values []Measured
+	// Park, when set, parks the grading's cell in this state with
+	// ParkReason, as a judge's spend refusal parks it over_budget.
+	Park       string
+	ParkReason string
 }
 
 // KeyHold is an experiment's Key.

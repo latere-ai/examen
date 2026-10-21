@@ -227,7 +227,8 @@ func settleTrial(ctx context.Context, c *change, tid string) (bool, error) {
 			builtin = append(builtin, store.Measured{Metric: objects.BuiltinDigest(m.Name), Value: v})
 		}
 	}
-	return true, c.grading(ctx, t, objects.GraderBuiltin, builtin)
+	_, err = c.grading(ctx, t, objects.GraderBuiltin, builtin)
+	return true, err
 }
 
 // Summary answers the experiment's usage, nil when its runs hold no Key.

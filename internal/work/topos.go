@@ -397,7 +397,15 @@ func (e *Engine) followRun(ctx context.Context, run toposRun, t objects.Trial) e
 			return err
 		}
 	}
-	_, err = x.End(ctx, t.ID, outcomeOf(run, s, r), false)
+	ev, err := topos.EvidenceOf(events)
+	if err != nil {
+		return err
+	}
+	o := outcomeOf(run, s, r, events, ev)
+	if o.Gradings, err = e.gradingsOf(ctx, run, o.Outcome); err != nil {
+		return err
+	}
+	_, err = x.End(ctx, t.ID, o, false)
 	return err
 }
 
@@ -430,7 +438,7 @@ func ended(t objects.Trial, outcome, code, detail string) store.Outcome {
 // times, the sent and observed layers and the built-in values read from
 // the session's model requests, and its evidence where it is kept, the
 // log at Topos and the files in the session's own folder.
-func outcomeOf(run toposRun, s topos.Session, r topos.Report) store.Outcome {
+func outcomeOf(run toposRun, s topos.Session, r topos.Report, events []topos.Event, ev topos.Evidence) store.Outcome {
 	l := usage.Of(r.Calls)
 	o := store.Outcome{
 		Outcome: r.Outcome, Failure: r.Failure, StartedAt: r.StartedAt, AgentEndedAt: r.AgentEndedAt, Ref: s.ID,
@@ -442,13 +450,27 @@ func outcomeOf(run toposRun, s topos.Session, r topos.Report) store.Outcome {
 	}
 	o.Builtin[objects.BuiltinDigest(objects.MetricTurns)] = float64(r.Turns)
 	o.Builtin[objects.BuiltinDigest(objects.MetricToolCalls)] = float64(r.ToolCalls)
+	// The transcript is pinned at the last event read, which the log's
+	// digest covers, so a grader reads the same bytes whatever the session
+	// appended after.
+	last := s.LastSeq
+	if len(events) > 0 {
+		last = events[len(events)-1].Seq
+	}
 	size := int64(len(r.Log))
 	o.Evidence = []objects.EvidenceRef{{
-		Kind: "transcript", Owner: run.exp.Owner, Path: "topos/sessions/" + s.ID + "/events@" + strconv.FormatUint(s.LastSeq, 10),
+		Kind: "transcript", Owner: run.exp.Owner, Path: "topos/sessions/" + s.ID + "/events@" + strconv.FormatUint(last, 10),
 		Digest: r.LogDigest, Size: &size,
 	}}
+	// The session's one output is the kept copy of its working directory,
+	// pinned by the digest of the files its log records.
 	if f := s.Folder; f != nil {
-		o.Evidence = append(o.Evidence, objects.EvidenceRef{Kind: "output", Name: "workspace/", Owner: f.Owner, Path: strings.TrimRight(f.Path, "/") + "/work/"})
+		var bytes int64
+		for _, w := range ev.Work {
+			bytes += w.Size
+		}
+		o.Evidence = append(o.Evidence, objects.EvidenceRef{Kind: "output", Name: "workspace/", Owner: f.Owner, Path: strings.TrimRight(f.Path, "/") + "/work/",
+			Digest: topos.WorkDigest(ev.Work), Size: &bytes})
 	}
 	return o
 }

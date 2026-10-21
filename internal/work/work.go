@@ -43,7 +43,10 @@ type Engine struct {
 	Keys keys.Source
 	// Topos runs the trials of topos candidates; nil runs none.
 	Topos *Topos
-	Log   *slog.Logger
+	// Grading runs the checks and model judges of finished trials; nil
+	// runs none.
+	Grading *Grading
+	Log     *slog.Logger
 	// Now is the clock of the usage reads; time.Now when nil.
 	Now func() time.Time
 }
@@ -166,10 +169,11 @@ func (e *Engine) Compute(ctx context.Context) error {
 // pending, queued rollouts submitted, the sessions of topos trials
 // started, followed and stopped, the records of the experiments' Keys read
 // and their trials' cost settled, comparisons computed, and the Keys of
-// ended experiments released.
+// ended experiments released, their judges' among them. Grading runs in
+// its own loop (GradeLoop).
 func (e *Engine) Tick(ctx context.Context) error {
 	_, err := e.Store.Experiments().ExpireLeases(ctx)
-	return errors.Join(err, e.Advance(ctx, ""), e.RunTopos(ctx), e.Usage(ctx), e.Compute(ctx), e.Release(ctx, ""))
+	return errors.Join(err, e.Advance(ctx, ""), e.RunTopos(ctx), e.Usage(ctx), e.Compute(ctx), e.Release(ctx, ""), e.ReleaseJudgeKeys(ctx))
 }
 
 // Loop ticks every interval until ctx ends, logging a round that failed;

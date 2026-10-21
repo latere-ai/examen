@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -37,6 +38,7 @@ import (
 const (
 	PurposeResolve = "resolve"
 	PurposeTrial   = "trial"
+	PurposeJudge   = "judge"
 )
 
 // ReasonSignInNotKept is the minter's reason for a subject whose sign-in
@@ -71,6 +73,14 @@ type Source interface {
 	Token(ctx context.Context, r Request) (string, error)
 }
 
+// Labeler is a source that also answers the labels the installation holds
+// an object the token creates at a core to, such as the owner's tenancy
+// (spec 004, "The minter"): Examen writes them on a check sandbox it
+// creates as the owner. A source that answers none answers an empty map.
+type Labeler interface {
+	Labels(ctx context.Context, r Request) (map[string]string, error)
+}
+
 // answerLimit bounds one answer of the minter: one token.
 const answerLimit = 64 << 10
 
@@ -87,10 +97,11 @@ type Minter struct {
 	cache map[Request]held
 }
 
-// held is a token and until when it is used.
+// held is a token, the labels it came with, and until when it is used.
 type held struct {
-	token string
-	until time.Time
+	token  string
+	labels map[string]string
+	until  time.Time
 }
 
 // NewMinter is the minter at base with the bearer the function answers.
@@ -124,18 +135,37 @@ type claims struct {
 }
 
 type mintAnswer struct {
-	Token     string `json:"token"`
-	ExpiresIn int64  `json:"expires_in"`
+	Token     string            `json:"token"`
+	ExpiresIn int64             `json:"expires_in"`
+	Labels    map[string]string `json:"labels"`
 }
 
 // Token answers a token for r: a held one while it is fresh, else a new
 // one from the minter.
 func (m *Minter) Token(ctx context.Context, r Request) (string, error) {
+	h, err := m.mint(ctx, r)
+	return h.token, err
+}
+
+// Labels answers the labels the minter gave with r's token, an empty map
+// for a minter that gives none.
+func (m *Minter) Labels(ctx context.Context, r Request) (map[string]string, error) {
+	h, err := m.mint(ctx, r)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	maps.Copy(out, h.labels)
+	return out, nil
+}
+
+// mint answers a held token for r while it is fresh, else a new one.
+func (m *Minter) mint(ctx context.Context, r Request) (held, error) {
 	now := m.now()
 	m.mu.Lock()
 	if h, ok := m.cache[r]; ok && now.Before(h.until) {
 		m.mu.Unlock()
-		return h.token, nil
+		return h, nil
 	}
 	m.mu.Unlock()
 	body := mintBody{
@@ -145,11 +175,12 @@ func (m *Minter) Token(ctx context.Context, r Request) (string, error) {
 	}
 	var a mintAnswer
 	if err := m.call(ctx, body, &a); err != nil {
-		return "", err
+		return held{}, err
 	}
 	if a.Token == "" || a.ExpiresIn <= 0 {
-		return "", fmt.Errorf("%w: the answer lacks a token or its lifetime", ErrUnavailable)
+		return held{}, fmt.Errorf("%w: the answer lacks a token or its lifetime", ErrUnavailable)
 	}
+	h := held{token: a.Token, labels: a.Labels}
 	// Used until OWNER_TOKEN_RENEWAL before it expires, and never past
 	// OWNER_TOKEN_MAX_LIFETIME after it was obtained.
 	until := now.Add(min(time.Duration(a.ExpiresIn)*time.Second-limits.OwnerTokenRenewal, limits.OwnerTokenMaxLifetime))
@@ -163,10 +194,11 @@ func (m *Minter) Token(ctx context.Context, r Request) (string, error) {
 				delete(m.cache, k)
 			}
 		}
-		m.cache[r] = held{token: a.Token, until: until}
+		h.until = until
+		m.cache[r] = h
 		m.mu.Unlock()
 	}
-	return a.Token, nil
+	return h, nil
 }
 
 // call posts one ask and decodes a 200 into out. Neither the bearer, the

@@ -174,6 +174,15 @@ func (r Resolved) Check() error {
 				return invalid("tasks["+itoa(i)+"]", "the task's checks["+itoa(j)+"] is a grader of kind "+g.Kind)
 			}
 		}
+		for j, gd := range t.Graders {
+			g, ok := r.Graders[gd]
+			if ok && (g.Kind == GraderCheck || g.Canonicalizer() || g.LevelOf() != LevelTrial) {
+				return invalid("tasks["+itoa(i)+"]", "the task's graders["+itoa(j)+"] is a check, a canonicalizer or a judge of level candidate; a task's graders are trial-level judges and annotation queues")
+			}
+			if slices.Contains(s.Graders, gd) {
+				return invalid("tasks["+itoa(i)+"]", "the task's graders["+itoa(j)+"] is also one of the suite's graders, which every task's trials have")
+			}
+		}
 	}
 	for i, d := range s.Graders {
 		g := r.Graders[d]
@@ -293,7 +302,7 @@ func (r Resolved) producers(task string) (map[string]string, error) {
 				return nil, err
 			}
 		}
-		for _, gd := range append(slices.Clone(r.Tasks[task].Checks), s.Graders...) {
+		for _, gd := range r.trialGraders(task) {
 			g := r.Graders[gd]
 			if g.Kind == GraderAnnotation || g.LevelOf() != LevelTrial || !slices.Contains(g.Produces, md) {
 				continue
@@ -304,6 +313,14 @@ func (r Resolved) producers(task string) (map[string]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// trialGraders are the graders a task's trials have beside the built-ins:
+// its checks, its own graders and the suite's.
+func (r Resolved) trialGraders(task string) []string {
+	t := r.Tasks[task]
+	out := slices.Concat(t.Checks, t.Graders, r.Suite.Graders)
+	return out
 }
 
 // Producers is, for each task digest, each trial-level metric the suite
@@ -321,7 +338,7 @@ func (r Resolved) Producers() map[string]map[string]string {
 			if _, has := p[md]; has || r.Metrics[md].LevelOf() != LevelTrial {
 				continue
 			}
-			for _, gd := range r.Suite.Graders {
+			for _, gd := range slices.Concat(r.Tasks[td].Graders, r.Suite.Graders) {
 				if g := r.Graders[gd]; g.Kind == GraderAnnotation && slices.Contains(g.Produces, md) {
 					p[md] = gd
 					break
@@ -333,12 +350,11 @@ func (r Resolved) Producers() map[string]map[string]string {
 	return out
 }
 
-// GraderDigests are every grader of a task's trials: its checks, the
-// suite's graders, and the decline judge when the suite lists declined,
-// sorted.
+// GraderDigests are every grader of a task's trials: its checks, its own
+// graders, the suite's graders, and the decline judge when the suite lists
+// declined, sorted.
 func (r Resolved) GraderDigests(task string) []string {
-	out := slices.Clone(r.Tasks[task].Checks)
-	out = append(out, r.Suite.Graders...)
+	out := r.trialGraders(task)
 	if r.Suite.Lists(BuiltinDigest(MetricDeclined)) {
 		judge := r.Suite.DeclineJudge
 		if judge == "" {

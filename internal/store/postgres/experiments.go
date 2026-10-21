@@ -506,12 +506,53 @@ func (x experiments) Trials(ctx context.Context, eid string, f store.TrialFilter
 	if err != nil {
 		return nil, fmt.Errorf("postgres: listing trials: %w", err)
 	}
-	return collectTrials(rows)
+	trials, err := collectTrials(rows)
+	if err != nil {
+		return nil, err
+	}
+	return trials, x.withGradings(ctx, trials)
 }
 
 func (x experiments) Trial(ctx context.Context, tid string) (objects.Trial, error) {
 	t, err := scanTrial(x.s.pool.QueryRow(ctx, `SELECT `+trialColumns+` FROM trials WHERE id = $1`, tid))
-	return t, one(err, "a trial")
+	if err := one(err, "a trial"); err != nil {
+		return t, err
+	}
+	list := []objects.Trial{t}
+	err = x.withGradings(ctx, list)
+	return list[0], err
+}
+
+// withGradings fills each trial's checks and judgments from its gradings
+// (specs/002-objects.md): each check run's and judgment's record in the
+// trial's order once it ended, and its grader and pending before.
+func (x experiments) withGradings(ctx context.Context, trials []objects.Trial) error {
+	ids := make([]string, len(trials))
+	at := map[string]int{}
+	for i, t := range trials {
+		ids[i], at[t.ID] = t.ID, i
+	}
+	list, err := gradings{x.s}.OfTrials(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for _, g := range list {
+		rec := g.Record
+		if g.State == objects.GradingPending || len(rec) == 0 {
+			raw, err := json.Marshal(map[string]string{"grader": g.Grader, "state": objects.GradingPending})
+			if err != nil {
+				return fmt.Errorf("postgres: rendering a pending grading: %w", err)
+			}
+			rec = raw
+		}
+		t := &trials[at[g.Trial]]
+		if g.Kind == objects.GraderCheck {
+			t.Checks = append(t.Checks, rec)
+		} else {
+			t.Judgments = append(t.Judgments, rec)
+		}
+	}
+	return nil
 }
 
 const measurementColumns = `id, owner, experiment, coalesce(cell, ''), coalesce(trial, ''), coalesce(candidate, ''), metric, grader, annotator,

@@ -97,6 +97,14 @@ func (s *Server) decodeKind(r *http.Request, kind, name string) (applied, error)
 		if err := g.Normalize(); err != nil {
 			return applied{}, err
 		}
+		if err := g.Validate(); err != nil {
+			return applied{}, err
+		}
+		// Examen's judge preamble is pinned on a model judge here, so the
+		// digest covers the text the judge is called with.
+		if g.ModelJudge != nil {
+			g.ModelJudge.Preamble = objects.JudgePreamble
+		}
 		members[authorizer.FieldGraderKind] = g.Kind
 		if g.ModelJudge != nil {
 			members[authorizer.FieldModel] = g.ModelJudge.Model
@@ -309,6 +317,11 @@ func (s *Server) resolveSuite(r *http.Request, owner string, su objects.Suite, f
 		res.Tasks[d] = t
 		for j, ch := range t.Checks {
 			if err := grader("tasks["+itoa(i)+"].checks["+itoa(j)+"]", ch); err != nil {
+				return res, err
+			}
+		}
+		for j, gd := range t.Graders {
+			if err := grader("tasks["+itoa(i)+"].graders["+itoa(j)+"]", gd); err != nil {
 				return res, err
 			}
 		}

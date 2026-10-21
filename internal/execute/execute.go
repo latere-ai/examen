@@ -125,6 +125,25 @@ type Cell struct {
 	N        int
 	Rollouts []objects.Rollout
 	Trials   []objects.Trial
+	// Ungraded are the trials with a check run or a judgment Examen runs
+	// that has not ended, and Checking those with a check run that has
+	// not. CheckFailed is, for a trial with a check run that ended in a
+	// state other than ok, "<grader>: <state>" of its first.
+	Ungraded    map[string]bool
+	Checking    map[string]bool
+	CheckFailed map[string]string
+}
+
+// settled is the state of a cell no rollout of which is open: grading
+// while a check run or a judgment of its trials has not ended, and
+// complete once every one has (specs/006-grading.md).
+func settled(c Cell) string {
+	for _, t := range c.Trials {
+		if c.Ungraded[t.ID] {
+			return objects.StateGrading
+		}
+	}
+	return objects.StateComplete
 }
 
 // NewTrial is a trial a decision mints: its index, the trial it retries,
@@ -357,6 +376,21 @@ func Advance(c Cell, just objects.Trial) Step {
 				return s
 			}
 		}
+		// A smoke trial's checks gate the cell (specs/005-execution.md): it
+		// waits for them, and a check that could not do its job on a
+		// smoke trial blocks it before the main rollout spends on checks
+		// that would fail the same way.
+		for i := range smoke(c.N) {
+			if c.Checking[attempts[i].ID] {
+				return s
+			}
+		}
+		for i := range smoke(c.N) {
+			if t := attempts[i]; c.CheckFailed[t.ID] != "" {
+				s.State, s.Reason = objects.StateBlocked, "smoke_check_failed: "+t.ID+": "+c.CheckFailed[t.ID]
+				return s
+			}
+		}
 		if c.N > smoke(c.N) && count(c.Rollouts, objects.RolloutMain) == 0 {
 			main := NewRollout{Rollout: rollout(c.ID+".main", objects.RolloutMain, executorOf(c))}
 			for i := smoke(c.N); i < c.N; i++ {
@@ -367,14 +401,29 @@ func Advance(c Cell, just objects.Trial) Step {
 			return s
 		}
 		if !open() {
-			s.State = objects.StateComplete
+			s.State = settled(c)
 		}
 	case objects.StateRunning:
 		if !open() {
+			s.State = settled(c)
+		}
+	case objects.StateGrading:
+		if !open() && settled(c) == objects.StateComplete {
 			s.State = objects.StateComplete
 		}
 	}
+	if s.State == c.State {
+		s.State = ""
+	}
 	return s
+}
+
+// Graded decides what a cell does once a check run or a judgment of one of
+// its trials ended (specs/006-grading.md): a smoking cell whose smoke
+// trials' checks all ended decides as Advance does, and a cell in grading
+// whose every check run and judgment ended is complete.
+func Graded(c Cell) Step {
+	return Advance(c, objects.Trial{})
 }
 
 // Retry decides what a retry of a cell parked blocked or over_budget runs,

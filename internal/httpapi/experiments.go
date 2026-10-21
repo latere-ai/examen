@@ -571,18 +571,23 @@ func createMembers(r *http.Request, in createBody, suiteDigest string, candDiges
 	return m
 }
 
+// cores are what this server runs: topos trials, an origo workspace's
+// clone for them, and their checks and model judges.
+type cores struct{ topos, origo, checks, judges bool }
+
 // unbuilt refuses what this release cannot run (CHANGELOG): a candidate
 // whose executor is not built or not configured, what a topos candidate's
 // session cannot carry yet, a grader that needs a core this release does
-// not reach, inputs that need Arca to be delivered, and a cap that needs a
-// Budget made at Lux when no authorizer answered one. toposOn is whether
-// this server runs topos trials, and origoOn whether it clones an origo
-// workspace's repository for them.
-func unbuilt(in createBody, p plan, budgetAssigned, toposOn, origoOn bool) error {
+// not reach or of a kind it does not run, inputs that need Arca to be
+// delivered, and a cap that needs a Budget made at Lux when no authorizer
+// answered one. Checks and model judges grade topos trials alone: an
+// external trial's outputs are recorded unread (specs/005-execution.md).
+func unbuilt(in createBody, p plan, budgetAssigned bool, on cores) error {
+	toposOn, origoOn := on.topos, on.origo
 	core := func(name, field, why string) error {
 		return &apierr.Error{Code: apierr.CodeCoreNotConfigured, Core: name, Field: field, Detail: why}
 	}
-	toposCandidates := false
+	toposCandidates, otherCandidates := false, false
 	for i, c := range p.candBodies {
 		f := "candidates[" + itoa(i) + "]"
 		switch {
@@ -594,7 +599,9 @@ func unbuilt(in createBody, p plan, budgetAssigned, toposOn, origoOn bool) error
 			return apierr.OnField(apierr.CodeExecutorUnavailable, f+".topos.tools", "Topos cannot narrow an agent version's tools for a session yet")
 		case c.Kind == objects.CandidateTopos:
 			toposCandidates = true
-		case c.Kind != objects.CandidateExternal:
+		case c.Kind == objects.CandidateExternal:
+			otherCandidates = true
+		default:
 			return apierr.OnField(apierr.CodeExecutorUnavailable, f, "the "+objects.ExecutorOf(c.Kind)+" executor that runs a candidate of kind "+c.Kind+" is not part of this release")
 		}
 	}
@@ -615,41 +622,67 @@ func unbuilt(in createBody, p plan, budgetAssigned, toposOn, origoOn bool) error
 			return core("origo", f+".workspace", "an origo workspace is cloned from the installation's Origo, which it names no address for")
 		}
 	}
+	// Examen grades a topos trial alone, of an experiment in mode execute.
+	gradedHere := toposCandidates && !otherCandidates && in.Mode != objects.ModeImport
 	for i, td := range su.Tasks {
 		t := p.resolved.Tasks[td]
-		if len(t.Checks) > 0 {
-			return core("cella", "suite.tasks["+itoa(i)+"].checks", "the task's checks run in a check sandbox of Cella, which this release does not reach")
+		f := "suite.tasks[" + itoa(i) + "]"
+		switch {
+		case len(t.Checks) > 0 && !on.checks:
+			return core("cella", f+".checks", "the task's checks run in a check sandbox of Cella over the run's files in Arca, which this installation does not reach")
+		case len(t.Checks) > 0 && !gradedHere:
+			return apierr.OnField(apierr.CodeExecutorUnavailable, f+".checks", "a check grades an Agent candidate's run alone in this release: an external or imported trial's outputs are recorded unread")
+		case len(t.Inputs) > 0 && in.Mode != objects.ModeImport:
+			return core("arca", f+".inputs", "the task's inputs reach an external harness through Arca links, which this release does not mint")
 		}
-		if len(t.Inputs) > 0 && in.Mode != objects.ModeImport {
-			return core("arca", "suite.tasks["+itoa(i)+"].inputs", "the task's inputs reach an external harness through Arca links, which this release does not mint")
+		for j, d := range t.Graders {
+			if err := judged(p, d, f+".graders["+itoa(j)+"]", on, gradedHere); err != nil {
+				return err
+			}
 		}
-	}
-	judged := func(field, digest string) error {
-		switch g := p.resolved.Graders[digest]; g.Kind {
-		case objects.GraderModelJudge:
-			return core("lux", field, "a model judge calls its model through Lux on a Key this release does not lease")
-		case objects.GraderAgentJudge:
-			return core("topos", field, "an agent judge runs as a Topos session, which this release does not start")
-		}
-		return nil
 	}
 	for i, d := range su.Graders {
-		if err := judged("suite.graders["+itoa(i)+"]", d); err != nil {
+		if err := judged(p, d, "suite.graders["+itoa(i)+"]", on, gradedHere); err != nil {
 			return err
 		}
 	}
-	for i, d := range su.Canonicalizers {
-		if err := judged("suite.canonicalizers["+itoa(i)+"]", d); err != nil {
+	// A canonicalizer and a configured decline judge are model judges this
+	// release does not run: where no judge runs, for want of Lux.
+	notRun := func(field, why string) error {
+		if !on.judges {
+			return core("lux", field, "a model judge calls its model through Lux on a Key of the key source, which this installation does not reach")
+		}
+		return apierr.OnField(apierr.CodeExecutorUnavailable, field, why)
+	}
+	for i := range su.Canonicalizers {
+		if err := notRun("suite.canonicalizers["+itoa(i)+"]", "a canonicalizer does not run in this release; the owner maps raw labels through the taxonomy route"); err != nil {
 			return err
 		}
 	}
 	if su.DeclineJudge != "" {
-		if err := judged("suite.decline_judge", su.DeclineJudge); err != nil {
+		if err := notRun("suite.decline_judge", "a configured decline judge does not run in this release; the built-in decline judge fills declined"); err != nil {
 			return err
 		}
 	}
 	if in.Budget.CapUSDMicro != nil && !budgetAssigned {
 		return core("lux", "budget.cap_usd_micro", "a cap is a Budget made at Lux as the owner, which this release does not do; name a Budget, or let the authorizer assign one")
+	}
+	return nil
+}
+
+// judged refuses a grader of the suite or a task that this server does not
+// run: a model judge with no Lux or key source, or grading a run this
+// release does not grade, and an agent judge.
+func judged(p plan, digest, field string, on cores, gradedHere bool) error {
+	switch g := p.resolved.Graders[digest]; {
+	case g.Kind == objects.GraderModelJudge && g.LevelOf() == objects.LevelCandidate:
+		return apierr.OnField(apierr.CodeExecutorUnavailable, field, "a judge of level candidate does not run in this release")
+	case g.Kind == objects.GraderModelJudge && !on.judges:
+		return &apierr.Error{Code: apierr.CodeCoreNotConfigured, Core: "lux", Field: field, Detail: "a model judge calls its model through Lux on a Key of the key source and reads the run's files in Arca, which this installation does not reach"}
+	case g.Kind == objects.GraderModelJudge && !gradedHere:
+		return apierr.OnField(apierr.CodeExecutorUnavailable, field, "a model judge grades an Agent candidate's run alone in this release: an external or imported trial's outputs are recorded unread")
+	case g.Kind == objects.GraderAgentJudge:
+		return &apierr.Error{Code: apierr.CodeCoreNotConfigured, Core: "topos", Field: field, Detail: "an agent judge runs as a Topos session, which this release does not start"}
 	}
 	return nil
 }
@@ -776,7 +809,11 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 		budget = *in.Budget.Name
 	}
 	toposOn := s.Engine != nil && s.Engine.Topos != nil
-	if err := unbuilt(in, p, l.Budget != "", toposOn, toposOn && s.Engine.Topos.OrigoURL != ""); err != nil {
+	on := cores{topos: toposOn, origo: toposOn && s.Engine.Topos.OrigoURL != ""}
+	if toposOn && s.Engine.Grading != nil {
+		on.checks, on.judges = s.Engine.Grading.Checks(), s.Engine.Grading.Judges() && s.Engine.Keys != nil
+	}
+	if err := unbuilt(in, p, l.Budget != "", on); err != nil {
 		return err
 	}
 	if err := s.resolveAgents(r, c, eid, p); err != nil {

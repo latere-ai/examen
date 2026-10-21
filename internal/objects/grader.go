@@ -46,12 +46,15 @@ type Check struct {
 	Image   string            `json:"image,omitempty"`
 }
 
-// JudgeInputs is the evidence a judge reads.
+// JudgeInputs is the evidence a judge reads. Checks is the values the
+// trial's checks recorded, one block of JSON from each produced metric's
+// name to its value, read once every check of the trial ended.
 type JudgeInputs struct {
 	Transcript   bool     `json:"transcript,omitempty"`
 	FinalMessage bool     `json:"final_message,omitempty"`
 	Files        []string `json:"files,omitempty"`
 	Outputs      []string `json:"outputs,omitempty"`
+	Checks       bool     `json:"checks,omitempty"`
 }
 
 // ModelJudge is one structured call through Lux with a pinned model.
@@ -194,7 +197,7 @@ func (j *ModelJudge) validate(g Grader) error {
 		return missing("model_judge.model", "a model judge names its model")
 	case !PinnedModel(j.Model):
 		return unpinned("model_judge.model", "a model is named by a pinned id, not an alias")
-	case j.Preamble != "":
+	case j.Preamble != "" && j.Preamble != JudgePreamble:
 		return invalid("model_judge.preamble", "the preamble is Examen's, pinned at apply")
 	case j.Temperature != nil && (math.IsNaN(*j.Temperature) || *j.Temperature < 0 || *j.Temperature > 2):
 		return invalid("model_judge.temperature", "temperature is a number from 0 to 2")

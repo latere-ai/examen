@@ -217,6 +217,11 @@ func (c *change) apply(ctx context.Context, cell objects.Cell, s execute.Step) e
 			return err
 		}
 	}
+	if objects.Parked(s.State) {
+		if err := c.endGradings(ctx, cell.ID, "the cell parked "+s.State+" before the run started: "+s.Reason); err != nil {
+			return err
+		}
+	}
 	for _, q := range s.Queue {
 		cell.Rollouts = append(cell.Rollouts, q.Rollout)
 		trials := make([]store.RolloutTrial, len(q.Trials))
@@ -309,26 +314,28 @@ func (c *change) measure(ctx context.Context, t objects.Trial, o store.Outcome) 
 			builtin = append(builtin, store.Measured{Metric: objects.BuiltinDigest(m.Name), Value: v})
 		}
 	}
-	if err := c.grading(ctx, t, objects.GraderBuiltin, builtin); err != nil {
+	if _, err := c.grading(ctx, t, objects.GraderBuiltin, builtin); err != nil {
 		return err
 	}
 	if o.Declined {
-		if err := c.grading(ctx, t, objects.GraderDecline, []store.Measured{{Metric: objects.BuiltinDigest(objects.MetricDeclined), Value: objects.DeclineValue(t)}}); err != nil {
+		if _, err := c.grading(ctx, t, objects.GraderDecline, []store.Measured{{Metric: objects.BuiltinDigest(objects.MetricDeclined), Value: objects.DeclineValue(t)}}); err != nil {
 			return err
 		}
 	}
 	if len(o.SelfReported) > 0 {
-		return c.grading(ctx, t, objects.Self(o.Harness), o.SelfReported)
+		if _, err := c.grading(ctx, t, objects.Self(o.Harness), o.SelfReported); err != nil {
+			return err
+		}
 	}
-	return nil
+	return c.grade(ctx, t, o.Gradings)
 }
 
 // grading appends one generation of a grader on a trial, its measurements
-// in one statement each, and journals it.
-func (c *change) grading(ctx context.Context, t objects.Trial, grader string, values []store.Measured) error {
+// in one statement each, and journals it; it answers the generation.
+func (c *change) grading(ctx context.Context, t objects.Trial, grader string, values []store.Measured) (int, error) {
 	var generation int
 	if err := c.tx.QueryRow(ctx, `SELECT coalesce(max(generation), 0) + 1 FROM measurements WHERE trial = $1 AND grader = $2 AND annotator = ''`, t.ID, grader).Scan(&generation); err != nil {
-		return fmt.Errorf("postgres: numbering a grading: %w", err)
+		return 0, fmt.Errorf("postgres: numbering a grading: %w", err)
 	}
 	for _, v := range values {
 		var b *bool
@@ -342,15 +349,15 @@ func (c *change) grading(ctx context.Context, t objects.Trial, grader string, va
 		case string:
 			s = &x
 		default:
-			return fmt.Errorf("postgres: a value of type %T", v.Value)
+			return 0, fmt.Errorf("postgres: a value of type %T", v.Value)
 		}
 		if _, err := c.tx.Exec(ctx, `INSERT INTO measurements (id, owner, experiment, cell, trial, metric, grader, self_reported, generation, value_bool, value_num, value_text, rationale, created_at)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
 			id.New(id.Measurement), t.Owner, t.Experiment, t.Cell, t.ID, v.Metric, grader, strings.HasPrefix(grader, objects.SelfPrefix), generation, b, n, s, v.Rationale, c.now); err != nil {
-			return fmt.Errorf("postgres: appending a measurement: %w", err)
+			return 0, fmt.Errorf("postgres: appending a measurement: %w", err)
 		}
 	}
-	return c.j.add(ctx, objects.EventGraded, map[string]any{"trial": t.ID, "grader": grader, "generation": generation, "metrics": len(values)})
+	return generation, c.j.add(ctx, objects.EventGraded, map[string]any{"trial": t.ID, "grader": grader, "generation": generation, "metrics": len(values)})
 }
 
 // finish records a trial's outcome as done, writes its gradings, advances
@@ -429,7 +436,11 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 		if err != nil {
 			return t, err
 		}
-		if err := c.apply(ctx, cell, execute.Advance(c.view(cell, trials), t)); err != nil {
+		view := c.view(cell, trials)
+		if err := c.graded(ctx, &view); err != nil {
+			return t, err
+		}
+		if err := c.apply(ctx, cell, execute.Advance(view, t)); err != nil {
 			return t, err
 		}
 	}
@@ -837,6 +848,9 @@ func (x experiments) Cancel(ctx context.Context, eid string) (objects.Experiment
 		}
 		for _, cell := range cells {
 			if err := c.endOpen(ctx, cell.ID, "experiment_canceled", "the experiment was canceled before the trial ended"); err != nil {
+				return err
+			}
+			if err := c.endGradings(ctx, cell.ID, "the experiment was canceled before the run started"); err != nil {
 				return err
 			}
 			for i := range cell.Rollouts {

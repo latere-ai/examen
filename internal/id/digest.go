@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 )
 
@@ -83,4 +84,26 @@ func ValidDigest(s string) bool {
 		}
 	}
 	return true
+}
+
+// FolderFile is one file of a folder as its digest reads it: its path
+// relative to the folder and the hex SHA-256 of its bytes.
+type FolderFile struct {
+	Path   string
+	SHA256 string
+}
+
+// FolderDigest is the digest of a folder's content
+// (specs/007-measurements-and-evidence.md): the SHA-256 of one line
+// "<hex sha256>  <path>\n" per file, in ascending bytewise order of path,
+// the form sha256sum prints. Two folders holding the same bytes at the
+// same paths have one digest, whatever store holds them.
+func FolderDigest(files []FolderFile) string {
+	sorted := slices.Clone(files)
+	slices.SortFunc(sorted, func(a, b FolderFile) int { return strings.Compare(a.Path, b.Path) })
+	h := sha256.New()
+	for _, f := range sorted {
+		_, _ = io.WriteString(h, f.SHA256+"  "+f.Path+"\n")
+	}
+	return DigestPrefix + hex.EncodeToString(h.Sum(nil))
 }
