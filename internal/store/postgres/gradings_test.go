@@ -6,6 +6,7 @@ package postgres_test
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -217,6 +218,26 @@ func TestAGradingsEndFailsWhole(t *testing.T) {
 				Values: []store.Measured{{Metric: gradedValue, Value: 1.0}}})
 		}
 	})
+
+	// A record that does not render as a JSON object ends nothing: one
+	// that is no JSON at all, and one that is no object when the end
+	// appends values and so writes their generation into it.
+	_, _, trial := w.gradedTrial(ctx, p)
+	list, err := g.OfTrials(ctx, []string{trial.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, end := range []store.GradingEnd{
+		{ID: list[0].ID, State: objects.CheckOK, Record: math.NaN()},
+		{ID: list[0].ID, State: objects.CheckOK, Record: "no object", Values: []store.Measured{{Metric: gradedValue, Value: 1.0}}},
+	} {
+		if err := g.End(ctx, end); err == nil || !strings.Contains(err.Error(), "rendering a grading's record") {
+			t.Fatalf("a record that does not render: %v", err)
+		}
+	}
+	if after, err := g.OfTrials(ctx, []string{trial.ID}); err != nil || after[0].State != objects.GradingPending {
+		t.Fatalf("a record that did not render ended the grading: %+v %v", after, err)
+	}
 }
 
 // TestGradingsOnAClosedStore: every call answers an error.
