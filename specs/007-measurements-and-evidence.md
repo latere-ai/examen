@@ -12,7 +12,7 @@ depends_on:
 affects: [internal/store/, internal/evidence/, internal/export/, api/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-19
+updated: 2026-10-21
 author: changkun
 ---
 
@@ -620,9 +620,20 @@ layer, and the observed layer's duration, service versions, service
 usage and the Lux request ids as given; every cost is `unknown`.
 Evidence references are the Arca paths and digests a harness declares,
 recorded and never read. v0.2.0 to v0.4.0 add nothing to this spec.
-Not built: graders beyond the built-ins, so re-grading, annotator
-generations and candidate-level measurements; the sent layer and
-everything read from Lux; every write to the file store; retention;
+v0.7.0 grades a `topos` trial with its checks and model judges (spec
+006): each grading that gives values appends its grader's next
+generation under the grader's digest, its check run or judgment record
+is kept on the trial (`checks`, `judgments`) with the generation it
+appended, and a judge's rationale is on each measurement. A `topos`
+trial's evidence is the session's log, pinned at the last event read by
+the SHA-256 of its JSONL, and its kept working directory as the output
+`workspace/`, a folder of the owner's Arca space pinned by the folder
+digest of the files its log's `work.saved` events record (the SHA-256 of
+one `<hex sha256>  <path>` line per file in path order, `id.FolderDigest`),
+each file's digest checked when a grader reads it. A check's stdout and
+stderr are kept in its record by size, digest and tail, not written to
+the file store. Not built: re-grading, annotator generations and
+candidate-level measurements; every write to the file store; retention;
 and dataset export.
 
 Every row below shipped in v0.1.0. The criteria cite tests of
