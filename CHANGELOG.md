@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.7.0 - 2026-10-21
+
 ### Added
 
 - Examen grades a `topos` trial's run itself. Once its session ends, the
