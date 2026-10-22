@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.7.2 - 2026-10-22
+
 ### Fixed
 
 - Grading a run holds none of its kept files whole. A run's checks get
