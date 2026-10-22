@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -39,7 +40,8 @@ func TestTheClient(t *testing.T) {
 		case r.Method == http.MethodGet:
 			_, _ = io.WriteString(w, `{"spec":{"image":"base@sha256:aa"},"status":{"id":"sbx_1","phase":"Failed","reason":"Exited"}}`)
 		case r.Method == http.MethodPut:
-			if r.Header.Get("Content-Type") != "application/x-tar" || string(body) != "tar" {
+			// The archive is streamed: chunked, with no length declared.
+			if r.Header.Get("Content-Type") != "application/x-tar" || string(body) != "tar" || !slices.Contains(r.TransferEncoding, "chunked") {
 				w.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -77,7 +79,7 @@ func TestTheClient(t *testing.T) {
 	if sb, err := c.Get(ctx, "tok", "sbx_1"); err != nil || sb.Phase != PhaseFailed || sb.Reason != "Exited" || sb.Workspace != "/workspace" {
 		t.Fatalf("get: %+v %v", sb, err)
 	}
-	if err := c.PutTar(ctx, "tok", "sbx_1", "/workspace", []byte("tar")); err != nil {
+	if err := c.PutTar(ctx, "tok", "sbx_1", "/workspace", io.MultiReader(strings.NewReader("tar")), 3); err != nil {
 		t.Fatal(err)
 	}
 	res, err := c.Run(ctx, "tok", "sbx_1", Exec{Command: []string{"sh", "-c", "x"}, Env: map[string]string{"K": "v"}, Workdir: "/workspace/work", Timeout: time.Minute})

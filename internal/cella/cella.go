@@ -213,10 +213,14 @@ func (c *Client) Delete(ctx context.Context, token, ref string) error {
 	return err
 }
 
-// PutTar extracts a tar stream below dest in the sandbox.
-func (c *Client) PutTar(ctx context.Context, token, id, dest string, tar []byte) error {
+// PutTar extracts a tar stream below dest in the sandbox, sent as it is
+// read from tar with no length declared, so a caller that writes the
+// stream as it reads its files holds none of them whole. size is about how
+// many bytes the stream carries, a mebibyte of which adds a second to the
+// call's bound.
+func (c *Client) PutTar(ctx context.Context, token, id, dest string, tar io.Reader, size int64) error {
 	path := "/sandboxes/" + url.PathEscape(id) + "/files?dest=" + url.QueryEscape(dest)
-	return c.call(ctx, token, http.MethodPut, path, "application/x-tar", tar, callTimeout+time.Duration(len(tar)>>20)*time.Second, nil)
+	return c.send(ctx, token, http.MethodPut, path, "application/x-tar", tar, callTimeout+time.Duration(size>>20)*time.Second, nil)
 }
 
 // Exec is one command to run: its argv, its environment, its working
@@ -264,9 +268,15 @@ func (c *Client) Run(ctx context.Context, token, id string, e Exec) (Result, err
 // call sends one request with the owner token and decodes a 2xx answer
 // into out. The token, the address and the body are in no error.
 func (c *Client) call(ctx context.Context, token, method, path, contentType string, body []byte, bound time.Duration, out any) error {
+	return c.send(ctx, token, method, path, contentType, bytes.NewReader(body), bound, out)
+}
+
+// send is call with a body read as it is sent: a *bytes.Reader declares
+// its length, and any other reader is sent chunked.
+func (c *Client) send(ctx context.Context, token, method, path, contentType string, body io.Reader, bound time.Duration, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, c.URL+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, c.URL+path, body)
 	if err != nil {
 		return fmt.Errorf("cella: build the request: %w", err)
 	}
