@@ -10,7 +10,7 @@ depends_on:
 affects: [internal/execute/, internal/execute/topos/, internal/execute/cella/, internal/execute/external/, internal/queue/, internal/luxread/, cmd/examen-trial/, cmd/examen-http/]
 effort: xlarge
 created: 2026-10-17
-updated: 2026-10-21
+updated: 2026-10-22
 author: changkun
 ---
 
@@ -758,6 +758,7 @@ reports by path and digest.
 | the record of each request | `model.request` with `model`, `usage`, `cost_usd_micro`, `cost_source`, `stop_reason`, `outcome` | R11 adds the Lux request id |
 | the level of each request | folded today from the session's `model` and its `session.model_changed` events: one trial is one turn, and the level standing at a request's `fold_seq` is the level it carried | built |
 | cancel | `user.interrupt`, then `POST /sessions/{id}/end` `{reason: canceled}`, since `end` refuses a running session | R13 |
+| isolation | a session with `rollout` takes none of the owner's instructions, context, attached repositories or connections whatever the authorizer attaches, and its sandbox holds no connection service token (Topos v0.51.1) | built |
 
 Each session of a rollout carries the rollout's id, and the executor
 finds a rollout's sessions by it, through the rollout's report (R12).
@@ -790,6 +791,25 @@ with digests, sessions with `attended`, `end_on_idle`, `metadata`,
 per-session Lux keys from the installation's authorizer, and a session
 folder on an Arca-compatible files API with `work.saved` and
 `files.kept`.
+
+**A run reaches none of the owner's accounts.** A trial's session is
+created as the experiment's owner, from the sign-in the installation
+keeps for the experiment, and it executes a task's instruction, which may
+come from a suite another person shared. So the session carries nothing
+of the owner beyond the run: no connection to another service of theirs,
+none of their profile, standing instructions or memory, no repository of
+theirs but the task's `origo` workspace, which it reads and never writes,
+none of their files but its own folder, and no other session. Without
+that the run is also not the experiment the pre-registration describes,
+which starts each run from its workspace with no outside context. The
+executor asks for none of these: a create names the task's workspace,
+the instruction, the candidate's model and the labels above, and no
+project or app. Topos holds a rollout's run to the rule whatever the
+installation's authorizer attaches (Topos spec 077, "A run is
+isolated"), and the authorizer refuses a run's tokens everything else
+(in Latere, platform spec 214). examend's own owner tokens, which create,
+follow and grade the run, never reach the run's machine, and the minter
+never answers a program's credential for a `topos` run.
 
 **What this spec requires of a Topos rollout primitive.** Numbered so
 Topos's rollout spec can answer each; the rest of this spec calls them
