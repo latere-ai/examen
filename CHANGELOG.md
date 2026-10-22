@@ -6,6 +6,15 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Changed
+
+- A `topos` run's session no longer receives the experiment owner's
+  accounts or context. With Topos v0.51.1 and an installation's
+  authorizer that holds the same rule, a run gets no connection to the
+  owner's other services, none of their profile or instructions, and no
+  repository or file of theirs but its task's workspace, read only; its
+  files are still kept for grading. The executor's create is unchanged.
+
 ## v0.7.2 - 2026-10-22
 
 ### Fixed
