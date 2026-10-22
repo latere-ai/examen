@@ -6,6 +6,8 @@ package grade
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -142,7 +144,7 @@ func TestInputBound(t *testing.T) {
 	long := strings.Repeat("a", 60)
 	transcript := "first line\n" + strings.Repeat("m", 80) + "\nlast line"
 	ev := Evidence{FinalMessage: &long, Transcript: &transcript, Outputs: []Output{{Name: "workspace/", Files: []Block{{Name: "workspace/a.txt", Text: "hello"}}}}}
-	blocks, cuts := bounded(ev, 40)
+	blocks, cuts, _ := bounded(ev, 40)
 	if len(blocks) < 2 || blocks[0].Name != "final_message" || blocks[0].elided != 20 || !strings.HasSuffix(blocks[0].Text, "[examen: 20 bytes elided]") {
 		t.Fatalf("the final message's cut: %+v", blocks)
 	}
@@ -164,7 +166,7 @@ func TestInputBound(t *testing.T) {
 	if listing == nil || listing.elided != len("a.txt 5 "+digestOf("hello")+" "+WhyOverBound) {
 		t.Fatalf("a file past the bound is not listed over_bound: %+v", blocks)
 	}
-	roomy, _ := bounded(Evidence{Outputs: []Output{{Name: "workspace/", Files: []Block{{Name: "workspace/a.txt", Text: "hello"}, {Name: "workspace/b.txt", Text: strings.Repeat("b", 30)}}}}}, 20)
+	roomy, _, _ := bounded(Evidence{Outputs: []Output{{Name: "workspace/", Files: []Block{{Name: "workspace/a.txt", Text: "hello"}, {Name: "workspace/b.txt", Text: strings.Repeat("b", 30)}}}}}, 20)
 	if len(roomy) != 2 || roomy[0].Text != "hello" || roomy[1].elided != 15 {
 		t.Fatalf("a directory's files filled in order: %+v", roomy)
 	}
@@ -178,8 +180,8 @@ func TestInputBound(t *testing.T) {
 	if head, elided := keepHead("héllo", 2); head != "h" || elided != 5 {
 		t.Fatalf("a cut on a rune's middle: %q %d", head, elided)
 	}
-	all, _ := bounded(Evidence{}, 10)
-	if len(all) != 0 {
+	all, _, err := bounded(Evidence{}, 10)
+	if err != nil || len(all) != 0 {
 		t.Fatalf("no input gave blocks %+v", all)
 	}
 	req, err := Assemble(judge(), "sha256:g", "tri_1", []Produced{kind}, Evidence{}, 10)
@@ -246,5 +248,47 @@ func TestMetricDescriptions(t *testing.T) {
 		if s := valueSchema(*m); s["type"] == nil {
 			t.Errorf("%+v has no value schema", *m)
 		}
+	}
+}
+
+// TestOutputFilesLoadedWithinTheBound: a directory output's files that name
+// a Load are read only while the bound has room, each with no more than
+// the room left: the first whole, the second cut with the bytes it did not
+// read counted as elided, one that is not text listed, and every file past
+// the bound listed by its own size and digest with no read at all. A load
+// that fails fails the assembly.
+func TestOutputFilesLoadedWithinTheBound(t *testing.T) {
+	var asked []int
+	file := func(name, text string, isText bool) Block {
+		return Block{Name: "workspace/" + name, Size: int64(len(text)), Digest: digestOf(text), Load: func(keep int) (string, bool, error) {
+			asked = append(asked, keep)
+			head, _ := keepHead(text, keep)
+			return head, isText, nil
+		}}
+	}
+	big := strings.Repeat("b", 100)
+	ev := Evidence{Outputs: []Output{{Name: "workspace/", Files: []Block{
+		file("a.txt", "aaaa", true), file("bin", "\x00\x01", false), file("b.txt", big, true), file("c.txt", "cc", true),
+	}}}}
+	blocks, cuts, err := bounded(ev, 24)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(asked, []int{24, 20, 20}) {
+		t.Fatalf("the loads asked for %v", asked)
+	}
+	if len(blocks) != 3 || blocks[0].Text != "aaaa" || !strings.HasPrefix(blocks[1].Text, strings.Repeat("b", 20)+"\n[examen: 80 bytes elided]") {
+		t.Fatalf("the blocks %+v", blocks)
+	}
+	// The bound is spent by then, so the listing of the file that is not
+	// text and the one past the bound is itself left out whole.
+	listing := "bin 2 " + digestOf("\x00\x01") + " not_text\nc.txt 2 " + digestOf("cc") + " over_bound"
+	if len(cuts) != 2 || cuts[0] != (objects.Cut{Name: "workspace/b.txt", Elided: 80}) || cuts[1] != (objects.Cut{Name: "workspace/", Elided: len(listing)}) {
+		t.Fatalf("the cuts %+v", cuts)
+	}
+	broke := errors.New("the file is gone")
+	ev.Outputs[0].Files[0].Load = func(int) (string, bool, error) { return "", false, broke }
+	if _, err := Assemble(judge(), "sha256:g", "tri_1", []Produced{kind}, ev, 24); !errors.Is(err, broke) {
+		t.Fatalf("a load that failed: %v", err)
 	}
 }

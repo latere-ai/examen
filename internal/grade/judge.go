@@ -26,10 +26,18 @@ import (
 // ToolName is the one tool a model judge is offered and must call.
 const ToolName = "record_judgment"
 
-// Block is one input a judge reads: its name and its text.
+// Block is one input a judge reads: its name and its text. A block of a
+// directory output may instead name a Load, which the bound calls only
+// while it has room left, so a file past the bound is never read: Load
+// answers at most keep bytes of the file's beginning, on a rune boundary,
+// and whether that beginning is UTF-8 text; Size and Digest are the whole
+// file's, which a listing names when it is not read.
 type Block struct {
-	Name string
-	Text string
+	Name   string
+	Text   string
+	Load   func(keep int) (head string, isText bool, err error)
+	Size   int64
+	Digest string
 }
 
 // Listed is one file of a directory output that is no block of its own:
@@ -91,7 +99,10 @@ func Assemble(g objects.Grader, graderDigest, trial string, produces []Produced,
 	if j == nil {
 		return Request{}, fmt.Errorf("grade: the grader %s is no model judge", graderDigest)
 	}
-	blocks, cuts := bounded(ev, bound)
+	blocks, cuts, err := bounded(ev, bound)
+	if err != nil {
+		return Request{}, err
+	}
 	boundary := boundaryFor(graderDigest, trial, blocks)
 	var user strings.Builder
 	for i, b := range blocks {
@@ -232,26 +243,32 @@ type block struct {
 // that does not fit at its end, the transcript keeping its first line and
 // as much of its end as fits. Once the bound is reached a directory
 // output's files not yet read join its listing as over_bound.
-func bounded(ev Evidence, bound int) ([]block, []objects.Cut) {
+func bounded(ev Evidence, bound int) ([]block, []objects.Cut, error) {
 	left := bound
 	var out []block
 	var cuts []objects.Cut
-	add := func(name, text string, transcript bool) {
-		b := block{Name: name}
-		switch {
-		case len(text) <= left:
-			b.Text = text
-		case transcript:
-			b.Text, b.elided = keepEnds(text, left)
-		default:
-			b.Text, b.elided = keepHead(text, left)
-		}
+	// keep adds a block of text that unread more bytes follow, which the
+	// bound leaves out.
+	keep := func(name, text string, unread int) {
+		b := block{Name: name, Text: text, elided: unread}
 		if b.elided > 0 {
 			b.Text += "\n[examen: " + strconv.Itoa(b.elided) + " bytes elided]"
 			cuts = append(cuts, objects.Cut{Name: name, Elided: b.elided})
 		}
-		left -= len(text) - b.elided
+		left -= len(text)
 		out = append(out, b)
+	}
+	add := func(name, text string, transcript bool) {
+		switch {
+		case len(text) <= left:
+			keep(name, text, 0)
+		case transcript:
+			kept, elided := keepEnds(text, left)
+			keep(name, kept, elided)
+		default:
+			kept, elided := keepHead(text, left)
+			keep(name, kept, elided)
+		}
 	}
 	if ev.FinalMessage != nil {
 		add("final_message", *ev.FinalMessage, false)
@@ -265,11 +282,25 @@ func bounded(ev Evidence, bound int) ([]block, []objects.Cut) {
 	for _, o := range ev.Outputs {
 		listing := slices.Clone(o.Listing)
 		for _, f := range o.Files {
-			if left <= 0 {
-				listing = append(listing, Listed{Path: strings.TrimPrefix(f.Name, o.Name), Size: int64(len(f.Text)), Digest: digestOf(f.Text), Why: WhyOverBound})
-				continue
+			path := strings.TrimPrefix(f.Name, o.Name)
+			switch {
+			case left <= 0 && f.Load != nil:
+				listing = append(listing, Listed{Path: path, Size: f.Size, Digest: f.Digest, Why: WhyOverBound})
+			case left <= 0:
+				listing = append(listing, Listed{Path: path, Size: int64(len(f.Text)), Digest: digestOf(f.Text), Why: WhyOverBound})
+			case f.Load != nil:
+				head, isText, err := f.Load(left)
+				if err != nil {
+					return nil, nil, err
+				}
+				if !isText {
+					listing = append(listing, Listed{Path: path, Size: f.Size, Digest: f.Digest, Why: WhyNotText})
+					continue
+				}
+				keep(f.Name, head, int(f.Size)-len(head))
+			default:
+				add(f.Name, f.Text, false)
 			}
-			add(f.Name, f.Text, false)
 		}
 		if len(listing) > 0 {
 			var l strings.Builder
@@ -282,7 +313,7 @@ func bounded(ev Evidence, bound int) ([]block, []objects.Cut) {
 	if ev.Transcript != nil {
 		add("transcript", *ev.Transcript, true)
 	}
-	return out, cuts
+	return out, cuts, nil
 }
 
 func digestOf(s string) string {
@@ -293,7 +324,7 @@ func digestOf(s string) string {
 // keepHead keeps the beginning of s within n bytes, on a rune boundary,
 // and answers the bytes left out.
 func keepHead(s string, n int) (string, int) {
-	n = max(n, 0)
+	n = min(max(n, 0), len(s))
 	for n > 0 && n < len(s) && !utf8.RuneStart(s[n]) {
 		n--
 	}
