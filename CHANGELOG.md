@@ -11,6 +11,11 @@ here is refused before it is pushed.
 - A `topos` trial's session is titled with its run counted from 1, as
   `<candidate> on <task>, run 1` for the trial of index 0, the way a
   person reads runs; its `examen.index` metadata keeps the index.
+- `GET /candidates?agent=` takes an agent's name, and keeps the
+  candidates that name that agent at any version, or one version,
+  `sha256:...` or `name@sha256:...`, and keeps the candidates of that
+  version whether they name it with the agent's name or by its digest
+  alone. It matched the stored reference exactly before.
 
 ### Changed
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -148,7 +149,15 @@ func (vs versions) List(ctx context.Context, kind string, f store.VersionFilter,
 		w.add("v.body->'produces' ? %s", f.Produces)
 	}
 	if f.Agent != "" {
-		w.add("v.body->'topos'->>'agent' = %s", f.Agent)
+		// A candidate names its agent `name@digest` or by its digest alone.
+		// A name keeps every candidate that names that agent, at any
+		// version; a digest, alone or after a name, keeps the candidates of
+		// that version, however they name it.
+		if name, digest := agentRef(f.Agent); digest == "" {
+			w.add("split_part(v.body->'topos'->>'agent', '@', 1) = %s", name)
+		} else {
+			w.add("(v.body->'topos'->>'agent' = %[1]s OR split_part(v.body->'topos'->>'agent', '@', 2) = %[1]s)", digest)
+		}
 	}
 	if f.Model != "" {
 		w.add("coalesce(v.body->'topos'->>'model', v.body->'program'->>'model', v.body->'external'->>'model') = %s", f.Model)
@@ -185,4 +194,17 @@ func (vs versions) Many(ctx context.Context, ids []string) (map[string]objects.V
 		out[v.ID] = v
 	}
 	return out, nil
+}
+
+// agentRef splits a candidate's agent filter into an agent's name, for a
+// value with no digest, or the version's digest, for `sha256:...` or
+// `name@sha256:...`.
+func agentRef(ref string) (name, digest string) {
+	if at := strings.LastIndex(ref, "@"); at >= 0 {
+		return ref[:at], ref[at+1:]
+	}
+	if strings.HasPrefix(ref, "sha256:") {
+		return "", ref
+	}
+	return ref, ""
 }

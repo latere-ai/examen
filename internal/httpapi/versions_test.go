@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -164,6 +165,30 @@ func TestListsAndFilters(t *testing.T) {
 	}
 	if got := x.must(http.StatusOK, http.MethodGet, "/v1/candidates?agent=sha256:"+strings.Repeat("1", 64), "t-alice", nil); len(got["items"].([]any)) != 0 {
 		t.Fatalf("candidates of an agent %v", got)
+	}
+	// An agent's candidates by its name, at any version, and by one
+	// version's digest, however a candidate names it.
+	v1, v2 := "sha256:"+strings.Repeat("2", 64), "sha256:"+strings.Repeat("3", 64)
+	x.apply("candidates", "helper-v1", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "helper@" + v1, "model": "m"}})
+	x.apply("candidates", "helper-v2", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "helper@" + v2, "model": "m"}})
+	x.apply("candidates", "helper-bare", map[string]any{"kind": "topos", "topos": map[string]any{"agent": v1, "model": "m"}})
+	x.apply("candidates", "helpers-other", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "helpers@" + v1, "model": "m"}})
+	names := func(q string) []string {
+		var out []string
+		for _, it := range x.must(http.StatusOK, http.MethodGet, "/v1/candidates?"+q, "t-alice", nil)["items"].([]any) {
+			out = append(out, it.(map[string]any)["name"].(string))
+		}
+		slices.Sort(out)
+		return out
+	}
+	if got := names("agent=helper"); !slices.Equal(got, []string{"helper-v1", "helper-v2"}) {
+		t.Fatalf("candidates of the agent helper %v", got)
+	}
+	if got := names("agent=" + url.QueryEscape(v1)); !slices.Equal(got, []string{"helper-bare", "helper-v1", "helpers-other"}) {
+		t.Fatalf("candidates of the version %v", got)
+	}
+	if got := names("agent=" + url.QueryEscape("helper@"+v2)); !slices.Equal(got, []string{"helper-v2"}) {
+		t.Fatalf("candidates of helper@v2 %v", got)
 	}
 	if got := x.must(http.StatusOK, http.MethodGet, "/v1/graders?grader_kind=check&produces="+f.quality, "t-alice", nil); len(got["items"].([]any)) != 0 {
 		t.Fatalf("graders %v", got)

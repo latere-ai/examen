@@ -1007,7 +1007,7 @@ paths:
             type: "string"
         - name: "agent"
           in: "query"
-          description: "An agent version digest."
+          description: "An agent's name, for the candidates that name it at any version, or one version, `sha256:...` or `name@sha256:...`, for the candidates of that version however they name it."
           schema:
             type: "string"
         - name: "model"
