@@ -1526,6 +1526,14 @@ Every row below shipped in v0.1.0 unless it names another release.
 | 33 | Partly met: only smoke trials lease before the smoke passes, never past the share, and a lapsed lease returns its trials to pending with no retry spent; a submit's outputs and the check sandbox wait on the file store and Cella, and that a cancel ends every lease is untested | `httpapi.TestTheExternalFlow`, `httpapi.TestLeasesLapseAndRenew`, `postgres.TestLapsesLeasesAndReopensFailWhole` |
 | 34 | Partly met: self-reported values are stored with `self_reported` true; with a key source (v0.6.0) the records are those of the experiment's external Key, read through the key source rather than as the owner, by label or submitted request id, each once, a late record unsettling its trial; a trial with no record keeps cost `unknown`. Without one, every trial's cost is `unknown` | `httpapi.TestAnalyzedImport`, `postgres.TestMeasurementsAreAppendOnly`, `httpapi.TestTheExperimentKey`, `httpapi.TestTheExperimentKeyThroughAPooler` |
 
+A `topos` run reaches none of the owner's accounts or context ("A run
+reaches none of the owner's accounts", above): with Topos v0.51.1 and
+the installation's authorizer, a run's session holds no instructions,
+context, attached repository or connection, and its sandbox no token of
+the connection service. The executor's create needed no change; checked
+live on 2026-10-22 by a run whose agent found no connection variable and
+knew nothing of the person who started it.
+
 Not built: 1 to 3, the executor contract; 5 and 9, the cost check
 against a Budget's remainder, unpriced models and soft Budgets; 14,
 deadlines and `TRIAL_START_TIMEOUT`, but a `topos` trial's deadline
