@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.8.0 - 2026-10-22
+
 ### Added
 
 - A `topos` trial records the machines its session ran on in its
