@@ -324,7 +324,9 @@ same request:
    bound is reached, a whole directory output's files not yet read are
    not read: each joins its listing as a line with the `why`
    `over_bound`, and the listing, cut like any input, keeps as many of
-   them as fit. A line `[examen: <n> bytes elided]` stands at each cut, and
+   them as fit. A file the bound reaches is read only for the room left:
+   its beginning is kept, the rest passes through to have its digest
+   checked, and whether it is UTF-8 text is decided from what is kept. A line `[examen: <n> bytes elided]` stands at each cut, and
    each cut is recorded.
 3. **Delimit.** Each input is one block:
 
@@ -737,9 +739,15 @@ grader of every kind is still applied and checked at apply. What runs:
   value. A run's state, exit code, reason, duration, stdout size and
   digest and stderr tail are its check run record, with the image Cella
   ran it in and the generation its values appended; its whole stdout and
-  stderr are not kept as evidence. Not built: `CHECK_TIMEOUT` read from
-  a check that started late (each command is given what is left of it),
-  the comparators and a grader's `image`.
+  stderr are not kept as evidence. The run's kept files reach the check
+  sandbox as one tar stream, written into the upload as each file is read
+  from the owner's files store and its size and digest checked against
+  the session's log, so the grading replica holds no file of the run
+  whole (from v0.7.2; v0.7.1 read every kept file into memory and built
+  the archive beside them, about three times the run's size, and a run of
+  42 MB ran a replica of 256 MiB out of memory). Not built: `CHECK_TIMEOUT`
+  read from a check that started late (each command is given what is left
+  of it), the comparators and a grader's `image`.
 - **Model judges of level `trial`** of a `topos` trial run as above: the
   Key from the key source with the purpose `judge`, `models` the
   grader's model and the labels `examen.experiment` and `examen.grader`
@@ -773,7 +781,7 @@ grader of every kind is still applied and checked at apply. What runs:
 | 6 | Partly met: `EXAMEN_OUTPUTS`, `EXAMEN_CHECK_FILES` and the others in a `topos` trial's check sandbox; `EXAMEN_CHECK_IMAGE` waits on a grader's `image` | `work.TestEvalsGradesARun` |
 | 9 | Met | `grade.TestAssemblyIsDeterministic` |
 | 10 | Met | `grade.TestInputBound` |
-| 11 | Partly met for the one directory output of a `topos` trial, read from its kept files rather than an archive, their digests checked against the session's log | `grade.TestInputBound`, `work.TestEvalsGradesARun` |
+| 11 | Partly met for the one directory output of a `topos` trial, read from its kept files rather than an archive, their digests checked against the session's log; from v0.7.2 each file is read only when the bound reaches it, and grading a run of 225 files and 43 MB holds about 2 MB of live heap where v0.7.1 held 124 MB | `grade.TestInputBound`, `grade.TestOutputFilesLoadedWithinTheBound`, `work.TestEvalsGradesARun`, `work.TestGradingHoldsNoRunWhole`, `work.TestTwoLargeRunsGradedAtOnce` |
 | 12 | Met | `grade.TestEvidenceStaysInTheUserTurn`, `grade.FuzzBoundary` |
 | 13 | Met against a stub of Lux | `grade.TestMalformedAnswers`, `work.TestGradingsThatCannotRun` |
 | 14 | Met against a stub of Lux | `grade.TestJudgmentStates`, `work.TestJudgmentStatesAtLux`, `work.TestGradingsThatCannotRun` |

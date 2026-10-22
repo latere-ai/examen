@@ -6,6 +6,20 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Fixed
+
+- Grading a run holds none of its kept files whole. A run's checks get
+  its files as one tar stream, written into the check sandbox's upload as
+  each file is read from the files store, its size and digest checked as
+  it passes; a judge reads a file of the workspace only when its input
+  bound reaches it, keeps only as much as the bound has room for, and
+  lists the files past the bound by the digest the log recorded without
+  reading them. Grading a run of 225 files and 43 MB held up to 124 MB of
+  live heap in v0.7.1, which ran a replica of 256 MiB out of memory; it
+  now holds about 2 MB, and two such runs at once about 6 MB.
+- A file whose kept copy grew past the size the log recorded is evidence
+  that changed, as one whose bytes differ is.
+
 ## v0.7.1 - 2026-10-21
 
 ### Fixed
