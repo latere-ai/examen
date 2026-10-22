@@ -200,8 +200,8 @@ func (vs versions) Many(ctx context.Context, ids []string) (map[string]objects.V
 // value with no digest, or the version's digest, for `sha256:...` or
 // `name@sha256:...`.
 func agentRef(ref string) (name, digest string) {
-	if at := strings.LastIndex(ref, "@"); at >= 0 {
-		return ref[:at], ref[at+1:]
+	if name, digest, found := strings.CutLast(ref, "@"); found {
+		return name, digest
 	}
 	if strings.HasPrefix(ref, "sha256:") {
 		return "", ref
