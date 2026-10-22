@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"net/http"
@@ -110,7 +111,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		}
 		checks[i].grader = g
 	}
-	work, err := e.readWork(ctx, r, tokens.PurposeTrial)
+	workToken, err := e.workToken(ctx, r, tokens.PurposeTrial)
 	why, ended = signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
@@ -179,15 +180,32 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		return wait(fmt.Errorf("%w: the check sandbox is %s: %s", cella.ErrUnavailable, sb.Phase, sb.Reason))
 	}
 	paths := sandboxPaths{root: sb.Workspace}
-	archive, err := checkArchive(r, work, checks)
-	if err != nil {
-		return err
+	// The archive is written into the upload as each kept file is read
+	// from the files store, so no file of the run is held whole.
+	pr, pw := io.Pipe()
+	written := make(chan error, 1)
+	go func() {
+		err := e.writeArchive(ctx, pw, workToken, r, checks)
+		pw.CloseWithError(err)
+		written <- err
+	}()
+	putErr := g.Cella.PutTar(ctx, token, sb.ID, paths.root, pr, archiveSize(r, checks))
+	pr.CloseWithError(errUploadEnded)
+	writeErr := <-written
+	if errors.Is(writeErr, errUploadEnded) || errors.Is(writeErr, io.ErrClosedPipe) {
+		writeErr = nil
 	}
-	if err := g.Cella.PutTar(ctx, token, sb.ID, paths.root, archive); err != nil {
-		if outage(err) {
-			return wait(err)
-		}
-		return endAll(objects.CheckNotRun, "the run's files were not written into the check sandbox: "+apierr.LogText(err), checks)
+	switch {
+	case errors.Is(writeErr, errEvidenceChanged):
+		return endAll(objects.CheckNotRun, "evidence_changed: "+writeErr.Error(), checks)
+	case outage(writeErr):
+		return wait(writeErr)
+	case writeErr != nil:
+		return writeErr
+	case outage(putErr):
+		return wait(putErr)
+	case putErr != nil:
+		return endAll(objects.CheckNotRun, "the run's files were not written into the check sandbox: "+apierr.LogText(putErr), checks)
 	}
 	deadline := e.now().Add(limits.CheckTimeout)
 	for _, c := range checks {
@@ -318,26 +336,40 @@ func (a *archive) file(p string, mode int64, data []byte) {
 	}
 }
 
-// checkArchive is the tar stream written below the check sandbox's
-// workspace: the kept working directory under examen/outputs/workspace/,
-// the output manifest, the log and the final message, each check's files,
-// and the empty directories of the inputs and the references.
-func checkArchive(r gradedRun, work []workFile, checks []checkGrader) ([]byte, error) {
-	var buf bytes.Buffer
-	a := &archive{tw: tar.NewWriter(&buf), dirs: map[string]bool{}}
+// errUploadEnded ends the archive's writing once its upload has ended.
+var errUploadEnded = errors.New("work: the check archive's upload ended")
+
+// writeArchive writes the tar stream below the check sandbox's workspace
+// to w: the kept working directory under examen/outputs/workspace/, each
+// file copied from the files store as it is read, the output manifest,
+// the log and the final message, each check's files, and the empty
+// directories of the inputs and the references.
+func (e *Engine) writeArchive(ctx context.Context, w io.Writer, token string, r gradedRun, checks []checkGrader) error {
+	a := &archive{tw: tar.NewWriter(w), dirs: map[string]bool{}}
 	for _, d := range []string{"examen/inputs", "examen/reference", "examen/outputs/workspace"} {
 		a.dir(d)
 	}
-	manifest := make([]manifestFile, 0, len(work))
-	for _, f := range work {
-		manifest = append(manifest, manifestFile{Path: "workspace/" + f.Path, Size: f.Size, SHA256: "sha256:" + f.SHA256, Kept: f.Data != nil})
-		if f.Data != nil {
-			a.file("examen/outputs/workspace/"+f.Path, int64(fs.FileMode(f.Mode).Perm()|0o600), f.Data)
+	kept := keptWork(r.ev.Work)
+	manifest := make([]manifestFile, 0, len(r.ev.Work))
+	for i, f := range r.ev.Work {
+		manifest = append(manifest, manifestFile{Path: "workspace/" + f.Path, Size: f.Size, SHA256: "sha256:" + f.SHA256, Kept: kept[i]})
+		if !kept[i] || a.err != nil {
+			continue
+		}
+		p := "examen/outputs/workspace/" + f.Path
+		a.dir(path.Dir(p))
+		if a.err == nil {
+			a.err = a.tw.WriteHeader(&tar.Header{Typeflag: tar.TypeReg, Name: p, Mode: int64(fs.FileMode(f.Mode).Perm() | 0o600), Size: f.Size, ModTime: time.Unix(0, 0).UTC()})
+		}
+		if a.err == nil {
+			if err := e.streamWork(ctx, token, r, f, a.tw); err != nil {
+				return err
+			}
 		}
 	}
 	raw, err := json.Marshal(map[string]any{"files": manifest})
 	if err != nil {
-		return nil, fmt.Errorf("work: render the output manifest: %w", err)
+		return fmt.Errorf("work: render the output manifest: %w", err)
 	}
 	a.file("examen/outputs.manifest.json", 0o644, raw)
 	a.file("examen/transcript.jsonl", 0o644, r.ev.Log)
@@ -355,9 +387,26 @@ func checkArchive(r gradedRun, work []workFile, checks []checkGrader) ([]byte, e
 		a.err = a.tw.Close()
 	}
 	if a.err != nil {
-		return nil, fmt.Errorf("work: write the check archive: %w", a.err)
+		return fmt.Errorf("work: write the check archive: %w", a.err)
 	}
-	return buf.Bytes(), nil
+	return nil
+}
+
+// archiveSize is about how many bytes a check archive carries: the kept
+// files, the log and the check files, which bound its upload's time.
+func archiveSize(r gradedRun, checks []checkGrader) int64 {
+	n := int64(len(r.ev.Log))
+	for i, kept := range keptWork(r.ev.Work) {
+		if kept {
+			n += r.ev.Work[i].Size
+		}
+	}
+	for _, c := range checks {
+		for _, f := range c.files {
+			n += int64(len(f.Data))
+		}
+	}
+	return n
 }
 
 // parents are a relative path and each directory above it, outermost

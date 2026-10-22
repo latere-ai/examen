@@ -46,6 +46,12 @@ type bench struct {
 
 func newBench(t *testing.T, st store.Store) *bench {
 	t.Helper()
+	return newBenchOf(t, st, runSession)
+}
+
+// newBenchOf is a bench whose session's run is the one given.
+func newBenchOf(t *testing.T, st store.Store, run func(stub *topostest.Stub, fs *files, sid string)) *bench {
+	t.Helper()
 	b := &bench{st: st, stub: topostest.New(t), fs: &files{objects: map[string][]byte{}},
 		cl: &sandboxes{archives: map[string][]byte{}, answers: map[string]cella.Result{}},
 		lx: &gateway{answers: []string{`{"kind":{"value":"game","rationale":"r"},"idea":{"value":"snake","rationale":"r"}}`}}, m: &minter{}}
@@ -56,7 +62,7 @@ func newBench(t *testing.T, st store.Store) *bench {
 	if err := b.e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	runSession(b.stub, b.fs, b.stub.Sessions()[0])
+	run(b.stub, b.fs, b.stub.Sessions()[0])
 	if err := b.e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -270,22 +276,75 @@ func TestJudgeEvidenceReadsTheRun(t *testing.T) {
 		t.Fatalf("the transcript, message and files %+v", ev)
 	}
 	whole, one, other := ev.Outputs[0], ev.Outputs[1], ev.Outputs[2]
-	if len(whole.Files) != 1 || whole.Files[0].Name != "workspace/a.py" || len(whole.Listing) != 2 ||
-		whole.Listing[0].Why != grade.WhyNotKept || whole.Listing[1].Why != grade.WhyNotText {
+	if len(whole.Files) != 2 || whole.Files[0].Name != "workspace/a.py" || whole.Files[1].Name != "workspace/logo.png" ||
+		len(whole.Listing) != 1 || whole.Listing[0].Why != grade.WhyNotKept || whole.Listing[0].Path != "big.bin" {
 		t.Fatalf("the whole output %+v", whole)
 	}
 	if len(one.Files) != 1 || len(one.Listing) != 0 || len(other.Files)+len(other.Listing) != 0 {
 		t.Fatalf("one file %+v, another output %+v", one, other)
 	}
+	// Nothing is read until the bound asks: then a text file whole, its
+	// beginning when the bound has less room, and a file that is not text
+	// as such, each with its digest checked.
+	if fs.reads != 0 {
+		t.Fatalf("the evidence read %d files before the bound asked", fs.reads)
+	}
+	if head, isText, err := whole.Files[0].Load(100); err != nil || head != string(text) || !isText {
+		t.Fatalf("a whole text file %q %v %v", head, isText, err)
+	}
+	if head, isText, err := whole.Files[0].Load(3); err != nil || head != "pri" || !isText {
+		t.Fatalf("a file's beginning %q %v %v", head, isText, err)
+	}
+	if _, isText, err := whole.Files[1].Load(100); err != nil || isText {
+		t.Fatalf("a binary file %v %v", isText, err)
+	}
+	// A beginning that would cut a rune keeps the rune whole or not at
+	// all, and a run that kept no file gives an output with none.
+	accented := []byte("héllo")
+	fs.put("files/f/work/é.txt", accented)
+	r2 := r
+	r2.ev.Work = []topos.WorkFile{{Path: "é.txt", Size: int64(len(accented)), SHA256: sha(accented)}}
+	ev2, err := e.judgeEvidence(t.Context(), r2, objects.JudgeInputs{Outputs: []string{"workspace/"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if head, isText, err := ev2.Outputs[0].Files[0].Load(2); err != nil || head != "h" || !isText {
+		t.Fatalf("a cut rune: %q %v %v", head, isText, err)
+	}
+	r2.ev.Work = nil
+	if ev2, err := e.judgeEvidence(t.Context(), r2, objects.JudgeInputs{Outputs: []string{"workspace/"}}); err != nil || len(ev2.Outputs[0].Files)+len(ev2.Outputs[0].Listing) != 0 {
+		t.Fatalf("a run that kept nothing: %+v %v", ev2, err)
+	}
+	// A file whose bytes changed, or that is gone, is evidence that
+	// changed; a store that does not answer is an outage.
+	fs.put("files/f/work/a.py", []byte("print(2)\n"))
+	if _, _, err := whole.Files[0].Load(100); !errors.Is(err, errEvidenceChanged) {
+		t.Fatalf("changed bytes: %v", err)
+	}
+	fs.mu.Lock()
+	delete(fs.objects, "files/f/work/a.py")
+	fs.mu.Unlock()
+	if _, _, err := whole.Files[0].Load(100); !errors.Is(err, errEvidenceChanged) {
+		t.Fatalf("a gone file: %v", err)
+	}
+	fs.mu.Lock()
+	fs.outage = true
+	fs.mu.Unlock()
+	if _, _, err := whole.Files[1].Load(100); !outage(err) {
+		t.Fatalf("a store that does not answer: %v", err)
+	}
 	// A kept file whose folder the trial does not name is evidence that
 	// changed, and a sign-in that ended stops the read.
 	r.folder = ""
-	if _, err := e.readWork(t.Context(), r, tokens.PurposeJudge); !errors.Is(err, errEvidenceChanged) {
+	if _, err := e.judgeEvidence(t.Context(), r, objects.JudgeInputs{Outputs: []string{"workspace/"}}); !errors.Is(err, errEvidenceChanged) {
 		t.Fatalf("no folder: %v", err)
 	}
 	r.folder = "files/f/work"
 	m.err = &tokens.RefusedError{Reason: "sign_in_not_kept"}
-	if _, ok := signInEnded(func() error { _, err := e.readWork(t.Context(), r, tokens.PurposeJudge); return err }()); !ok {
+	if _, ok := signInEnded(func() error {
+		_, err := e.judgeEvidence(t.Context(), r, objects.JudgeInputs{Outputs: []string{"workspace/"}})
+		return err
+	}()); !ok {
 		t.Fatal("a refused token did not end the read")
 	}
 	if _, ok := signInEnded(errors.New("other")); ok {
@@ -375,6 +434,21 @@ func TestTheCheckSandboxsTroubles(t *testing.T) {
 	b.grade(t)
 	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "not written") {
 		t.Fatalf("a refused write: %+v", run)
+	}
+	// A refusal that comes before the archive is read ends the writing of
+	// it, and a store that stops answering while the files are written
+	// leaves the checks to be taken again.
+	b = newBench(t, st)
+	b.cl.stream, b.cl.put = true, http.StatusBadRequest
+	b.grade(t)
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "not written") {
+		t.Fatalf("a write refused before it was read: %+v", run)
+	}
+	b = newBench(t, st)
+	b.fs.down = "files/conversations/"
+	b.grade(t)
+	if !pending(b) || b.gradings(t)[0].Attempts != 1 {
+		t.Fatalf("a store that stopped answering during the write: %+v", b.gradings(t)[0])
 	}
 	b = newBench(t, st)
 	b.cl.exec = http.StatusBadGateway

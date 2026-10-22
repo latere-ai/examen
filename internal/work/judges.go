@@ -93,6 +93,13 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 		return e.Store.Gradings().End(ctx, end(objects.CheckNotRun, "no metric the judge produces applies to a trial of this outcome"))
 	}
 	ev, err := e.judgeEvidence(ctx, r, g.ModelJudge.Inputs)
+	var req grade.Request
+	if err == nil {
+		// The workspace's files are read as the assembly's bound reaches
+		// them, so a file that changed or a store that does not answer is
+		// met here.
+		req, err = grade.Assemble(g, row.Grader, r.trial.ID, produces, ev, limits.JudgeMaxInputBytes)
+	}
 	why, ended = signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
@@ -102,10 +109,6 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 	case outage(err):
 		return wait(err)
 	case err != nil:
-		return err
-	}
-	req, err := grade.Assemble(g, row.Grader, r.trial.ID, produces, ev, limits.JudgeMaxInputBytes)
-	if err != nil {
 		return err
 	}
 	rec.RequestDigest, rec.Boundary, rec.Cuts = req.Digest, req.Boundary, append(rec.Cuts, req.Cuts...)
@@ -272,26 +275,34 @@ func (e *Engine) judgeEvidence(ctx context.Context, r gradedRun, in objects.Judg
 	if len(in.Outputs) == 0 {
 		return ev, nil
 	}
-	work, err := e.readWork(ctx, r, tokens.PurposeJudge)
+	token, err := e.workToken(ctx, r, tokens.PurposeJudge)
 	if err != nil {
 		return ev, err
 	}
+	kept := keptWork(r.ev.Work)
 	for _, o := range in.Outputs {
 		out := grade.Output{Name: o}
 		rel, isWork := strings.CutPrefix(o, "workspace/")
-		for _, f := range work {
+		for i, f := range r.ev.Work {
 			if !isWork || (rel != "" && f.Path != rel) {
 				continue
 			}
-			name := "workspace/" + f.Path
-			switch {
-			case f.Data == nil:
-				out.Listing = append(out.Listing, grade.Listed{Path: f.Path, Size: f.Size, Digest: "sha256:" + f.SHA256, Why: grade.WhyNotKept})
-			case !text(f.Data):
-				out.Listing = append(out.Listing, grade.Listed{Path: f.Path, Size: f.Size, Digest: "sha256:" + f.SHA256, Why: grade.WhyNotText})
-			default:
-				out.Files = append(out.Files, grade.Block{Name: name, Text: string(f.Data)})
+			digest := "sha256:" + f.SHA256
+			if !kept[i] {
+				out.Listing = append(out.Listing, grade.Listed{Path: f.Path, Size: f.Size, Digest: digest, Why: grade.WhyNotKept})
+				continue
 			}
+			// The file is read only if the judge's bound reaches it, and
+			// only as much of it as the bound has room for is kept; the
+			// rest passes through to have its digest checked.
+			out.Files = append(out.Files, grade.Block{Name: "workspace/" + f.Path, Size: f.Size, Digest: digest, Load: func(keep int) (string, bool, error) {
+				h := &headOf{n: keep}
+				if err := e.streamWork(ctx, token, r, f, h); err != nil {
+					return "", false, err
+				}
+				head, isText := h.text(int64(keep) >= f.Size)
+				return head, isText, nil
+			}})
 		}
 		ev.Outputs = append(ev.Outputs, out)
 	}

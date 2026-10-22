@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +46,10 @@ type files struct {
 	objects map[string][]byte
 	tokens  []string
 	outage  bool
+	// reads counts the objects served whole; an object below down
+	// answers an outage.
+	reads int
+	down  string
 }
 
 func (f *files) put(path string, b []byte) {
@@ -87,12 +92,17 @@ func (f *files) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
 		return
 	}
+	if f.down != "" && strings.HasPrefix(path, f.down) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
 	b, ok := f.objects[path]
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
 		_, _ = io.WriteString(w, `{"error":{"code":"not_found"}}`)
 		return
 	}
+	f.reads++
 	_, _ = w.Write(b)
 }
 
@@ -111,11 +121,44 @@ type sandboxes struct {
 	// exec are the statuses a write and a command answer, 2xx when zero.
 	phase     string
 	put, exec int
+	// stream, when set, reads an archive as it arrives and keeps each
+	// entry's size and SHA-256 in received rather than its bytes.
+	stream   bool
+	received map[string]string
 }
 
 func (c *sandboxes) serve(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if r.Method == http.MethodPut && c.stream && c.put != 0 {
+		// A refusal before the archive is read.
+		w.WriteHeader(c.put)
+		_, _ = io.WriteString(w, `{"error":{"code":"invalid_field"}}`)
+		return
+	}
+	if r.Method == http.MethodPut && c.stream {
+		c.received = map[string]string{}
+		tr := tar.NewReader(r.Body)
+		for {
+			h, err := tr.Next()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			sum := sha256.New()
+			n, err := io.Copy(sum, tr)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			c.received[h.Name] = strconv.FormatInt(n, 10) + " " + hex.EncodeToString(sum.Sum(nil))
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	body, _ := io.ReadAll(r.Body)
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/environments/default":

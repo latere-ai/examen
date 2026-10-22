@@ -5,14 +5,18 @@ package work
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/arca"
@@ -289,45 +293,101 @@ type workFile struct {
 	Data []byte
 }
 
-// readWork reads the kept copy of a run's working directory from the
-// owner's files store, each file's SHA-256 checked against the log's
-// record of it. A file larger than OUTPUT_FILE_KEEP_MAX_BYTES, or past
-// MAX_OUTPUT_FILES or MAX_OUTPUT_BYTES, is kept by digest alone.
-func (e *Engine) readWork(ctx context.Context, r gradedRun, purpose string) ([]workFile, error) {
-	if len(r.ev.Work) == 0 {
-		return nil, nil
-	}
-	if r.folder == "" {
-		return nil, fmt.Errorf("%w: the log keeps files and the trial names no folder", errEvidenceChanged)
-	}
-	g := e.Grading
-	token, err := g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.ArcaAudience, Experiment: r.exp.ID, Purpose: purpose})
-	if err != nil {
-		return nil, err
-	}
-	var out []workFile
+// keptWork reports which files of a run's working directory its kept copy
+// holds by their bytes: a file larger than OUTPUT_FILE_KEEP_MAX_BYTES, or
+// past MAX_OUTPUT_FILES or MAX_OUTPUT_BYTES, is kept by digest alone.
+func keptWork(work []topos.WorkFile) []bool {
+	out := make([]bool, len(work))
 	var total int64
-	for i, f := range r.ev.Work {
-		wf := workFile{WorkFile: f}
+	for i, f := range work {
 		if f.Size > limits.OutputFileKeepMaxBytes || i >= limits.MaxOutputFiles || total+f.Size > limits.MaxOutputBytes {
-			out = append(out, wf)
 			continue
 		}
-		data, err := g.Arca.Read(ctx, token, r.folderOwner, r.folder+"/"+f.Path, limits.OutputFileKeepMaxBytes)
-		var refused *arca.RefusedError
-		if errors.As(err, &refused) && refused.Status == http.StatusNotFound {
-			return nil, fmt.Errorf("%w: %s is gone from the run's folder", errEvidenceChanged, f.Path)
-		}
-		if err != nil {
-			return nil, err
-		}
-		if hexSHA(data) != f.SHA256 {
-			return nil, fmt.Errorf("%w: %s's bytes are not the ones the log recorded", errEvidenceChanged, f.Path)
-		}
-		wf.Data, total = data, total+f.Size
-		out = append(out, wf)
+		out[i], total = true, total+f.Size
 	}
-	return out, nil
+	return out
+}
+
+// workToken is the owner token a grading reads the kept copy of a run's
+// working directory with, "" for a run that kept no file.
+func (e *Engine) workToken(ctx context.Context, r gradedRun, purpose string) (string, error) {
+	if len(r.ev.Work) == 0 {
+		return "", nil
+	}
+	if r.folder == "" {
+		return "", fmt.Errorf("%w: the log keeps files and the trial names no folder", errEvidenceChanged)
+	}
+	g := e.Grading
+	return g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.ArcaAudience, Experiment: r.exp.ID, Purpose: purpose})
+}
+
+// streamWork copies one kept file of a run's working directory from the
+// owner's files store to w as it reads it, keeping none of it, and checks
+// its size and SHA-256 against the log's record once it has passed: a file
+// that is gone, or whose bytes are not the ones recorded, is evidence that
+// changed.
+func (e *Engine) streamWork(ctx context.Context, token string, r gradedRun, f topos.WorkFile, w io.Writer) error {
+	body, err := e.Grading.Arca.Open(ctx, token, r.folderOwner, r.folder+"/"+f.Path, limits.OutputFileKeepMaxBytes)
+	var refused *arca.RefusedError
+	var big *arca.TooLargeError
+	switch {
+	case errors.As(err, &refused) && refused.Status == http.StatusNotFound:
+		return fmt.Errorf("%w: %s is gone from the run's folder", errEvidenceChanged, f.Path)
+	case errors.As(err, &big):
+		return fmt.Errorf("%w: %s is larger than the log recorded", errEvidenceChanged, f.Path)
+	case err != nil:
+		return err
+	}
+	defer func() { _ = body.Close() }()
+	sum := sha256.New()
+	n, err := io.Copy(io.MultiWriter(w, sum), io.LimitReader(body, f.Size))
+	switch {
+	case errors.Is(err, arca.ErrUnavailable):
+		return err
+	case err != nil:
+		return fmt.Errorf("work: copy %s: %w", f.Path, err)
+	}
+	// A byte past the recorded size is a file that grew.
+	var past [1]byte
+	more, err := io.ReadFull(body, past[:])
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+	if more > 0 || n != f.Size || hex.EncodeToString(sum.Sum(nil)) != f.SHA256 {
+		return fmt.Errorf("%w: %s's bytes are not the ones the log recorded", errEvidenceChanged, f.Path)
+	}
+	return nil
+}
+
+// headOf keeps at most n bytes of what is written to it, cut back to a
+// rune's start, and drops the rest.
+type headOf struct {
+	n   int
+	buf []byte
+}
+
+func (h *headOf) Write(p []byte) (int, error) {
+	if room := h.n - len(h.buf); room > 0 {
+		h.buf = append(h.buf, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
+}
+
+// text answers the kept beginning, short of a rune cut at its end, and
+// whether it is UTF-8 text with no NUL byte.
+func (h *headOf) text(whole bool) (string, bool) {
+	b := h.buf
+	if !whole {
+		for i := len(b) - 1; i >= 0 && i >= len(b)-utf8.UTFMax; i-- {
+			if utf8.RuneStart(b[i]) {
+				if !utf8.FullRune(b[i:]) {
+					b = b[:i]
+				}
+				break
+			}
+		}
+	}
+	return string(b), text(b)
 }
 
 // signInEnded is why a minter's refusal ends a grading: the owner's
