@@ -8,6 +8,12 @@ here is refused before it is pushed.
 
 ### Changed
 
+- A `topos` trial's session is titled with its run counted from 1, as
+  `<candidate> on <task>, run 1` for the trial of index 0, the way a
+  person reads runs; its `examen.index` metadata keeps the index.
+
+### Changed
+
 - A `topos` run's session no longer receives the experiment owner's
   accounts or context. With Topos v0.51.1 and an installation's
   authorizer that holds the same rule, a run gets no connection to the

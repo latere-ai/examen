@@ -168,6 +168,8 @@ func TestToposRunsEachTrialAsASession(t *testing.T) {
 	switch {
 	case body["agent"] != "helper@3" || body["message"] != "Do something you want." || body["attended"] != false || body["end_on_idle"] != true:
 		t.Fatalf("the session's create %v", body)
+	case body["title"] != "helper-low on seeded, run 1":
+		t.Fatalf("the session's create %v", body)
 	case body["rollout"] != cid+".smoke" || meta["examen.trial"] != trials[0].ID || meta["examen.experiment"] != eid || meta["examen.cell"] != cid || meta["examen.index"] != "0":
 		t.Fatalf("the session's labels: rollout %v, metadata %v", body["rollout"], meta)
 	case model["name"] != "anthropic/claude-haiku-5.5" || model["reasoning"] != "low":

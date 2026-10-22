@@ -333,10 +333,13 @@ func (e *Engine) sessionOf(ctx context.Context, token string, run toposRun, t ob
 		e.Topos.mu.Unlock()
 	}
 	timeout := run.task.TimeoutOf()
+	// A person counts runs from 1, as the console does; the index counts
+	// from 0, and the metadata keeps it as it is.
+	title := run.candidate.Name + " on " + run.task.Name + ", run " + strconv.Itoa(t.Index+1)
 	body := topos.Create{
 		Agent:     name + "@" + strconv.Itoa(version),
 		Message:   run.task.Instruction,
-		Title:     run.candidate.Name + " on " + run.task.Name + ", run " + strconv.Itoa(t.Index),
+		Title:     title,
 		EndOnIdle: true,
 		Rollout:   t.Rollout,
 		Model:     &topos.Model{Name: c.Model, Reasoning: c.Reasoning},
