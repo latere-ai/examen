@@ -6,6 +6,13 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Added
+
+- A `topos` trial records the machines its session ran on in its
+  `observed` layer, as `machines: [{kind, id}]`, each once, in the order
+  its log attached them: a Cella sandbox's `sbx_` id for a hosted
+  session, and another where the session's machine was replaced.
+
 ### Changed
 
 - A `topos` trial's session is titled with its run counted from 1, as

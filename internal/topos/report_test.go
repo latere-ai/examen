@@ -5,6 +5,7 @@ package topos
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +128,20 @@ func TestReadTheLog(t *testing.T) {
 	failedWithCost := requestRecord{Model: "m", Outcome: "escalated", CostUSDMicro: new(int64(9))}.call("")
 	if failedWithCost.Status != "failed" || failedWithCost.Cost != 9 {
 		t.Fatalf("a priced request that did not end ok: %+v", failedWithCost)
+	}
+	// The machines a session ran on, each once, in the order attached: a
+	// restart attaches the same one again, a replacement another.
+	machines, err := Read(Session{Status: StatusEnded, StopReason: StopCompleted}, []Event{
+		ev(EventSessionMachine, "", time.Second, `{"machine":{"kind":"cella","id":"sbx_1"},"reason":"attached"}`),
+		ev(EventSessionMachine, "", 2*time.Second, `{"machine":{"kind":"cella","id":"sbx_1"},"reason":"restarted"}`),
+		ev(EventSessionMachine, "", 3*time.Second, `{"machine":{"kind":"cella","id":"sbx_2"},"reason":"replaced"}`),
+		ev(EventSessionMachine, "", 4*time.Second, `{"machine":{"kind":"cella"},"reason":"attached"}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []objects.Machine{{Kind: "cella", ID: "sbx_1"}, {Kind: "cella", ID: "sbx_2"}}; !slices.Equal(machines.Machines, want) {
+		t.Fatalf("machines %+v, want %+v", machines.Machines, want)
 	}
 	for _, typ := range []string{EventSessionStatus, EventSessionError, EventSessionMachine, EventAgentMessage, EventModelRequest} {
 		if _, err := Read(Session{Status: StatusEnded}, []Event{ev(typ, "", 0, `[`)}); err == nil {

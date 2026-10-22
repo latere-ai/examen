@@ -123,6 +123,7 @@ func finish(stub *topostest.Stub, sid, stop string, cost int64) {
 	at := time.Date(2026, 10, 19, 12, 1, 0, 0, time.UTC)
 	stub.Set(sid, topos.StatusEnded, stop,
 		topostest.Event(topos.EventSessionStatus, "", at, map[string]any{"status": "running"}),
+		topostest.Event(topos.EventSessionMachine, "", at.Add(5*time.Second), map[string]any{"machine": map[string]any{"kind": "cella", "id": "sbx_" + strings.ToLower(sid)}, "reason": "attached"}),
 		topostest.Event(topos.EventModelRequest, "", at.Add(10*time.Second), map[string]any{
 			"model": "anthropic/claude-haiku-5.5", "outcome": "ok", "cost_usd_micro": cost, "cost_source": "provider",
 			"usage": map[string]any{"input_tokens": 100, "output_tokens": 40, "cache_read_input_tokens": 20, "reasoning_tokens": 5},
@@ -209,7 +210,8 @@ func TestToposRunsEachTrialAsASession(t *testing.T) {
 	switch {
 	case smoke.State != objects.StateDone || smoke.Outcome != objects.OutcomeCompleted:
 		t.Fatalf("the smoke trial ended %s %s", smoke.State, smoke.Outcome)
-	case smoke.Observed.CostState != objects.CostKnown || smoke.Observed.CostUSD == nil || *smoke.Observed.CostUSD != 0.0012:
+	case smoke.Observed.CostState != objects.CostKnown || smoke.Observed.CostUSD == nil || *smoke.Observed.CostUSD != 0.0012 ||
+		!slices.Equal(smoke.Observed.Machines, []objects.Machine{{Kind: "cella", ID: "sbx_" + strings.ToLower(sessions[0])}}):
 		t.Fatalf("the smoke trial's observed layer %+v", smoke.Observed)
 	case smoke.Sent == nil || smoke.Sent.Requests != 1 || smoke.Sent.BySetting[0].Model != "anthropic/claude-haiku-5.5" || smoke.Sent.BySetting[0].Reasoning != "low":
 		t.Fatalf("the smoke trial's sent layer %+v", smoke.Sent)

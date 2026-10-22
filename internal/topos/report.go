@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"time"
 
 	"latere.ai/x/examen/internal/objects"
@@ -74,6 +75,9 @@ type Report struct {
 	// last event; LogDigest its SHA-256.
 	Log       []byte
 	LogDigest string
+	// Machines are the machines the session ran on, each once, in the
+	// order its session.machine events attached them.
+	Machines []objects.Machine
 }
 
 // requestRecord is what a model.request carries that the layers read.
@@ -140,10 +144,17 @@ func Read(s Session, events []Event) (Report, error) {
 			}
 		case EventSessionMachine:
 			var p struct {
-				Reason string `json:"reason"`
+				Reason  string `json:"reason"`
+				Machine struct {
+					Kind string `json:"kind"`
+					ID   string `json:"id"`
+				} `json:"machine"`
 			}
 			if err := json.Unmarshal(e.Payload, &p); err != nil {
 				return r, fmt.Errorf("topos: decode session.machine %d: %w", e.Seq, err)
+			}
+			if m := (objects.Machine{Kind: p.Machine.Kind, ID: p.Machine.ID}); m.ID != "" && !slices.Contains(r.Machines, m) {
+				r.Machines = append(r.Machines, m)
 			}
 			if p.Reason == machineReplaced && infra == "" {
 				infra = machineReplaced

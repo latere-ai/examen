@@ -3551,7 +3551,7 @@ components:
           additionalProperties: false
         observed:
           type: "object"
-          description: "What happened in the trial. From Lux's records of its calls: served (the models that served them, each with its count), input_tokens, output_tokens, reasoning_tokens, cost_state (known, unpriced when a call was not priced, or unknown when no record of the trial was read) and cost_usd when known."
+          description: "What happened in the trial. From Lux's records of its calls: served (the models that served them, each with its count), input_tokens, output_tokens, reasoning_tokens, cost_state (known, unpriced when a call was not priced, or unknown when no record of the trial was read) and cost_usd when known. For a topos trial, machines: each machine its session ran on, {kind, id}, once, in the order its log attached them, such as {kind: cella, id: sbx_...} for a Cella sandbox."
         declared:
           type: "object"
           properties:

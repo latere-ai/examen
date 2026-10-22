@@ -219,6 +219,18 @@ type Observed struct {
 	// LuxRequests are the Lux request ids an external harness submitted
 	// for the trial's model calls, kept as given.
 	LuxRequests []string `json:"lux_requests,omitempty"`
+	// Machines are the machines a topos trial's session ran on, in the
+	// order its log attached them: one, or more where the session's
+	// machine was restarted or replaced.
+	Machines []Machine `json:"machines,omitempty"`
+}
+
+// Machine is one machine a trial's session ran on, as its log's
+// session.machine names it: its kind, such as cella, and its id there,
+// such as a Cella sandbox's sbx_ id.
+type Machine struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
 }
 
 // ModelCount is a model and how many of a trial's requests it served.

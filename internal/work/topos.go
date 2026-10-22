@@ -451,6 +451,7 @@ func outcomeOf(run toposRun, s topos.Session, r topos.Report, events []topos.Eve
 	if len(r.Calls) > 0 {
 		o.Sent = &l.Sent
 	}
+	o.Observed.Machines = r.Machines
 	o.Builtin[objects.BuiltinDigest(objects.MetricTurns)] = float64(r.Turns)
 	o.Builtin[objects.BuiltinDigest(objects.MetricToolCalls)] = float64(r.ToolCalls)
 	// The transcript is pinned at the last event read, which the log's
