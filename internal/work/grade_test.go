@@ -529,7 +529,7 @@ func TestEvalsGradesARun(t *testing.T) {
 	// Each check that ran keeps its standard output and standard error in
 	// the experiment's child of files/evals/, by cell, trial and grader.
 	var inventory objects.CheckRun
-	if err := json.Unmarshal(trial.Checks[0], &inventory); err != nil || len(inventory.Outputs) != 2 {
+	if err := json.Unmarshal(trial.Checks[0], &inventory); err != nil || len(inventory.Outputs) != 2 || !strings.HasPrefix(inventory.Sandbox, "sbx_") {
 		t.Fatalf("the inventory check's outputs %s %v", trial.Checks[0], err)
 	}
 	folder := CheckOutputFolder(g.eid, g.cid, trial.ID, g.inventory)

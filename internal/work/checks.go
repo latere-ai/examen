@@ -210,7 +210,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	deadline := e.now().Add(limits.CheckTimeout)
 	keep := e.outputKeeper(r)
 	for _, c := range checks {
-		run := objects.CheckRun{Grader: c.row.Grader, Image: sb.Image}
+		run := objects.CheckRun{Grader: c.row.Grader, Image: sb.Image, Sandbox: sb.ID}
 		end := store.GradingEnd{ID: c.row.ID, Record: &run}
 		left := deadline.Sub(e.now())
 		switch {

@@ -19,6 +19,8 @@ here is refused before it is pushed.
   names them as `outputs`, evidence references of kind `check_output`.
   A store that refuses the write, is not reached or holds the path
   already leaves the check as it ended, with no reference.
+- A check's record names the check sandbox it ran in as `sandbox`, its
+  Cella id.
 
 ### Changed
 

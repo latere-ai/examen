@@ -3561,7 +3561,7 @@ components:
               type: "string"
           additionalProperties: false
         checks:
-          description: "One check run record per check of the task, in order: {grader, state, exit_code, reason, duration, stdout_size, stdout_sha256, stderr_tail, image, generation, outputs}; state is pending until the run ended. outputs, for a check that ran, are its standard output and standard error as Examen kept them in the owner's files store, each an evidence reference {kind: check_output, name: stdout.txt or stderr.txt, owner, path, digest, size} under files/evals/experiments/<experiment>/cells/<cell>/trials/<trial>/checks/<grader hex>/; absent where the store did not take them."
+          description: "One check run record per check of the task, in order: {grader, state, exit_code, reason, duration, stdout_size, stdout_sha256, stderr_tail, image, sandbox, generation, outputs}; state is pending until the run ended; sandbox is the id of the check sandbox it ran in, which Cella removes once the trial's checks end. outputs, for a check that ran, are its standard output and standard error as Examen kept them in the owner's files store, each an evidence reference {kind: check_output, name: stdout.txt or stderr.txt, owner, path, digest, size} under files/evals/experiments/<experiment>/cells/<cell>/trials/<trial>/checks/<grader hex>/; absent where the store did not take them."
           type: "array"
           items:
             type: "object"
