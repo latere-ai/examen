@@ -108,7 +108,7 @@ func (c *Client) List(ctx context.Context, token, owner, folder string) ([]Entry
 			Entries    []Entry `json:"entries"`
 			NextCursor string  `json:"next_cursor"`
 		}
-		raw, err := c.get(ctx, token, u, 32<<20)
+		raw, err := c.read(ctx, token, u, 32<<20)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +127,7 @@ func (c *Client) List(ctx context.Context, token, owner, folder string) ([]Entry
 // Read reads one object's bytes, at most limit of them: a larger object is
 // a *TooLargeError, never cut short.
 func (c *Client) Read(ctx context.Context, token, owner, path string, limit int64) ([]byte, error) {
-	raw, err := c.get(ctx, token, c.object(owner, path), limit)
+	raw, err := c.read(ctx, token, c.object(owner, path), limit)
 	var big *TooLargeError
 	if errors.As(err, &big) {
 		big.Path = path
@@ -135,36 +135,92 @@ func (c *Client) Read(ctx context.Context, token, owner, path string, limit int6
 	return raw, err
 }
 
-// get sends one GET with the owner token and reads at most limit bytes of
-// a 2xx answer. The token and the address are in no error.
-func (c *Client) get(ctx context.Context, token, u string, limit int64) ([]byte, error) {
+// Open answers one object's bytes as a stream, which the caller reads and
+// closes within callTimeout of the call, so a large object passes through
+// without being held: an object whose answer declares more than limit
+// bytes is a *TooLargeError. A read of the stream that fails is wrapped in
+// ErrUnavailable. The token and the address are in no error.
+func (c *Client) Open(ctx context.Context, token, owner, path string, limit int64) (io.ReadCloser, error) {
+	body, err := c.open(ctx, token, c.object(owner, path), limit)
+	var big *TooLargeError
+	if errors.As(err, &big) {
+		big.Path = path
+	}
+	return body, err
+}
+
+// open sends one GET with the owner token and answers a 2xx answer's body
+// as a stream that ends the call when closed.
+func (c *Client) open(ctx context.Context, token, u string, limit int64) (io.ReadCloser, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
-	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("arca: build the request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("%w: %w", ErrUnavailable, scrub(err))
 	}
-	defer func() { _ = resp.Body.Close() }()
-	switch {
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		if resp.ContentLength > limit {
-			return nil, &TooLargeError{Size: resp.ContentLength}
-		}
-		raw, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
-		if err != nil {
-			return nil, fmt.Errorf("%w: read the answer: %w", ErrUnavailable, err)
-		}
-		if int64(len(raw)) > limit {
-			return nil, &TooLargeError{Size: int64(len(raw))}
-		}
-		return raw, nil
-	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
-		return nil, fmt.Errorf("%w: answered %d", ErrUnavailable, resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer cancel()
+		defer func() { _ = resp.Body.Close() }()
+		return nil, answerError(resp)
+	}
+	if resp.ContentLength > limit {
+		_ = resp.Body.Close()
+		cancel()
+		return nil, &TooLargeError{Size: resp.ContentLength}
+	}
+	return &stream{body: resp.Body, cancel: cancel}, nil
+}
+
+// read reads at most limit bytes of a 2xx answer: one that declares or
+// carries more is a *TooLargeError.
+func (c *Client) read(ctx context.Context, token, u string, limit int64) ([]byte, error) {
+	body, err := c.open(ctx, token, u, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = body.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(raw)) > limit {
+		return nil, &TooLargeError{Size: int64(len(raw))}
+	}
+	return raw, nil
+}
+
+// stream is an object's body, whose read errors are outages and whose
+// close ends its call.
+type stream struct {
+	body   io.ReadCloser
+	cancel context.CancelFunc
+}
+
+func (s *stream) Read(p []byte) (int, error) {
+	n, err := s.body.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) {
+		err = fmt.Errorf("%w: read the answer: %w", ErrUnavailable, scrub(err))
+	}
+	return n, err
+}
+
+func (s *stream) Close() error {
+	err := s.body.Close()
+	s.cancel()
+	return err
+}
+
+// answerError is the error of an answer that is no 2xx: an outage for 429
+// and 5xx, else a refusal with its envelope's code.
+func answerError(resp *http.Response) error {
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return fmt.Errorf("%w: answered %d", ErrUnavailable, resp.StatusCode)
 	}
 	var e struct {
 		Error struct {
@@ -173,7 +229,7 @@ func (c *Client) get(ctx context.Context, token, u string, limit int64) ([]byte,
 	}
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	_ = json.Unmarshal(raw, &e)
-	return nil, &RefusedError{Status: resp.StatusCode, Code: e.Error.Code}
+	return &RefusedError{Status: resp.StatusCode, Code: e.Error.Code}
 }
 
 // scrub is err without the request's address.

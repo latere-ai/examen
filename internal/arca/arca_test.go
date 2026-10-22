@@ -85,3 +85,50 @@ func TestOutages(t *testing.T) {
 		t.Fatal("no default client")
 	}
 }
+
+// TestOpenStreams: Open answers an object's bytes as a stream; an object
+// whose answer declares more than the limit is refused before a byte is
+// read, and one that declares nothing is cut off by Read once it passes
+// the limit; a body that breaks off is an outage; an address that does
+// not parse builds no request.
+func TestOpenStreams(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/undeclared"):
+			// A flush before the body sends it chunked, with no length.
+			w.(http.Flusher).Flush()
+			_, _ = io.WriteString(w, strings.Repeat("u", 20))
+		case strings.HasSuffix(r.URL.Path, "/cut"):
+			w.Header().Set("Content-Length", "100")
+			_, _ = io.WriteString(w, "only ten b")
+		case strings.HasSuffix(r.URL.Path, "/declared"):
+			_, _ = io.WriteString(w, strings.Repeat("d", 20))
+		default:
+			_, _ = io.WriteString(w, "streamed")
+		}
+	}))
+	defer srv.Close()
+	c := New(srv.URL, srv.Client())
+	body, err := c.Open(t.Context(), "tok", "o", "files/s", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(body)
+	if err != nil || string(raw) != "streamed" || body.Close() != nil {
+		t.Fatalf("a stream: %q %v", raw, err)
+	}
+	var big *TooLargeError
+	if _, err := c.Open(t.Context(), "tok", "o", "files/declared", 10); !errors.As(err, &big) || big.Path != "files/declared" || big.Size != 20 {
+		t.Fatalf("a declared length past the limit: %v", err)
+	}
+	if _, err := c.Read(t.Context(), "tok", "o", "files/undeclared", 10); !errors.As(err, &big) || big.Size != 11 {
+		t.Fatalf("an undeclared length past the limit: %v", err)
+	}
+	if _, err := c.Read(t.Context(), "tok", "o", "files/cut", 1000); !errors.Is(err, ErrUnavailable) || strings.Contains(err.Error(), srv.URL) {
+		t.Fatalf("a body that broke off: %v", err)
+	}
+	bad := New("http://exa mple.invalid", srv.Client())
+	if _, err := bad.Open(t.Context(), "tok", "o", "f", 1); err == nil || errors.Is(err, ErrUnavailable) {
+		t.Fatalf("an address that does not parse: %v", err)
+	}
+}
