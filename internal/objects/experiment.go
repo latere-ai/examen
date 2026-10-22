@@ -262,8 +262,13 @@ type Declared struct {
 	Image          string `json:"image,omitempty"`
 }
 
-// The kinds of an evidence reference this release writes.
-const EvidenceOutput = "output"
+// The kinds of an evidence reference this release writes: a run's output,
+// and a check's standard output or standard error as Examen keeps it in the
+// owner's files store.
+const (
+	EvidenceOutput      = "output"
+	EvidenceCheckOutput = "check_output"
+)
 
 // EvidenceRef is one item of evidence in the owner's Arca space
 // (specs/007-measurements-and-evidence.md).

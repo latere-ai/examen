@@ -132,3 +132,46 @@ func TestOpenStreams(t *testing.T) {
 		t.Fatalf("an address that does not parse: %v", err)
 	}
 }
+
+// TestCreate: a write is a PUT of the whole body under the owner's escaped
+// segment, with the owner token, its content type and If-None-Match: *,
+// so a path that holds an object already is refused and left as it is.
+func TestCreate(t *testing.T) {
+	owner := "https://issuer.example|ada"
+	held := map[string]string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method != http.MethodPut || r.Header.Get("Authorization") != "Bearer tok" || r.Header.Get("If-None-Match") != "*" || r.Header.Get("Content-Type") != "text/plain; charset=utf-8":
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		case !strings.HasPrefix(r.URL.EscapedPath(), "/v1/storage/files/"+url.PathEscape(owner)+"/"):
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"error":{"code":"forbidden"}}`)
+			return
+		}
+		if _, ok := held[r.URL.Path]; ok {
+			w.WriteHeader(http.StatusPreconditionFailed)
+			_, _ = io.WriteString(w, `{"error":{"code":"precondition_failed"}}`)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		held[r.URL.Path] = string(body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer srv.Close()
+	c := New(srv.URL+"/v1/storage", srv.Client())
+	p := "files/evals/experiments/exp_1/cells/cel_1/trials/tri_1/checks/ab/stdout.txt"
+	if err := c.Create(t.Context(), "tok", owner, p, "text/plain; charset=utf-8", []byte("ok\n")); err != nil {
+		t.Fatal(err)
+	}
+	if held["/v1/storage/files/"+owner+"/"+p] != "ok\n" {
+		t.Fatalf("held %v", held)
+	}
+	var refused *RefusedError
+	if err := c.Create(t.Context(), "tok", owner, p, "text/plain; charset=utf-8", []byte("again\n")); !errors.As(err, &refused) || refused.Status != http.StatusPreconditionFailed || refused.Code != "precondition_failed" {
+		t.Fatalf("a second write of one path: %v", err)
+	}
+	if err := c.Create(t.Context(), "tok", "https://issuer.example|bob", p, "text/plain; charset=utf-8", []byte("x")); !errors.As(err, &refused) || refused.Status != http.StatusForbidden {
+		t.Fatalf("another space: %v", err)
+	}
+}

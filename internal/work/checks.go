@@ -208,6 +208,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		return endAll(objects.CheckNotRun, "the run's files were not written into the check sandbox: "+apierr.LogText(putErr), checks)
 	}
 	deadline := e.now().Add(limits.CheckTimeout)
+	keep := e.outputKeeper(r)
 	for _, c := range checks {
 		run := objects.CheckRun{Grader: c.row.Grader, Image: sb.Image}
 		end := store.GradingEnd{ID: c.row.ID, Record: &run}
@@ -247,6 +248,9 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 			run.Duration = float64(res.Duration) / 1000
 			run.StdoutSize, run.StdoutSHA256 = int64(len(res.Stdout)), "sha256:"+hex.EncodeToString(sum[:])
 			run.StderrTail = tail(res.Stderr, stderrTail)
+			if err == nil {
+				run.Outputs = keep(ctx, c.row.Grader, res.Stdout, res.Stderr)
+			}
 			end.Values = grade.Applying(read.Values, r.metrics, r.trial.Outcome)
 		}
 		end.State = run.State
@@ -255,6 +259,54 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		}
 	}
 	return nil
+}
+
+// outputKeeper answers the function that keeps one check's standard
+// output and standard error in the owner's files store, at the check's
+// folder of spec 007's layout under files/evals/, and answers their
+// evidence references. Keeping them is a record beside the check's own:
+// a store that refuses them, is not reached, or holds the path already
+// leaves the check as it ended, with no reference to a file it did not
+// write. The owner token is obtained once, at the first check that ran.
+func (e *Engine) outputKeeper(r gradedRun) func(ctx context.Context, grader, stdout, stderr string) []objects.EvidenceRef {
+	var token string
+	var unkept bool
+	return func(ctx context.Context, grader, stdout, stderr string) []objects.EvidenceRef {
+		if unkept {
+			return nil
+		}
+		g := e.Grading
+		if token == "" {
+			t, err := g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.ArcaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial})
+			if err != nil {
+				unkept = true
+				e.log().WarnContext(ctx, "a trial's check outputs are not kept: no owner token for the files store", "trial", r.trial.ID, "error", apierr.LogText(err))
+				return nil
+			}
+			token = t
+		}
+		folder := CheckOutputFolder(r.exp.ID, r.trial.Cell, r.trial.ID, grader)
+		var refs []objects.EvidenceRef
+		for _, f := range []struct{ name, body string }{{"stdout.txt", stdout}, {"stderr.txt", stderr}} {
+			p := folder + f.name
+			if err := g.Arca.Create(ctx, token, r.exp.Owner, p, "text/plain; charset=utf-8", []byte(f.body)); err != nil {
+				e.log().WarnContext(ctx, "a check output is not kept in the files store", "trial", r.trial.ID, "path", p, "error", apierr.LogText(err))
+				continue
+			}
+			sum := sha256.Sum256([]byte(f.body))
+			size := int64(len(f.body))
+			refs = append(refs, objects.EvidenceRef{Kind: objects.EvidenceCheckOutput, Name: f.name, Owner: r.exp.Owner, Path: p, Digest: "sha256:" + hex.EncodeToString(sum[:]), Size: &size})
+		}
+		return refs
+	}
+}
+
+// CheckOutputFolder is the folder of one check's output in the owner's
+// files store (specs/007-measurements-and-evidence.md): under the
+// experiment's child of files/evals/, by its cell, its trial and the hex
+// of the check's grader digest.
+func CheckOutputFolder(experiment, cell, trial, grader string) string {
+	return "files/evals/experiments/" + experiment + "/cells/" + cell + "/trials/" + trial + "/checks/" + graderDir(grader) + "/"
 }
 
 // tail is the last n bytes of s, from a rune's start.

@@ -292,7 +292,7 @@ bytes, and fully against `digest`.
 | `observed` | the service versions a program recorded, as the trial driver kept them | the `cella` trial driver | when the system under test ends |
 | `requests` | one JSON line per model request as the forwarder saw it: the request id, the model and reasoning sent; kept as evidence and never read as the sent or observed layer, which come from Lux's records | the `cella` trial driver; a Topos session's requests are in its log | when the agent ends |
 | `file` | one workspace file the task's `evidence` names, as it stood after the agent ended | the executor's core | before the checks run |
-| `check_output` | for each check: `result.json`, the output document of spec 006, and `stdout.txt` and `stderr.txt` | the executor's core for a `topos` trial; examend, from the check sandbox, for a `cella` or `external` trial | after the checks |
+| `check_output` | for each check: `result.json`, the output document of spec 006, and `stdout.txt` and `stderr.txt` | examend, from the check sandbox, for every trial it grades: a `topos` trial's checks run there too | after each check |
 | `judge_rationale` | for each judge grading: the digest of the inputs the judge read, its whole structured answer and its rationale; for a candidate-level judge and a canonicalizer, kept with the experiment rather than a trial | Examen for a model judge; Examen, from the judge session's final answer, for an agent judge | when the grading is recorded |
 
 **Writes are create-only.** Every evidence object is written once, with
@@ -659,3 +659,20 @@ names the tests that hold the same behavior.
 Not built: 10, annotations; 13, 15 and 16, the file store, with
 verification at intake and create-only writes; 18, deleting an
 experiment; 19 to 23, dataset export.
+
+**Check output and machines (2026-10-22).** Examen writes each check
+that ran its `stdout.txt` and `stderr.txt` to the owner's
+`files/evals/experiments/<id>/cells/<cell>/trials/<trial>/checks/<grader hex>/`,
+create-only with `If-None-Match: *`, as the owner of the experiment
+through its owner token for Arca, and records them on the check's own
+record as `outputs`, evidence references of kind `check_output`. A
+store that refuses a write, is not reached or holds the path already
+leaves the check as it ended, with no reference to a file Examen did
+not write. `result.json` is not written: a check's output document of
+spec 006 is its standard output, kept as `stdout.txt`. A `topos`
+trial's checks run in examend's check sandbox, not in the executor's
+core, so examend writes theirs. A `topos` trial's `observed` names the
+machines its session ran on, `machines: [{kind, id}]`, read from its
+log's `session.machine` events. Held by `arca.TestCreate`,
+`work.TestEvalsGradesARun`, `work.TestGradingsThatCannotRun`,
+`topos.TestReadTheLog` and `work.TestToposRunsEachTrialAsASession`.

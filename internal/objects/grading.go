@@ -54,6 +54,11 @@ type CheckRun struct {
 	StdoutSHA256 string  `json:"stdout_sha256,omitempty"`
 	StderrTail   string  `json:"stderr_tail,omitempty"`
 	Image        string  `json:"image,omitempty"`
+	// Outputs are the check's standard output and standard error as
+	// Examen kept them in the owner's files store, each an evidence
+	// reference of kind check_output (specs/007-measurements-and-evidence.md):
+	// absent where the store did not take them.
+	Outputs []EvidenceRef `json:"outputs,omitempty"`
 }
 
 // Judgment is one judgment record of a trial's judgments

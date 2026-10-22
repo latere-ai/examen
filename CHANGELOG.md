@@ -12,6 +12,13 @@ here is refused before it is pushed.
   `observed` layer, as `machines: [{kind, id}]`, each once, in the order
   its log attached them: a Cella sandbox's `sbx_` id for a hosted
   session, and another where the session's machine was replaced.
+- Each check that ran keeps its standard output and standard error in
+  the experiment owner's files store, at
+  `files/evals/experiments/<id>/cells/<cell>/trials/<trial>/checks/<grader hex>/stdout.txt`
+  and `stderr.txt`, written once with `If-None-Match: *`, and its record
+  names them as `outputs`, evidence references of kind `check_output`.
+  A store that refuses the write, is not reached or holds the path
+  already leaves the check as it ended, with no reference.
 
 ### Changed
 

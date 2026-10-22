@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: 2026 Latere AI
 // SPDX-License-Identifier: Apache-2.0
 
-// Package arca is the client Examen reads an owner's files store with
-// (specs/005-execution.md, specs/007-measurements-and-evidence.md): the
-// files a run left in its session's folder, and a check grader's files.
-// Every call carries an owner token for Arca's audience, which the caller
-// obtained for the experiment's owner; the client holds no credential of
-// its own, and reads only.
+// Package arca is the client Examen reads and writes an owner's files
+// store with (specs/005-execution.md, specs/007-measurements-and-evidence.md):
+// it reads the files a run left in its session's folder and a check
+// grader's files, and writes Examen's own records under files/evals/, each
+// once. Every call carries an owner token for Arca's audience, which the
+// caller obtained for the experiment's owner; the client holds no
+// credential of its own.
 package arca
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -147,6 +149,32 @@ func (c *Client) Open(ctx context.Context, token, owner, path string, limit int6
 		big.Path = path
 	}
 	return body, err
+}
+
+// Create writes one object at path in the owner's space, once: Arca
+// refuses it 412 precondition_failed when the path holds an object
+// already, which leaves that object as it is. The body is sent whole, so
+// it is at most the server's inline bytes.
+func (c *Client) Create(ctx context.Context, token, owner, path, contentType string, body []byte) error {
+	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.object(owner, path), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("arca: build the request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("If-None-Match", "*")
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, scrub(err))
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return answerError(resp)
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	return nil
 }
 
 // open sends one GET with the owner token and answers a 2xx answer's body

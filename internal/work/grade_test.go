@@ -50,6 +50,9 @@ type files struct {
 	// answers an outage.
 	reads int
 	down  string
+	// refuseWrites answers every write 403, as a store whose authorizer
+	// does not let the owner token write there.
+	refuseWrites bool
 }
 
 func (f *files) put(path string, b []byte) {
@@ -80,6 +83,25 @@ func (f *files) serve(w http.ResponseWriter, r *http.Request) {
 	path, err := url.PathUnescape(rest)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	// A write is create-once: a path that holds an object is refused.
+	if r.Method == http.MethodPut {
+		_, held := f.objects[path]
+		switch {
+		case f.refuseWrites:
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = io.WriteString(w, `{"error":{"code":"forbidden"}}`)
+		case r.Header.Get("If-None-Match") != "*":
+			w.WriteHeader(http.StatusBadRequest)
+		case held:
+			w.WriteHeader(http.StatusPreconditionFailed)
+			_, _ = io.WriteString(w, `{"error":{"code":"precondition_failed"}}`)
+		default:
+			b, _ := io.ReadAll(r.Body)
+			f.objects[path] = b
+			w.WriteHeader(http.StatusCreated)
+		}
 		return
 	}
 	if r.URL.Query().Get("list") == "1" {
@@ -504,6 +526,22 @@ func TestEvalsGradesARun(t *testing.T) {
 		t.Fatalf("the judge's values %v", got)
 	}
 	trial = trialsOf(t, st, g.eid)[0]
+	// Each check that ran keeps its standard output and standard error in
+	// the experiment's child of files/evals/, by cell, trial and grader.
+	var inventory objects.CheckRun
+	if err := json.Unmarshal(trial.Checks[0], &inventory); err != nil || len(inventory.Outputs) != 2 {
+		t.Fatalf("the inventory check's outputs %s %v", trial.Checks[0], err)
+	}
+	folder := CheckOutputFolder(g.eid, g.cid, trial.ID, g.inventory)
+	for i, want := range []struct{ name, body string }{{"stdout.txt", `{"metrics": {"entry_found": true, "size": 2}}`}, {"stderr.txt", "entry: game.py"}} {
+		ref := inventory.Outputs[i]
+		if ref.Kind != objects.EvidenceCheckOutput || ref.Name != want.name || ref.Owner != owner || ref.Path != folder+want.name || ref.Digest != "sha256:"+sha([]byte(want.body)) || *ref.Size != int64(len(want.body)) {
+			t.Fatalf("the inventory check's %s %+v", want.name, ref)
+		}
+		if string(fs.objects[ref.Path]) != want.body {
+			t.Fatalf("the store holds %q at %s", fs.objects[ref.Path], ref.Path)
+		}
+	}
 	var run objects.CheckRun
 	var judgment objects.Judgment
 	if err := json.Unmarshal(trial.Checks[1], &run); err != nil || run.State != objects.CheckOK || *run.ExitCode != 1 || run.Duration != 0.9 || run.Image == "" {
@@ -621,6 +659,9 @@ func TestGradingsThatCannotRun(t *testing.T) {
 	e2 := gradingEngine(t, st2, stub2, &minter{}, fs2, cl2, lx2)
 	cl2.answers[g2.inventory] = cella.Result{Stdout: `{"metrics": {"entry_found": true, "size": 2}}`}
 	cl2.answers[g2.runner] = cella.Result{}
+	// A store that refuses Examen's writes keeps no check output, and the
+	// checks end as they would.
+	fs2.refuseWrites = true
 	if err := e2.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -636,6 +677,12 @@ func TestGradingsThatCannotRun(t *testing.T) {
 	cell2, _ := st2.Experiments().Cell(ctx, g2.cid)
 	if cell2.State != objects.StateOverBudget || !strings.Contains(cell2.ParkedReason, "judge") {
 		t.Fatalf("a judge refused for spend: %s %q", cell2.State, cell2.ParkedReason)
+	}
+	for _, raw := range trialsOf(t, st2, g2.eid)[0].Checks {
+		var run objects.CheckRun
+		if err := json.Unmarshal(raw, &run); err != nil || run.State != objects.CheckOK || len(run.Outputs) != 0 {
+			t.Fatalf("a check whose output the store refused %s %v", raw, err)
+		}
 	}
 }
 
