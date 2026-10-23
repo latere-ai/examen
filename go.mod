@@ -13,7 +13,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.44.0
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/text v0.42.0
-	latere.ai/x/ci-gate v0.54.0
+	latere.ai/x/ci-gate v0.55.0
 	latere.ai/x/pkg v0.106.0
 	latere.ai/x/sdk-go v0.1.0
 )
