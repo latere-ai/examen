@@ -6,6 +6,12 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Security
+
+- **Built with gRPC-Go 1.83.2,** which fixes GHSA-2v4p-qf9q-27wj, a crash
+  of gRPC xDS servers on a request with neither `:authority` nor `Host`.
+  This code runs no xDS server, so the flaw was not reachable.
+
 ## v0.8.0 - 2026-10-22
 
 ### Added
