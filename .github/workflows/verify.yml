@@ -7,8 +7,8 @@
 #
 # A push or pull request that changes only specs or markdown starts no run,
 # because no build or test reads them. The exceptions are the four specs
-# whose tables the suite holds the code to, so a change to one of them runs
-# everything. `lateregate release` runs the whole bar, the spec tree
+# and the configuration reference whose tables the suite holds the code
+# to, so a change to one of them runs everything. `lateregate release` runs the whole bar, the spec tree
 # included, before every tag, and release.yml reads past the commits this
 # skips. A tag is never filtered by paths.
 name: verify
@@ -24,6 +24,7 @@ on:
       - "specs/003-api.md"
       - "specs/004-identity-and-authorization.md"
       - "specs/011-distribution.md"
+      - "docs/configuration.md"
   pull_request:
     paths:
       - "**"
@@ -33,6 +34,7 @@ on:
       - "specs/003-api.md"
       - "specs/004-identity-and-authorization.md"
       - "specs/011-distribution.md"
+      - "docs/configuration.md"
   workflow_dispatch:
 
 # A newer push to the same ref supersedes this run: its commit carries every
