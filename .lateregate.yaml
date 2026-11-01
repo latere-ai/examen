@@ -67,3 +67,13 @@ identity:
 postgres:
   role: pooled
   prefix: EXAMEN
+
+# The server image: lateregate builds it, checks its version, its size and
+# that it holds no shell. verify.yml starts it against a migrated database.
+image:
+  images:
+    - name: examend
+      version_args: [version]
+      version_expect: "examend "
+      max_mib: 40
+      skip_start: serve needs a migrated Postgres; the image job in verify.yml migrates one and starts the image
