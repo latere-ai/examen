@@ -11,6 +11,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -71,6 +72,38 @@ func imported(f *ast.File, path string) string {
 		return path[strings.LastIndex(path, "/")+1:]
 	}
 	return ""
+}
+
+// Every readiness check of a Postgres container asks over TCP. The image's
+// setup first runs a server that listens on its socket alone, and a check
+// over the socket counts that server as ready, so a migration started then
+// fails when the setup restarts the server (make run on a new database).
+func TestPostgresReadinessAsksOverTCP(t *testing.T) {
+	files := []string{"Makefile"}
+	workflows, err := filepath.Glob(filepath.Join(".github", "workflows", "*.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files = append(files, workflows...)
+	checks := 0
+	for _, name := range files {
+		b, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(b), "\n") {
+			if !strings.Contains(line, "pg_isready") {
+				continue
+			}
+			checks++
+			if !strings.Contains(line, "-h 127.0.0.1") {
+				t.Errorf("%s:%d checks readiness over the socket: %s", name, i+1, strings.TrimSpace(line))
+			}
+		}
+	}
+	if checks < 2 {
+		t.Fatalf("found %d readiness checks; the Makefile and verify.yml each hold one", checks)
+	}
 }
 
 // Only internal/config reads the environment: no other file of the module

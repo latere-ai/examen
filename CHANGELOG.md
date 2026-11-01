@@ -6,6 +6,14 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Fixed
+
+- **`make run` starts on a new local database.** `make db` asked the
+  Postgres container whether it was ready over its socket, which the
+  image's first-run setup answers before the server that serves
+  connections starts, so `examend migrate` failed on the first run. It
+  now asks over TCP, as the server does.
+
 ## v0.8.2 - 2026-11-01
 
 ### Changed

@@ -39,7 +39,9 @@ build:
 # The local database `make run` serves from: a Postgres container in the
 # developer's container runtime, Podman where it is installed and Docker
 # otherwise, on a loopback port. It is kept between runs; `make clean`
-# leaves it, and removing the container removes what it held.
+# leaves it, and removing the container removes what it held. Readiness is
+# asked over TCP: the image's setup first runs a server on its socket
+# alone, which a check over the socket would count as ready.
 CONTAINER ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 DB_CONTAINER := examen-postgres
 DB_PORT ?= 55432
@@ -53,7 +55,7 @@ db:
 			docker.io/library/postgres:16-alpine > /dev/null
 	@$(CONTAINER) start $(DB_CONTAINER) > /dev/null
 	@for _ in $$(seq 1 60); do \
-		$(CONTAINER) exec $(DB_CONTAINER) pg_isready -U examen -d examen > /dev/null 2>&1 && exit 0; \
+		$(CONTAINER) exec $(DB_CONTAINER) pg_isready -h 127.0.0.1 -U examen -d examen > /dev/null 2>&1 && exit 0; \
 		sleep 0.5; \
 	done; echo "the local database did not become ready" >&2; exit 1
 
