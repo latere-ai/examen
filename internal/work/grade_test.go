@@ -26,7 +26,9 @@ import (
 	"latere.ai/x/examen/internal/execute"
 	"latere.ai/x/examen/internal/id"
 	"latere.ai/x/examen/internal/keys"
+	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
+	tokens "latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/store/postgres"
 	"latere.ai/x/examen/internal/store/postgres/pgtest"
@@ -53,6 +55,9 @@ type files struct {
 	// refuseWrites answers every write 403, as a store whose authorizer
 	// does not let the owner token write there.
 	refuseWrites bool
+	// valid, when set, answers 401 to a request whose token it refuses,
+	// as a store does to an expired one.
+	valid func(token string) bool
 }
 
 func (f *files) put(path string, b []byte) {
@@ -65,6 +70,11 @@ func (f *files) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.tokens = append(f.tokens, strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	if f.valid != nil && !f.valid(f.tokens[len(f.tokens)-1]) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":{"code":"unauthenticated"}}`)
+		return
+	}
 	if f.outage {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		return
@@ -147,11 +157,21 @@ type sandboxes struct {
 	// entry's size and SHA-256 in received rather than its bytes.
 	stream   bool
 	received map[string]string
+	// valid, when set, answers 401 to a request whose token it refuses,
+	// as Cella does to an expired one; ran, when set, is called with each
+	// check a command ran, before its answer.
+	valid func(token string) bool
+	ran   func(check string)
 }
 
 func (c *sandboxes) serve(w http.ResponseWriter, r *http.Request) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.valid != nil && !c.valid(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = io.WriteString(w, `{"error":{"code":"unauthenticated"}}`)
+		return
+	}
 	if r.Method == http.MethodPut && c.stream && c.put != 0 {
 		// A refusal before the archive is read.
 		w.WriteHeader(c.put)
@@ -213,6 +233,9 @@ func (c *sandboxes) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(body, &e)
 		c.execs = append(c.execs, e)
 		check := e["env"].(map[string]any)["EXAMEN_CHECK"].(string)
+		if c.ran != nil {
+			c.ran(check)
+		}
 		_ = json.NewEncoder(w).Encode(c.answers[check])
 	case r.Method == http.MethodDelete:
 		c.deleted = append(c.deleted, strings.Split(r.URL.Path, "/")[2])
@@ -743,5 +766,102 @@ func TestGradingWaitsOutAnOutage(t *testing.T) {
 	}
 	if tail("abcdef", 3) != "def" || tail("ab", 3) != "ab" {
 		t.Error("tail")
+	}
+}
+
+// lapsing is an owner token source whose tokens expire on a clock of its
+// own, held as the minter holds one: each ask answers the token held for
+// the audience until OWNER_TOKEN_RENEWAL before its expiry, and a new
+// one after. valid is a core's check of a token, refusing one past its
+// expiry.
+type lapsing struct {
+	mu      sync.Mutex
+	now     time.Time
+	n       int
+	expires map[string]time.Time
+	held    map[string]string
+}
+
+func newLapsing() *lapsing {
+	return &lapsing{now: time.Date(2026, 11, 1, 16, 0, 0, 0, time.UTC), expires: map[string]time.Time{}, held: map[string]string{}}
+}
+
+func (l *lapsing) Token(_ context.Context, r tokens.Request) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if t, ok := l.held[r.Audience]; ok && l.now.Before(l.expires[t].Add(-limits.OwnerTokenRenewal)) {
+		return t, nil
+	}
+	l.n++
+	t := "tok-" + r.Audience + "-" + itoa(l.n)
+	l.expires[t], l.held[r.Audience] = l.now.Add(5*time.Minute), t
+	return t, nil
+}
+
+func (l *lapsing) valid(token string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	exp, ok := l.expires[token]
+	return ok && l.now.Before(exp)
+}
+
+func (l *lapsing) advance(d time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.now = l.now.Add(d)
+}
+
+// TestCheckCallsCarryAFreshOwnerToken: a check that runs for minutes
+// outlives the owner token the check sandbox was created with, as a
+// minter's five-minute token does, so each later call on the sandbox, the
+// next check's command, the kept outputs and the sandbox's delete, asks
+// the source for the token again. With the token of the create the next
+// check would read as not runnable, its outputs would not be kept, and
+// the sandbox, refused its delete, would hold a place in the owner's
+// sandbox limit until its time to live ends it.
+func TestCheckCallsCarryAFreshOwnerToken(t *testing.T) {
+	for _, long := range []string{"inventory", "run"} {
+		t.Run("the "+long+" check runs long", func(t *testing.T) {
+			st := pgtest.Open(t, false, postgres.Options{})
+			stub := topostest.New(t)
+			stub.Agent("helper", topostest.Version{Version: 3, Digest: agentDigest})
+			lp := newLapsing()
+			fs := &files{objects: map[string][]byte{}, valid: lp.valid}
+			cl := &sandboxes{archives: map[string][]byte{}, answers: map[string]cella.Result{}, valid: lp.valid}
+			lx := &gateway{answers: []string{`{"kind":{"value":"game","rationale":"it scores"},"idea":{"value":"Snake","rationale":"a snake"}}`}}
+			ctx := t.Context()
+			g := seedGraded(ctx, t, st, fs, 1)
+			e := gradingEngine(t, st, stub, &minter{}, fs, cl, lx)
+			e.Grading.Tokens = lp
+			cl.answers[g.inventory] = cella.Result{Stdout: `{"metrics": {"entry_found": true, "size": 2}}`, Stderr: "entry: game.py", Duration: 300}
+			cl.answers[g.runner] = cella.Result{ExitCode: 1, Stderr: "it ran", Duration: 900}
+			// The long check takes six minutes of the trial's CHECK_TIMEOUT.
+			digest := map[string]string{"inventory": g.inventory, "run": g.runner}[long]
+			cl.ran = func(check string) {
+				if check == digest {
+					lp.advance(6 * time.Minute)
+				}
+			}
+			if err := e.Tick(ctx); err != nil {
+				t.Fatal(err)
+			}
+			runSession(stub, fs, stub.Sessions()[0])
+			if err := e.Tick(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if err := e.Grade(ctx); err != nil {
+				t.Fatal(err)
+			}
+			if len(cl.execs) != 2 || len(cl.deleted) != 1 || cl.deleted[0] != "sbx_1" {
+				t.Fatalf("%d checks ran and the sandboxes deleted are %v", len(cl.execs), cl.deleted)
+			}
+			trial := trialsOf(t, st, g.eid)[0]
+			for i, raw := range trial.Checks {
+				var run objects.CheckRun
+				if err := json.Unmarshal(raw, &run); err != nil || run.State != objects.CheckOK || len(run.Outputs) != 2 {
+					t.Fatalf("check %d's record %s %v", i, raw, err)
+				}
+			}
+		})
 	}
 }

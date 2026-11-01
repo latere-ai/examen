@@ -13,6 +13,18 @@ here is refused before it is pushed.
   name those stages, run for this repository, and the release workflow
   checks every release it publishes the way an installer would.
 
+### Fixed
+
+- **A check sandbox is deleted after a check that ran for minutes.** Every
+  call on a trial's check sandbox, each check's command, the kept check
+  outputs and the sandbox's delete, carries an owner token asked for at
+  that call. They used to carry the token asked for when the sandbox was
+  created, which a check of a few minutes could outlive: the next check
+  then read as not runnable, its outputs were not kept, and the sandbox,
+  refused its delete, held a place in the owner's sandbox limit until its
+  time to live, 25 minutes from its create, ended it, while the
+  experiment's other checks waited for that place.
+
 ## v0.8.1 - 2026-10-31
 
 ### Security

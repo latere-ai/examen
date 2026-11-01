@@ -137,7 +137,8 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		checks[i].files, checks[i].notRun = files, why
 	}
 	g := e.Grading
-	token, err := g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.CellaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial})
+	ask := tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.CellaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial}
+	token, err := g.Tokens.Token(ctx, ask)
 	why, ended = signInEnded(err)
 	switch {
 	case ended:
@@ -149,11 +150,27 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	}
 	labels := map[string]string{}
 	if l, ok := g.Tokens.(tokens.Labeler); ok {
-		if labels, err = l.Labels(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.CellaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial}); err != nil {
+		if labels, err = l.Labels(ctx, ask); err != nil {
 			return wait(err)
 		}
 	}
 	labels["examen/experiment"], labels["examen/trial"] = strings.ToLower(r.exp.ID), strings.ToLower(r.trial.ID)
+	// current is the owner token for Cella as the source answers it now.
+	// The source holds a token only until OWNER_TOKEN_RENEWAL before it
+	// expires, so the one the create carried may have expired by a later
+	// call on the sandbox, which comes as much as the sandbox's start and
+	// CHECK_TIMEOUT after it: the delete after a check that ran for minutes
+	// would otherwise be refused, and the sandbox would hold a place in the
+	// owner's sandbox limit until its time to live ends it. A source that
+	// does not answer leaves the token the create carried.
+	current := func(ctx context.Context) string {
+		t, err := g.Tokens.Token(ctx, ask)
+		if err != nil {
+			e.log().WarnContext(ctx, "no fresh owner token for the check sandbox; the call carries the one its create did", "trial", r.trial.ID, "error", apierr.LogText(err))
+			return token
+		}
+		return t
+	}
 	sb, err := g.Cella.Create(ctx, token, cella.Spec{Image: g.Image, Environment: g.Environment, TTL: holdChecks, Labels: labels}, sandboxStart)
 	var refused *cella.RefusedError
 	switch {
@@ -172,7 +189,8 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		return err
 	}
 	defer func() {
-		if err := g.Cella.Delete(context.WithoutCancel(ctx), token, sb.ID); err != nil {
+		ctx := context.WithoutCancel(ctx)
+		if err := g.Cella.Delete(ctx, current(ctx), sb.ID); err != nil {
 			e.log().WarnContext(ctx, "a check sandbox was not deleted; its time to live ends it", "trial", r.trial.ID, "sandbox", sb.ID, "error", apierr.LogText(err))
 		}
 	}()
@@ -189,7 +207,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		pw.CloseWithError(err)
 		written <- err
 	}()
-	putErr := g.Cella.PutTar(ctx, token, sb.ID, paths.root, pr, archiveSize(r, checks))
+	putErr := g.Cella.PutTar(ctx, current(ctx), sb.ID, paths.root, pr, archiveSize(r, checks))
 	pr.CloseWithError(errUploadEnded)
 	writeErr := <-written
 	if errors.Is(writeErr, errUploadEnded) || errors.Is(writeErr, io.ErrClosedPipe) {
@@ -219,7 +237,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		case left <= time.Second:
 			run.State, run.Reason = objects.CheckNotRun, "CHECK_TIMEOUT had run out before the check started"
 		default:
-			res, err := g.Cella.Run(ctx, token, sb.ID, cella.Exec{
+			res, err := g.Cella.Run(ctx, current(ctx), sb.ID, cella.Exec{
 				Command: c.grader.Check.Command, Env: checkEnv(r, c, paths), Workdir: path.Join(paths.workspace(), c.grader.Check.Workdir), Timeout: left,
 			})
 			if outage(err) {
@@ -267,23 +285,21 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 // evidence references. Keeping them is a record beside the check's own:
 // a store that refuses them, is not reached, or holds the path already
 // leaves the check as it ended, with no reference to a file it did not
-// write. The owner token is obtained once, at the first check that ran.
+// write. The owner token is asked of the source at each check that ran,
+// since a token held from an earlier check may have expired while a
+// later one ran.
 func (e *Engine) outputKeeper(r gradedRun) func(ctx context.Context, grader, stdout, stderr string) []objects.EvidenceRef {
-	var token string
 	var unkept bool
 	return func(ctx context.Context, grader, stdout, stderr string) []objects.EvidenceRef {
 		if unkept {
 			return nil
 		}
 		g := e.Grading
-		if token == "" {
-			t, err := g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.ArcaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial})
-			if err != nil {
-				unkept = true
-				e.log().WarnContext(ctx, "a trial's check outputs are not kept: no owner token for the files store", "trial", r.trial.ID, "error", apierr.LogText(err))
-				return nil
-			}
-			token = t
+		token, err := g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.ArcaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial})
+		if err != nil {
+			unkept = true
+			e.log().WarnContext(ctx, "a trial's check outputs are not kept: no owner token for the files store", "trial", r.trial.ID, "error", apierr.LogText(err))
+			return nil
 		}
 		folder := CheckOutputFolder(r.exp.ID, r.trial.Cell, r.trial.ID, grader)
 		var refs []objects.EvidenceRef
