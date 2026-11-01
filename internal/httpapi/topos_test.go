@@ -72,7 +72,7 @@ func TestAToposExperimentRunsItsTrialsAsSessions(t *testing.T) {
 	commit := strings.Repeat("e", 40)
 	empty := x.apply("tasks", "build", map[string]any{"instruction": "Build something.", "outputs": []string{"workspace/"}})
 	seeded := x.apply("tasks", "do-want-seeded", map[string]any{"instruction": "Do something you want.",
-		"workspace": map[string]any{"kind": "origo", "repository": "changkun/seed", "commit": commit}})
+		"workspace": map[string]any{"kind": "origo", "repository": "alice/seed", "commit": commit}})
 	suite := x.apply("suites", "open-build", map[string]any{"tasks": []string{empty, seeded}, "metrics": []string{"builtin:completed"}, "primary_metric": "builtin:completed"})
 	low := x.apply("candidates", "helper-low", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "helper@" + helperDigest, "model": "anthropic/claude-haiku-4.5", "reasoning": "low"}})
 	high := x.apply("candidates", "helper-55", map[string]any{"kind": "topos", "topos": map[string]any{"agent": "helper@" + helperDigest, "model": "anthropic/claude-haiku-5.5", "reasoning": "low"}})
