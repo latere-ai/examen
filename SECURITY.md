@@ -47,7 +47,32 @@ code.
 
 Dependencies are checked for known vulnerabilities on every push that
 changes code. A release is built from a tagged commit whose code passed
-verify, through the shared release stages in latere-ai/ci: the image is
-signed by the build stage's identity, run for this repository, and the
-release carries a bill of materials and `checksums.txt`, signed by the
-publish stage's identity.
+verify, through the shared release stages in
+[latere-ai/ci](https://github.com/latere-ai/ci): the image is signed by
+the build stage's identity, run for this repository, and the release
+carries a bill of materials and `checksums.txt`, signed by the publish
+stage's identity. To check a release, with `TAG` its tag:
+
+```sh
+gh release download "$TAG" -R latere-ai/examen -D examen-release
+cd examen-release
+cosign verify-blob --bundle checksums.txt.sigstore.json \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/latere-ai/ci/\.github/workflows/image-publish\.yml@' \
+  --certificate-github-workflow-repository latere-ai/examen checksums.txt
+sha256sum -c checksums.txt
+
+cosign verify "ghcr.io/latere-ai/examend:$TAG" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  --certificate-identity-regexp '^https://github\.com/latere-ai/ci/\.github/workflows/image-build\.yml@' \
+  --certificate-github-workflow-repository latere-ai/examen
+gh attestation verify "oci://ghcr.io/latere-ai/examend:$TAG" -R latere-ai/examen \
+  --signer-workflow latere-ai/ci/.github/workflows/image-build.yml
+```
+
+The release workflow runs the same checks against every release it
+publishes. Releases up to v0.8.2 were made while the repository was
+private and carry no attestation, so `gh attestation verify` applies
+from the release after it; releases before v0.8.2 were signed by this
+repository's own release workflow, so their signatures name it instead
+of the shared stages.
