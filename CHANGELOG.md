@@ -6,6 +6,13 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Changed
+
+- **Releases are built, signed and published by the shared release stages
+  in latere-ai/ci.** The image signature and the signed `checksums.txt` now
+  name those stages, run for this repository, and the release workflow
+  checks every release it publishes the way an installer would.
+
 ## v0.8.1 - 2026-10-31
 
 ### Security

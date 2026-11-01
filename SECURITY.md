@@ -47,5 +47,7 @@ code.
 
 Dependencies are checked for known vulnerabilities on every push that
 changes code. A release is built from a tagged commit whose code passed
-verify: the image is signed by the release workflow's identity, and the
-release carries a bill of materials with a signed checksum.
+verify, through the shared release stages in latere-ai/ci: the image is
+signed by the build stage's identity, run for this repository, and the
+release carries a bill of materials and `checksums.txt`, signed by the
+publish stage's identity.

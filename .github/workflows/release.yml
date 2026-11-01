@@ -1,23 +1,22 @@
-# The release pipeline, on a v* tag: the tag's commit must have passed
-# verify; the examend image is built from the tag for linux/amd64 and
-# linux/arm64, pushed by digest and under no tag, signed, and given a bill
-# of materials and a provenance attestation; the candidate must report the
-# version the tag pins; only then is the digest tagged, the GitHub release
-# is created with the CHANGELOG section as its body by the shared notes
-# pipeline, and the bill of materials and its signed checksum are attached
-# to it.
+# The release pipeline, on a v* tag, through latere-ai/ci's shared image
+# release stages. The build stage requires that the tag's commit passed
+# verify, checks the tag and its CHANGELOG section, builds examend for
+# linux/amd64 and linux/arm64, pushes it by digest and under no tag, checks
+# the candidate reports the version the tag pins, signs it, and gives it a
+# bill of materials. Only then does the publish stage tag the digest, sign
+# checksums.txt over the bill of materials, and publish the GitHub release
+# with the CHANGELOG section as its body. The verify stage then checks the
+# published release from a runner with no checkout. GitHub keeps no
+# attestations for a private repository on this plan, so the stages skip
+# them here.
 #
-# Nothing here pushes to the default branch, no job carries a permission
-# another needs, and the image namespace is the repository owner's, so a
-# fork's tag publishes under the fork's. Every third-party action is pinned
-# by commit with its version in a comment.
+# The image namespace is the repository owner's, so a fork's tag publishes
+# under the fork's. Each job is granted only what its stage needs.
 #
 # Every job runs where the organization's runner policy says (latere-ai/ci,
-# README, Runners): for this private repository the self-hosted runner, or a
-# hosted one while it is offline. The self-hosted runner carries Docker, git,
-# jq and curl and nothing else: the jobs that call the GitHub CLI fetch a
-# pinned release of it first, and setup-go restores no cache over the module
-# cache the runner keeps.
+# README, Runners), the stages' default: for this private repository the
+# self-hosted runner, or a hosted one while it is offline. The stages fetch
+# the tools the self-hosted runner lacks.
 name: release
 
 on:
@@ -27,317 +26,40 @@ on:
 permissions:
   contents: read
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE: examend
-  # The GitHub CLI release the jobs that call it fetch, verified against the
-  # release's checksums file.
-  GH_VERSION: "2.103.3"
-
 jobs:
-  # 1. The tag's commit passed verify. This job reads the runs once and
-  # holds the runner for seconds: a job that polled here would hold one of
-  # the self-hosted runner's two slots while the run it waits for queues for
-  # the other, and two releases at once would hold both. verify starts no
-  # run for a push that changes only specs or markdown, and the commit
-  # `lateregate release` cuts is one: it moves the notes under Unreleased
-  # into the tag's section and changes nothing else, after the whole bar ran
-  # on the tree. So the job reads back from the tag's commit over the
-  # commits verify skipped, each of which holds no code, to the nearest one
-  # verify ran on, and that run stands for the tag. A tag whose nearest run
-  # has not concluded, or is red, fails here and publishes nothing. The run
-  # the tag's own push starts is not the one read.
-  gate-green:
-    name: the tag's commit passed verify
-    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
-    timeout-minutes: 5
+  build:
+    uses: latere-ai/ci/.github/workflows/image-build.yml@c3fcc1bda62305ca978a5474dd29a898564baa42
     permissions:
       contents: read
       actions: read
-    steps:
-      # The runner ships no GitHub CLI; the pinned release is fetched and
-      # verified against its checksums file.
-      - name: Ensure gh
-        run: |
-          set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
-            gh --version | head -n1
-            exit 0
-          fi
-          dir="$RUNNER_TEMP/gh-bin"
-          mkdir -p "$dir"
-          base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
-          archive="gh_${GH_VERSION}_linux_amd64.tar.gz"
-          curl -sSfL -o "$dir/$archive" "$base/$archive"
-          curl -sSfL -o "$dir/checksums.txt" "$base/gh_${GH_VERSION}_checksums.txt"
-          (cd "$dir" && grep " $archive\$" checksums.txt | sha256sum -c)
-          tar -xzf "$dir/$archive" -C "$dir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
-          echo "$dir" >> "$GITHUB_PATH"
-          "$dir/gh" --version | head -n1
-      - name: The verify run on this commit, or on the nearest commit before it that verify ran on, concluded success
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # A failed API read fails the job rather than reading as pending.
-          shopt -s inherit_errexit
-          # success, failure, pending (running, queued, or superseded by a
-          # newer push), or none (no run at all, which is verify's path
-          # filter skipping the commit) for the verify run of a commit's
-          # branch push.
-          verdict() {
-            local runs
-            # $ENV is jq's, which reads the tag from the environment.
-            # shellcheck disable=SC2016
-            runs=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/verify.yml/runs?head_sha=$1&event=push&per_page=20" \
-              --jq '[.workflow_runs[] | select(.head_branch != $ENV.GITHUB_REF_NAME) | .conclusion // "running"] | join(" ")')
-            case " $runs " in
-              "  ") echo none ;;
-              *" success "*) echo success ;;
-              *" failure "*|*" timed_out "*|*" startup_failure "*|*" action_required "*) echo failure ;;
-              *) echo pending ;;
-            esac
-          }
-          # A commit verify skipped carries the code of its parent, so the
-          # walk moves to the parent only when the commit changes nothing
-          # but specs and markdown. The bound is far past any run of such
-          # commits between two that change code.
-          sha=$GITHUB_SHA
-          for _ in $(seq 1 30); do
-            v=$(verdict "$sha")
-            case "$v" in
-              success) echo "verify concluded success on ${sha}"; exit 0 ;;
-              failure) echo "verify failed on ${sha}; a release is cut from a green tree" >&2; exit 1 ;;
-              pending)
-                echo "verify has not concluded on ${sha}, and this job does not wait for it on the shared runner. Re-run the release once verify is green: gh run rerun ${GITHUB_RUN_ID} --failed --repo ${GITHUB_REPOSITORY}" >&2
-                exit 1 ;;
-            esac
-            parent=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha}" --jq '.parents[0].sha')
-            code=$(gh api "repos/${GITHUB_REPOSITORY}/compare/${parent}...${sha}" \
-              --jq '[.files[].filename | select((startswith("specs/") or endswith(".md")) | not)] | join(" ")')
-            if [ -n "$code" ]; then
-              echo "verify has no run on ${sha}, which changes ${code}; a release is cut from a tree verify ran on" >&2
-              exit 1
-            fi
-            echo "verify skipped ${sha}, which changes only specs or markdown; reading its parent ${parent}"
-            sha=$parent
-          done
-          echo "verify ran on none of the 30 commits up to ${GITHUB_SHA}" >&2
-          exit 1
-
-  # 2. The image, built from this checkout with the tag's build identity,
-  # pushed by digest and under no tag, so a run that stops before the
-  # digest is tagged leaves an unreferenced digest and nothing an operator
-  # could pull by accident.
-  build:
-    name: the image by digest
-    needs: gate-green
-    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
-    timeout-minutes: 60
-    permissions:
-      contents: read
       packages: write
       id-token: write
       attestations: write
-    outputs:
-      owner: ${{ steps.owner.outputs.owner }}
-      digest: ${{ steps.image.outputs.digest }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          # The runner keeps its module cache between runs; restoring a
-          # tarball over it fails on every file that exists.
-          cache: false
-      # The namespace is the account that pushed the tag, lowered, read
-      # here and written nowhere in the tree. A repository variable
-      # overrides it, for an installation that publishes elsewhere.
-      - name: The image namespace is the repository owner's
-        id: owner
-        env:
-          OVERRIDE: ${{ vars.RELEASE_IMAGE_NAMESPACE }}
-        run: |
-          owner=${OVERRIDE:-$GITHUB_REPOSITORY_OWNER}
-          echo "owner=$(printf '%s' "$owner" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-      - name: The tag has a CHANGELOG section
-        run: go tool lateregate release-notes "${GITHUB_REF_NAME}" > /dev/null
-      # An image tag cannot carry SemVer build metadata.
-      - name: The tag is a valid image tag
-        run: |
-          case "${GITHUB_REF_NAME}" in
-            *+*) echo "${GITHUB_REF_NAME} carries build metadata, which an image tag cannot; cut a tag without it" >&2; exit 1 ;;
-          esac
-      # The build identity the binary reports, the 3 values the Dockerfile
-      # stamps.
-      - name: The build identity of the tag
-        id: identity
-        run: |
-          {
-            echo "commit=$(git rev-parse --short HEAD)"
-            echo "date=$(git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)"
-          } >> "$GITHUB_OUTPUT"
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-      # The Go stage runs on the runner's own platform and cross-compiles,
-      # and the final stage only copies the binary, so no stage runs under
-      # emulation.
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Build and push examend by digest, under no tag
-        id: image
-        env:
-          OWNER: ${{ steps.owner.outputs.owner }}
-          COMMIT: ${{ steps.identity.outputs.commit }}
-          DATE: ${{ steps.identity.outputs.date }}
-        run: |
-          # out holds the build metadata of this job; dist holds what the
-          # release attaches, and the bill-of-materials action writes into
-          # it without making it.
-          mkdir -p out dist
-          docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile \
-            --build-arg "VERSION=${GITHUB_REF_NAME}" --build-arg "COMMIT=${COMMIT}" --build-arg "DATE=${DATE}" \
-            --output "type=image,name=${REGISTRY}/${OWNER}/${IMAGE},push-by-digest=true,name-canonical=true,push=true" \
-            --metadata-file out/image.json .
-          digest=$(jq -r '."containerimage.digest"' out/image.json)
-          echo "the candidate is ${REGISTRY}/${OWNER}/${IMAGE}@${digest}"
-          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
-      # The candidate reports the build identity this tag pins, so the
-      # binary inside is the one compiled from the tag.
-      - name: The image reports the version this tag pins
-        env:
-          OWNER: ${{ steps.owner.outputs.owner }}
-          DIGEST: ${{ steps.image.outputs.digest }}
-        run: |
-          got=$(docker run --rm "${REGISTRY}/${OWNER}/${IMAGE}@${DIGEST}" version)
-          echo "$got"
-          case "$got" in
-            "examend ${GITHUB_REF_NAME} ("*) ;;
-            *) echo "the image reports '$got' and the tag is ${GITHUB_REF_NAME}" >&2; exit 1 ;;
-          esac
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Sign the image by digest with the workflow's identity
-        env:
-          OWNER: ${{ steps.owner.outputs.owner }}
-          DIGEST: ${{ steps.image.outputs.digest }}
-        run: cosign sign --yes "${REGISTRY}/${OWNER}/${IMAGE}@${DIGEST}"
-      - name: The bill of materials
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
-        with:
-          image: ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/examend@${{ steps.image.outputs.digest }}
-          format: spdx-json
-          output-file: dist/sbom-examend.spdx.json
-          upload-artifact: false
-          upload-release-assets: false
-      - name: Attest the bill of materials
-        # GitHub keeps attestations for a public repository on this plan, so a
-        # private one publishes the signed image and its bill of materials
-        # without them.
-        if: ${{ !github.event.repository.private }}
-        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/examend
-          subject-digest: ${{ steps.image.outputs.digest }}
-          sbom-path: dist/sbom-examend.spdx.json
-          push-to-registry: true
-      - name: Attest the provenance
-        if: ${{ !github.event.repository.private }}
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ steps.owner.outputs.owner }}/examend
-          subject-digest: ${{ steps.image.outputs.digest }}
-          push-to-registry: true
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: dist
-          path: dist/
-          if-no-files-found: error
-          retention-days: 7
+    with:
+      # examend version prints "examend <tag> (<commit>, <date>, schema N)";
+      # the " (" keeps v0.8.1 from matching a binary that reports v0.8.10.
+      image_1: '{"name": "examend", "version_args": "version", "version_expect": "{name} {tag} ("}'
+      # A verify run still going refuses the release at once rather than
+      # hold one of the self-hosted runner's two slots while verify queues
+      # for the other. Re-run the release once verify is green.
+      wait_minutes: "0"
 
-  # 3. Only now does the digest get the :<tag> reference.
   publish:
-    name: tag the digest
     needs: build
-    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    uses: latere-ai/ci/.github/workflows/image-publish.yml@c3fcc1bda62305ca978a5474dd29a898564baa42
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+    with:
+      images: ${{ needs.build.outputs.images }}
+
+  verify:
+    needs: publish
+    uses: latere-ai/ci/.github/workflows/release-verify.yml@c3fcc1bda62305ca978a5474dd29a898564baa42
     permissions:
       contents: read
-      packages: write
-    env:
-      OWNER: ${{ needs.build.outputs.owner }}
-      DIGEST: ${{ needs.build.outputs.digest }}
-    steps:
-      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ github.token }}
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Tag the digest
-        run: |
-          docker buildx imagetools create -t "${REGISTRY}/${OWNER}/${IMAGE}:${GITHUB_REF_NAME}" \
-            "${REGISTRY}/${OWNER}/${IMAGE}@${DIGEST}"
-          echo "published ${REGISTRY}/${OWNER}/${IMAGE}:${GITHUB_REF_NAME} at ${DIGEST}"
-
-  # 4. The GitHub release, with the CHANGELOG section for the tag as its
-  # body, created by the shared notes pipeline once the image it announces
-  # is tagged.
-  release:
-    needs: publish
-    permissions:
-      contents: write
-    uses: latere-ai/ci/.github/workflows/notes-release.yml@v1
-    secrets: inherit
-
-  # 5. What the release carries beside its notes: the bill of materials,
-  # and its checksum with a signature that names this workflow. Running
-  # this job again attaches them to a release that lacks them.
-  assets:
-    name: attach the bill of materials
-    needs: [build, release]
-    runs-on: ${{ (github.event.repository.private || contains(fromJSON('["push","schedule","workflow_dispatch","release"]'), github.event_name)) && (vars.CI_RUNNER_PRIVATE || vars.CI_RUNNER_PUBLIC) || 'ubuntu-latest' }}
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      id-token: write
-    steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: dist
-          path: dist
-      # The runner ships no GitHub CLI; the pinned release is fetched and
-      # verified against its checksums file.
-      - name: Ensure gh
-        run: |
-          set -euo pipefail
-          if command -v gh >/dev/null 2>&1; then
-            gh --version | head -n1
-            exit 0
-          fi
-          dir="$RUNNER_TEMP/gh-bin"
-          mkdir -p "$dir"
-          base="https://github.com/cli/cli/releases/download/v${GH_VERSION}"
-          archive="gh_${GH_VERSION}_linux_amd64.tar.gz"
-          curl -sSfL -o "$dir/$archive" "$base/$archive"
-          curl -sSfL -o "$dir/checksums.txt" "$base/gh_${GH_VERSION}_checksums.txt"
-          (cd "$dir" && grep " $archive\$" checksums.txt | sha256sum -c)
-          tar -xzf "$dir/$archive" -C "$dir" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
-          echo "$dir" >> "$GITHUB_PATH"
-          "$dir/gh" --version | head -n1
-      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: The checksum, and the signature over it
-        run: |
-          cd dist
-          sha256sum sbom-examend.spdx.json | tee checksums.txt
-          # One Sigstore bundle carries the signature and the certificate.
-          cosign sign-blob --yes --bundle checksums.txt.sigstore.json checksums.txt
-      - name: Attach the files to the release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release upload "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --clobber \
-            dist/sbom-examend.spdx.json dist/checksums.txt dist/checksums.txt.sigstore.json
+      packages: read
+      attestations: read
+    with:
+      images: examend
