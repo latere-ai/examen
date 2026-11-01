@@ -14,6 +14,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/store/migrations"
 	"latere.ai/x/examen/internal/store/postgres"
@@ -354,6 +356,55 @@ func TestIdempotencyOnAClosedStore(t *testing.T) {
 	}
 	if _, err := idem.Prune(t.Context(), 1); err == nil {
 		t.Error("Prune")
+	}
+}
+
+// A run that starts while another is inside a migration waits for it: the
+// migrator marks the schema dirty while a migration runs, and a check
+// outside the lock read that as a migration that failed halfway.
+func TestARunWaitsForOneInProgress(t *testing.T) {
+	first, err := fs.ReadFile(migrations.FS, "000001_schema.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := fstest.MapFS{
+		"000001_schema.up.sql": {Data: first},
+		"000002_slow.up.sql":   {Data: []byte("SELECT pg_sleep(2); CREATE TABLE slow (id int);")},
+	}
+	direct, _ := fresh(t)
+	done := make(chan error, 1)
+	go func() {
+		_, err := postgres.MigrateWith(t.Context(), direct, files)
+		done <- err
+	}()
+	conn, err := pgx.Connect(t.Context(), direct)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := conn.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
+	}()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		var version int64
+		var dirty bool
+		err := conn.QueryRow(t.Context(), `SELECT version, dirty FROM schema_migrations`).Scan(&version, &dirty)
+		if err == nil && version == 2 && dirty {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the first run never entered the slow migration: %v", err)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	got, err := postgres.MigrateWith(t.Context(), direct, files)
+	if err != nil || got.To != 2 {
+		t.Fatalf("a run while another was inside a migration: %+v %v", got, err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("the first run: %v", err)
 	}
 }
 

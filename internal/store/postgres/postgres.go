@@ -10,8 +10,9 @@
 // another query mode.
 //
 // Two connections are named apart. Migrate takes the direct URL, because
-// the migrator holds a session lock across its statements, so two runs at
-// once apply each migration once. Open takes the serving URL, which may be
+// it and the migrator hold session locks across their statements, so two
+// runs at once apply each migration once and neither reads the other's
+// work in progress as a failure. Open takes the serving URL, which may be
 // a pooler's, and never migrates: it checks the schema.
 package postgres
 
@@ -156,11 +157,30 @@ func Migrate(ctx context.Context, directURL string) (Migrated, error) {
 	return migrate(ctx, directURL, migrations.FS)
 }
 
+// migrationLock names the session advisory lock migrate holds from its
+// check to its last read. The migrator marks the schema dirty while a
+// migration runs, so a check outside a lock reads another run in progress
+// as a migration that failed halfway.
+const migrationLock = "examen: migrate"
+
 // migrate is Migrate with the migration files given.
-func migrate(ctx context.Context, directURL string, files fs.FS) (Migrated, error) {
+func migrate(ctx context.Context, directURL string, files fs.FS) (m Migrated, err error) {
 	dsn, err := migrationURL(directURL)
 	if err != nil {
 		return Migrated{}, err
+	}
+	lock, err := pgx.Connect(ctx, directURL)
+	if err != nil {
+		return Migrated{}, ErrUnreachable
+	}
+	// Closing the connection releases the session lock.
+	defer func() {
+		if closeErr := lock.Close(context.WithoutCancel(ctx)); closeErr != nil && err == nil {
+			err = fmt.Errorf("store: closing the migration lock's connection: %w", closeErr)
+		}
+	}()
+	if _, err := lock.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, migrationLock); err != nil {
+		return Migrated{}, fmt.Errorf("store: taking the migration lock: %w", err)
 	}
 	carried, err := migrations.HighestOf(files)
 	if err != nil {
