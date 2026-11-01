@@ -26,7 +26,7 @@ is harmless, and a value that does not parse still stops the start.
 | Variable | Default | What it does |
 |---|---|---|
 | `EXAMEN_ADDR` | `:8080` | The address the listener binds, as host and port. |
-| `EXAMEN_BASE_PATH` | `/v1` | The prefix of every API route. The probes stay at the root of the listener. Set it empty to serve the API at the root. |
+| `EXAMEN_BASE_PATH` | `/v1` | The prefix of every API route. The probes stay at the root of the listener. Set it to `/` to serve the API at the root. |
 | `EXAMEN_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Logs go to standard error, one JSON object per line. |
 | `EXAMEN_WORKERS` | `20` | How many work items, such as starting a session or grading a trial, one replica runs at once. |
 | `EXAMEN_PUBLIC_URL` | none | Where readers reach this server, for links in bar evaluations, events and publications. **No effect yet.** |
