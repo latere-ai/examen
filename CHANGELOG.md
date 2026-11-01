@@ -17,6 +17,12 @@ here is refused before it is pushed.
 - The API document describes an experiment's `metadata`, a trial's
   `retry_of`, the grid's `trials.retried` and an experiment's
   `progress`.
+- **Documentation for running Examen yourself.**
+  [Running it locally](docs/local.md) walks through an experiment run by
+  a stand-in harness against a local `examend`, and
+  [Concepts](docs/concepts.md), [Configuration](docs/configuration.md)
+  and [Writing an authorizer](docs/authorizer.md) cover the rest;
+  [`docs/README.md`](docs/README.md) is the index.
 
 ### Fixed
 

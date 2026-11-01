@@ -16,7 +16,7 @@ depends_on:
 affects: [cmd/examend/, internal/config/, internal/version/, internal/store/migrations/, test/stubs/, deploy/, docs/, Makefile, Dockerfile, .lateregate.yaml, .githooks/, .github/, CHANGELOG.md]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-19
+updated: 2026-11-01
 author: changkun
 ---
 
@@ -130,10 +130,11 @@ Every variable is `EXAMEN_*` and is listed once, here, with the spec
 that owns its meaning. `internal/config` reads each once at start into
 one typed value, and no other package reads the environment; the one
 exception is `pkg/otel`, which reads the standard OpenTelemetry
-variables as the SDK defines them. The table is generated into
-`docs/configuration.md`, and a test fails when the binary reads a
-variable the table lacks. A spec that adds a variable adds its row here
-in the same change. The `EXAMEN_` variables Examen sets inside a trial's
+variables as the SDK defines them. `docs/configuration.md` lists the
+same variables for an operator, with what each does in the current
+release, and a test fails when either table lacks a variable the binary
+reads or lists one it does not. A spec that adds a variable adds its
+row here and there in the same change. The `EXAMEN_` variables Examen sets inside a trial's
 sandbox for the agent and its checks (specs 005 and 006) are not
 configuration, and `examend` reads none of them.
 
@@ -568,7 +569,7 @@ Every row below shipped in v0.1.0.
 |---|---|---|
 | 1 | Met: the gate passes in CI, with `internal/store/postgres/pgtest` exempt from the coverage floor for the reason `.lateregate.yaml` gives | CI `verify`, job `gate` |
 | 2 | Met | `main.TestOneCommandAndNoFlag`, `main.TestVersionIsStamped` |
-| 3 | Met; the e2e tiers' test code reads `EXAMEN_E2E_*` variables, which the table does not list | `config.TestTableMatchesWhatIsRead`, `examen_test.TestOnlyConfigReadsTheEnvironment` |
+| 3 | Met; the e2e tiers' test code reads `EXAMEN_E2E_*` variables, which the table does not list; the same test holds `docs/configuration.md` to what is read | `config.TestTableMatchesWhatIsRead`, `examen_test.TestOnlyConfigReadsTheEnvironment` |
 | 4 | Met | `config.TestErrorsNameTheVariableOnly`, `main.TestMigrateCommand` |
 | 5 | Met | `config.TestRefusals`, `main.TestServeRefuses`, `postgres.TestTheSchemaCheck` |
 | 6 | Met | `postgres.TestMigrate`, `main.TestMigrateCommand` |
@@ -589,6 +590,8 @@ files and stub cores; 18, publications.
 The release differs from the design above in a few places: with
 `EXAMEN_KEYS_URL` unset the key source reads `lux` rather than none;
 the start log does not say whether `serve` serves the v0.1 profile; no
-metric of the telemetry table is emitted; and the layout's `docs/`,
-`deploy/` and `test/stubs/`, and every binary but `examend`, do not
-exist.
+metric of the telemetry table is emitted; the layout's `deploy/` and
+`test/stubs/`, and every binary but `examend`, do not exist; and
+`docs/` holds running it locally, the concepts, the configuration
+reference and writing an authorizer, without the API guide or a
+minimal authorizer, minter or key endpoint.

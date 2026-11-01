@@ -40,10 +40,29 @@ func file(t *testing.T, name, content string) string {
 	return p
 }
 
-// The table of specs/011-distribution.md lists every variable the binary
-// reads and none it does not.
+// The table of specs/011-distribution.md, and the reference of
+// docs/configuration.md an operator reads, each list every variable the
+// binary reads and none it does not.
 func TestTableMatchesWhatIsRead(t *testing.T) {
-	f, err := os.Open(filepath.Join("..", "..", "specs", "011-distribution.md"))
+	read := Variables()
+	slices.Sort(read)
+	for _, doc := range []string{
+		filepath.Join("..", "..", "specs", "011-distribution.md"),
+		filepath.Join("..", "..", "docs", "configuration.md"),
+	} {
+		table := variablesListed(t, doc)
+		slices.Sort(table)
+		if len(table) < 30 || !slices.Equal(table, read) {
+			t.Errorf("the table of %s lists\n  %v\nand the binary reads\n  %v", doc, table, read)
+		}
+	}
+}
+
+// variablesListed is the variables a markdown table names, one per row
+// that begins with the variable in code.
+func variablesListed(t *testing.T, path string) []string {
+	t.Helper()
+	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,12 +82,7 @@ func TestTableMatchesWhatIsRead(t *testing.T) {
 	if err := scan.Err(); err != nil {
 		t.Fatal(err)
 	}
-	read := Variables()
-	slices.Sort(table)
-	slices.Sort(read)
-	if len(table) < 30 || !slices.Equal(table, read) {
-		t.Fatalf("the table of spec 011 lists\n  %v\nand the binary reads\n  %v", table, read)
-	}
+	return table
 }
 
 // A missing required variable and a value that does not parse each stop
