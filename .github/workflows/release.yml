@@ -6,17 +6,19 @@
 # bill of materials. Only then does the publish stage tag the digest, sign
 # checksums.txt over the bill of materials, and publish the GitHub release
 # with the CHANGELOG section as its body. The verify stage then checks the
-# published release from a runner with no checkout. GitHub keeps no
-# attestations for a private repository on this plan, so the stages skip
-# them here.
+# published release from a runner with no checkout, the way SECURITY.md
+# tells an installer to. The build stage adds SBOM and provenance
+# attestations while the repository is public; GitHub keeps none for a
+# private repository on this plan, so the stages skip them there.
 #
 # The image namespace is the repository owner's, so a fork's tag publishes
 # under the fork's. Each job is granted only what its stage needs.
 #
 # Every job runs where the organization's runner policy says (latere-ai/ci,
-# README, Runners), the stages' default: for this private repository the
-# self-hosted runner, or a hosted one while it is offline. The stages fetch
-# the tools the self-hosted runner lacks.
+# README, Runners), the stages' default: a hosted runner while the
+# repository is public, and the self-hosted runner while it is private.
+# Only a maintainer pushes a tag, so no fork's code reaches either. The
+# stages fetch the tools the self-hosted runner lacks.
 name: release
 
 on:

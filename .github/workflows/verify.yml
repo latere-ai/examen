@@ -46,9 +46,13 @@ permissions:
 
 jobs:
   # Every job runs where the organization's runner policy says (latere-ai/ci,
-  # README, Runners): for this private repository the self-hosted runner,
-  # which carries Docker, git, jq and curl, or a hosted one while it is
-  # offline.
+  # README, Runners). While the repository is public, a pull request, a
+  # fork's among them, runs on a hosted runner and never on the
+  # organization's self-hosted one, and a push to main runs on a hosted
+  # runner too, or on the self-hosted runner while hosted runners are down.
+  # While it is private, every job runs on the self-hosted runner, which
+  # carries Docker, git, jq and curl, or on a hosted one while it is offline
+  # or busy. No job reads a secret.
   gate:
     if: "!startsWith(github.ref, 'refs/tags/')"
     uses: latere-ai/ci/.github/workflows/lateregate.yml@v1
