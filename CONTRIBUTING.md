@@ -1,8 +1,9 @@
 # Contributing
 
 Thanks for looking. This file is for people and agents changing Examen.
-Users read the [README](README.md); the design, and the reasoning behind
-each decision, lives in [`specs/`](specs/README.md).
+Users read the [README](README.md) and [`docs/`](docs/README.md); the
+design, and the reasoning behind each decision, lives in
+[`specs/`](specs/README.md).
 
 ## Getting set up
 
@@ -18,9 +19,9 @@ make run    # builds, migrates a local Postgres container, and serves
 `make run` starts a Postgres container named `examen-postgres` on a
 loopback port, applies the migrations to it with `examend migrate`, and
 serves from it. Every other variable comes from your environment, so set
-`EXAMEN_OIDC_ISSUERS` to the issuer whose tokens you will send first.
-[`specs/011-distribution.md`](specs/011-distribution.md) lists every
-variable.
+`EXAMEN_OIDC_ISSUERS` to the issuer whose tokens you will send first;
+[Running it locally](docs/local.md) sets one up.
+[Configuration](docs/configuration.md) lists every variable.
 
 The gate starts Postgres, and PgBouncer in front of it, in containers for
 the store's suite. Where no container runtime answers, that suite cannot
@@ -51,10 +52,11 @@ A change to a behavior a spec describes updates that spec in the same
 change: its implementation status, its status, and its Outcome once it
 is complete. A change to the API, a configuration variable, or the
 authorizer's vocabulary or limits also updates
-[`api/openapi.yaml`](api/openapi.yaml) where it applies. A change
-someone running `examend` or calling its API would notice gets a line
-under `## Unreleased` in [`CHANGELOG.md`](CHANGELOG.md), written for
-them; a `v*` tag without a section there is refused.
+[`api/openapi.yaml`](api/openapi.yaml) and [`docs/`](docs/README.md)
+where it applies. A change someone running `examend` or calling its API
+would notice gets a line under `## Unreleased` in
+[`CHANGELOG.md`](CHANGELOG.md), written for them; a `v*` tag without a
+section there is refused.
 
 ## The bar
 
@@ -108,12 +110,25 @@ value. Only `internal/config` reads the environment.
 | `authorizer/` | the action vocabulary and the limits of an allow. Public |
 | `internal/access/` | token verification, the authorizer client and the owner policy |
 | `internal/apierr/` | the error table of the API |
-| `internal/httpapi/` | the routes, the probes, idempotency and paging |
-| `internal/store/` | the store, its Postgres adapter, the migrations and the test database |
+| `internal/httpapi/` | the routes, the probes, idempotency, paging and the progress stream |
+| `internal/objects/` | every object of spec 002 as a Go value, with the rules that need no other object |
+| `internal/work/` | the unattended work of an experiment: sessions, grading, usage and comparisons, run on a ticker |
+| `internal/execute/` | the scheduling decisions of spec 005: smoke trials, rollouts, retries and parking, read from a cell and written by the store |
+| `internal/grade/` | the check output contract and a model judge's input, tool and answer |
+| `internal/calibrate/` | how well a judge agrees with people |
+| `internal/analysis/` | the statistics of spec 008, on Examen's own deterministic math in `mathx/` |
+| `internal/compare/` | the seam between what the store keeps and the analysis: a comparison's inputs and its stored record |
+| `internal/topos/`, `internal/cella/`, `internal/arca/` | the clients of Topos, Cella and Arca, with a Topos stub in `topos/topostest/` |
+| `internal/owner/` | owner tokens from the minter |
+| `internal/keys/` | the key source: the key endpoint's client |
+| `internal/usage/` | a trial's cost and the models that served it, from Lux's records |
+| `internal/store/` | the store's contract, its Postgres adapter, the migrations and the test database |
 | `internal/config/` | configuration, read once |
 | `internal/id/` | identifiers and digests |
 | `internal/limits/` | the limits of spec 002, each defined once |
 | `internal/version/` | the build's version, stamped by the linker |
+| `test/e2e/` | end-to-end tests against a built `examend`: importing a published study, and a smoke test of a deployed server |
+| `docs/` | the documentation for people running and calling Examen |
 | `specs/` | one spec per component, in build order in [`specs/README.md`](specs/README.md) |
 
 The public packages, `api` and `authorizer`, change additively within a
