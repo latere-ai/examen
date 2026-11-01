@@ -3237,6 +3237,7 @@ components:
             - "task_by_task"
             - "interleaved"
         metadata:
+          description: "Your own labels for the experiment, such as a commit, a branch or a CI run: at most METADATA_MAX_PAIRS (16) string pairs, none with a key beginning `examen.`, which Examen reserves. Fixed at create; Examen reads none of them, and `GET /experiments?metadata.<key>=<value>` lists the experiments that carry a pair."
           type: "object"
           additionalProperties:
             type: "string"
@@ -3411,6 +3412,7 @@ components:
                 type: "integer"
           additionalProperties: false
         metadata:
+          description: "The labels the experiment was created with, as given: at most METADATA_MAX_PAIRS (16) string pairs, which Examen never reads. Absent when there are none. `GET /experiments?metadata.<key>=<value>` lists the experiments that carry a pair."
           type: "object"
           additionalProperties:
             type: "string"
@@ -3529,6 +3531,7 @@ components:
               type: "string"
           additionalProperties: false
         retry_of:
+          description: "The id of the earlier trial of the same cell and index that this trial runs again: one that ended `infra_failed`, retried automatically, or one a cell's retry runs again. That trial is marked retried and leaves every figure; absent on a first attempt."
           type: "string"
         sent:
           type: "object"
@@ -4636,6 +4639,7 @@ components:
                           type: "integer"
                         retried:
                           type: "integer"
+                          description: "The cell's trials a retry replaced. Each is also counted under its state, so `done` less `retried` counts each finished run of the cell once."
                         outcomes:
                           type: "object"
                           additionalProperties:
