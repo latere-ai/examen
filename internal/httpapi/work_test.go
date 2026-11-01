@@ -176,7 +176,7 @@ func TestRetriesBlockAndResume(t *testing.T) {
 }
 
 func TestOverBudgetParksAndRetryReopens(t *testing.T) {
-	x := newAPI(t, nil)
+	x := analyzed(t)
 	f := x.fixture()
 	eid := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
 		"suite": f.suite, "candidates": []string{f.high, f.low}, "trials": 2, "budget": map[string]any{"name": "study"},
@@ -208,6 +208,10 @@ func TestOverBudgetParksAndRetryReopens(t *testing.T) {
 	}
 	if e := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid, "t-alice", nil); e["state"] != "complete" {
 		t.Fatalf("complete with a parked cell %v", e)
+	}
+	// The end marked the comparison final; it is final once computed again.
+	if err := x.srv.Engine.Compute(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 	finals := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/comparisons?final=true&automatic=true", "t-alice", nil)
 	if len(finals["items"].([]any)) != 1 {

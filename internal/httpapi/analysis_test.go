@@ -341,3 +341,79 @@ func TestAnalyzedImport(t *testing.T) {
 		t.Errorf("across tasks the variable is %v", v)
 	}
 }
+
+// A comparison is final once its figures are the ones computed after its
+// experiment ended. The end marks every kept comparison final and computes
+// it again on the next round, so between the two the record holds the
+// figures of its last provisional computation; it reads final false until
+// they are replaced, and a list of final comparisons leaves it out.
+func TestAComparisonIsFinalOnceComputedAfterTheEnd(t *testing.T) {
+	x := analyzed(t)
+	f := x.fixture()
+	suite := x.apply("suites", "finality", map[string]any{
+		"tasks": []string{f.taskB}, "metrics": []string{"builtin:declined", "builtin:completed"}, "primary_metric": "builtin:declined",
+	})
+	created := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
+		"suite": suite, "candidates": []string{f.high, f.low}, "trials": 5, "budget": map[string]any{"name": "study"}, "mode": "import",
+	})
+	eid := created["id"].(string)
+	runs := func(n int, outcome string) []pastTrial {
+		out := make([]pastTrial, n)
+		for i := range out {
+			out[i] = pastTrial{outcome, 30, nil}
+		}
+		return out
+	}
+	declined := func(c map[string]any) resultRow {
+		t.Helper()
+		var rows []resultRow
+		decodeInto(t, c["results"], &rows)
+		return findRow(t, rows, "declined", "suite", "")
+	}
+	compute := func() {
+		t.Helper()
+		if err := x.srv.Engine.Compute(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Provisional: the candidate's first two runs, both declined.
+	x.importRuns(eid, f.taskB, f.high, "high", runs(5, "completed"))
+	x.importRuns(eid, f.taskB, f.low, "low-first", runs(2, "declined"))
+	compute()
+	items := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/comparisons?automatic=true", "t-alice", nil)["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("automatic comparisons %v", items)
+	}
+	early := items[0].(map[string]any)
+	cid := early["id"].(string)
+	if early["state"] != "complete" || early["final"] != false || declined(early).Candidate.N != 2 {
+		t.Fatalf("provisional %v", early)
+	}
+
+	// The candidate's last three runs, and the end: the record is marked
+	// final and still holds the two runs' figures.
+	x.importRuns(eid, f.taskB, f.low, "low-rest", runs(3, "completed"))
+	x.must(http.StatusOK, http.MethodPost, "/v1/experiments/"+eid+"/close", "t-alice", nil)
+	marked := x.must(http.StatusOK, http.MethodGet, "/v1/comparisons/"+cid, "t-alice", nil)
+	if marked["final"] != false || declined(marked).Candidate.N != 2 {
+		t.Fatalf("marked and not yet computed again: final %v over %d trials", marked["final"], declined(marked).Candidate.N)
+	}
+	for _, path := range []string{"/v1/experiments/" + eid + "/comparisons?final=true", "/v1/comparisons?final=true"} {
+		if got := x.must(http.StatusOK, http.MethodGet, path, "t-alice", nil)["items"].([]any); len(got) != 0 {
+			t.Fatalf("%s lists %d comparisons before their last computation", path, len(got))
+		}
+	}
+
+	// Computed again: final, over every run.
+	compute()
+	done := x.must(http.StatusOK, http.MethodGet, "/v1/comparisons/"+cid, "t-alice", nil)
+	if done["final"] != true || done["state"] != "complete" || declined(done).Candidate.N != 5 {
+		t.Fatalf("computed after the end: final %v, %s, over %d trials", done["final"], done["state"], declined(done).Candidate.N)
+	}
+	for _, path := range []string{"/v1/experiments/" + eid + "/comparisons?final=true", "/v1/comparisons?final=true"} {
+		if got := x.must(http.StatusOK, http.MethodGet, path, "t-alice", nil)["items"].([]any); len(got) != 1 {
+			t.Fatalf("%s lists %d comparisons after their last computation", path, len(got))
+		}
+	}
+}

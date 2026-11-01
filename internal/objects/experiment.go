@@ -523,6 +523,15 @@ type Comparison struct {
 	UpdatedAt time.Time `json:"-"`
 }
 
+// Settled reports whether a comparison's figures are final: it is marked
+// final and was computed after the mark. The experiment's end marks a kept
+// comparison final and leaves it to the next computation, so until then
+// the record holds the figures of its last provisional computation, which
+// can still change.
+func (c Comparison) Settled() bool {
+	return c.Final && c.State == ComparisonComplete && c.ComputedAt != nil && !c.ComputedAt.Before(c.UpdatedAt)
+}
+
 // DeclaredComparison is one comparison an experiment declares at create: a
 // pair of its candidates, by digest, with an optional logical variable;
 // one candidate's pair of tasks, by digest; or the general form, a cell

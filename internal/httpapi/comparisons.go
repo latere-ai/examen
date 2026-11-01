@@ -19,9 +19,10 @@ import (
 	"latere.ai/x/examen/internal/store"
 )
 
-// suiteLevel keeps a comparison's suite-level and candidate-level results,
-// which its own read answers; its rows route pages the task-level ones.
-func suiteLevel(c objects.Comparison) objects.Comparison {
+// answered is a comparison as a read answers it: its suite-level and
+// candidate-level results, since its rows route pages the task-level ones,
+// and final only once its figures are (objects.Comparison.Settled).
+func answered(c objects.Comparison) objects.Comparison {
 	rows := []objects.ResultRow{}
 	for _, r := range c.Results {
 		if r.Level != "task" {
@@ -29,6 +30,7 @@ func suiteLevel(c objects.Comparison) objects.Comparison {
 		}
 	}
 	c.Results = rows
+	c.Final = c.Settled()
 	return c
 }
 
@@ -54,7 +56,7 @@ func comparisonFilter(r *http.Request) (store.ComparisonFilter, error) {
 
 func replyComparisons(w http.ResponseWriter, list string, p page, cs []objects.Comparison) {
 	for i := range cs {
-		cs[i] = suiteLevel(cs[i])
+		cs[i] = answered(cs[i])
 	}
 	replyPage(w, list, p, cs, func(c objects.Comparison) string { return c.ID })
 }
@@ -158,7 +160,7 @@ func (s *Server) getComparison(w http.ResponseWriter, r *http.Request, c access.
 	if err != nil {
 		return err
 	}
-	reply(w, http.StatusOK, suiteLevel(cmp))
+	reply(w, http.StatusOK, answered(cmp))
 	return nil
 }
 
@@ -326,7 +328,7 @@ func (s *Server) requestComparison(w http.ResponseWriter, r *http.Request, c acc
 		return apierr.Internal(err)
 	}
 	w.Header().Set("Location", s.location("/comparisons/"+cmp.ID))
-	reply(w, http.StatusCreated, suiteLevel(out))
+	reply(w, http.StatusCreated, answered(out))
 	return nil
 }
 

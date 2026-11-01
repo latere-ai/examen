@@ -334,7 +334,7 @@ func (Analysis) Declared(ctx context.Context, e objects.Experiment, family []obj
 		// A final record a trial or the experiment's end marked again
 		// holds the figures of its last computation until it is
 		// recomputed, so it counts as final once computed after the mark.
-		p.Final = c.Final && c.State == objects.ComparisonComplete && c.ComputedAt != nil && !c.ComputedAt.Before(c.UpdatedAt)
+		p.Final = c.Settled()
 		if level, ok := recordedLevel(c.Parameters); ok {
 			fdr = level
 		}

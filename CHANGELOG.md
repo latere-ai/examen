@@ -8,6 +8,15 @@ here is refused before it is pushed.
 
 ### Fixed
 
+- **A comparison reads `final: true` only once its figures are final.**
+  When an experiment ended, its comparisons were marked final at once
+  and computed a last time on the next round of work, so for the seconds
+  between the two a comparison answered `final: true` with the figures of
+  its last provisional computation, over fewer trials than the
+  experiment holds. A client that stopped reading at `final: true` kept
+  those figures. A comparison now answers `final: false` until it has
+  been computed after the experiment ended, and `?final=true` lists only
+  those.
 - **`make run` starts on a new local database.** `make db` asked the
   Postgres container whether it was ready over its socket, which the
   image's first-run setup answers before the server that serves

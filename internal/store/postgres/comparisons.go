@@ -107,6 +107,12 @@ func insertComparison(ctx context.Context, tx pgx.Tx, c objects.Comparison, now 
 	return nil
 }
 
+// settledComparison is objects.Comparison.Settled in SQL: marked final and
+// computed after the mark, which a list of final comparisons filters on.
+// A computation stores computed_at and updated_at from one clock reading,
+// and a mark moves updated_at alone.
+const settledComparison = `(c.final AND c.state = 'complete' AND coalesce((c.computed->>'computed_at')::timestamptz >= c.updated_at, false))`
+
 func (x experiments) Comparisons(ctx context.Context, f store.ComparisonFilter, p store.Page) ([]objects.Comparison, error) {
 	w := &where{}
 	if f.Owners != nil {
@@ -133,7 +139,7 @@ func (x experiments) Comparisons(ctx context.Context, f store.ComparisonFilter, 
 	for _, b := range []struct {
 		column string
 		v      *bool
-	}{{"c.automatic", f.Automatic}, {"c.exploratory", f.Exploratory}, {"c.final", f.Final}, {"(c.declared IS NOT NULL)", f.Declared}} {
+	}{{"c.automatic", f.Automatic}, {"c.exploratory", f.Exploratory}, {settledComparison, f.Final}, {"(c.declared IS NOT NULL)", f.Declared}} {
 		if b.v != nil {
 			w.add(b.column+" = %s", *b.v)
 		}
