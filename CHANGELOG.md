@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.8.2 - 2026-11-01
+
 ### Changed
 
 - **Releases are built, signed and published by the shared release stages
