@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.8.3 - 2026-11-01
+
 ### Added
 
 - **An experiment's progress counts the trials a retry replaced,** as
