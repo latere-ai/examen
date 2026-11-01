@@ -1,10 +1,11 @@
 # The goalless study, imported end to end
 
-This harness imports the goalless-agents study, a study of what coding
-agents build when nobody tells them what to build, into a local
-`examend`, or in remote mode a deployed one, and checks what Examen
-computes against what the study's own files say. It is the first release's end-to-end test of external
-harnesses: every run of the study becomes a declared past trial, imported
+This harness imports the
+[goalless-agents study](https://github.com/changkun/goalless-agents), a
+study of what coding agents build when nobody tells them what to build,
+into a local `examend`, or in remote mode a deployed one, and checks
+what Examen computes against what the study's own files say. It is the
+first release's end-to-end test of external harnesses: every run of the study becomes a declared past trial, imported
 with `POST /experiments/{id}/imports` and `executor: external`
 ([`specs/003-api.md`](../../../specs/003-api.md), Imported trials), and
 every comparison and grid figure is the analysis's.
@@ -134,7 +135,7 @@ The study keeps each run as `resultsN/<backend>/<model>/run-NN/`, or
 
 | The study's file | The import |
 |---|---|
-| `meta.md` `## Prompt` | the task whose instruction is the prompt file's text without trailing newlines; Experiment 1, which ran the first prompt in a sandbox with RTK set up, is the task `prompt1-rtk` |
+| `meta.md` `## Prompt` | the task whose instruction is the prompt file's text without trailing newlines; Experiment 1, which ran the first prompt with the sandbox's RTK tooling left enabled (the study disabled it from Experiment 2 on), is the task `prompt1-rtk` |
 | `meta.md` `Timestamp`, `Duration` | `agent_ended_at` and `ended_at` are the timestamp, written when the run ended; `started_at` is the timestamp less the duration |
 | `meta.md` `Exit Code`, `output.json` | the outcome, below |
 | `meta.md` `Backend`, `Model`, `Fast mode`, `Codex max_output_tokens pin`; the cell directory's `-high`, `-low` or `-fast` | the candidate, below |
