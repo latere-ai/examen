@@ -7,7 +7,7 @@ depends_on:
 affects: [api/, internal/store/, internal/id/]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-21
+updated: 2026-11-01
 author: changkun
 ---
 
@@ -455,7 +455,7 @@ One execution of a suite against candidates.
 | `state` | enum | below |
 | `created_by` | subject | the person who created it (spec 004), which may differ from `owner`: an experiment created in an organization's context is owned by the organization and created by the member. Set at create from the caller, never changed, and answered on every read |
 | `judgments` | []object | one judgment record per grading that belongs to no trial: a candidate-level judge's, with `candidate` set, and a canonicalizer's, with `metric` set; each otherwise as a trial's `judgments` entry (spec 006) |
-| `progress` | object | computed and never written: `{cells: {<state>: n}, trials: {<state>: n}, outcomes: {<outcome>: n}}` |
+| `progress` | object | computed and never written: `{cells: {<state>: n}, trials: {<state>: n, retried: n}, outcomes: {<outcome>: n}}`; `trials.retried`, present when a retry replaced a trial, counts the trials a retry replaced, each also counted under its state, so `done` less `retried` counts each finished run once |
 | `metadata` | map | at most `METADATA_MAX_PAIRS` |
 
 States: `pending` → `running` → `grading` → `complete`, and

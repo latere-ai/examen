@@ -3397,6 +3397,7 @@ components:
             type: "object"
         progress:
           type: "object"
+          description: "Counts computed when the experiment is read: its cells by state, its trials by state, and its trials' outcomes."
           properties:
             cells:
               type: "object"
@@ -3404,6 +3405,11 @@ components:
                 type: "integer"
             trials:
               type: "object"
+              description: "The experiment's trials by state, and under `retried` the trials a retry replaced, present when there is one. `retried` is not a state: each such trial is also counted under its state, so `done` less `retried` counts each finished run once, and a client compares that with the runs the experiment declares, `trials` times its tasks and candidates."
+              properties:
+                retried:
+                  type: "integer"
+                  description: "The trials a retry replaced: an infrastructure failure retried automatically, or an index a cell's retry ran again."
               additionalProperties:
                 type: "integer"
             outcomes:

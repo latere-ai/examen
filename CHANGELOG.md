@@ -6,6 +6,18 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Added
+
+- **An experiment's progress counts the trials a retry replaced,** as
+  `progress.trials.retried`, present when there is one. A trial that
+  ended `infra_failed` and ran again, or that a cell's retry ran again,
+  stays counted under its state, so `progress.trials.done` could exceed
+  the runs the experiment declares; `done` less `retried` counts each
+  finished run once.
+- The API document describes an experiment's `metadata`, a trial's
+  `retry_of`, the grid's `trials.retried` and an experiment's
+  `progress`.
+
 ### Fixed
 
 - **A comparison reads `final: true` only once its figures are final.**

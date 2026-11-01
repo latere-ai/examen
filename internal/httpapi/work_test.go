@@ -144,6 +144,15 @@ func TestRetriesBlockAndResume(t *testing.T) {
 	if c := grid["items"].([]any)[0].(map[string]any)["cells"].([]any)[0].(map[string]any); c["trials"].(map[string]any)["retried"] != float64(limits.MaxInfraRetries) {
 		t.Fatalf("the grid counts retried trials %v", c)
 	}
+	// The experiment's progress counts them beside the states they are
+	// counted under, so a client can count each declared run once.
+	progress := func() map[string]any {
+		t.Helper()
+		return x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid, "t-alice", nil)["progress"].(map[string]any)["trials"].(map[string]any)
+	}
+	if p := progress(); p["retried"] != float64(limits.MaxInfraRetries) || p["done"] != float64(limits.MaxInfraRetries+1) {
+		t.Fatalf("while blocked, the progress of the trials %v", p)
+	}
 	x.refuse(404, apierr.CodeCellNotFound, http.MethodPost, "/v1/cells/"+cell+"/retry", "t-bob", nil)
 	x.refuse(404, apierr.CodeCellNotFound, http.MethodPost, "/v1/cells/"+id.New(id.Cell)+"/retry", "t-alice", nil)
 	resumed := x.must(http.StatusOK, http.MethodPost, "/v1/cells/"+cell+"/retry", "t-alice", nil)
@@ -168,6 +177,16 @@ func TestRetriesBlockAndResume(t *testing.T) {
 	e := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid, "t-alice", nil)
 	if e["state"] != "complete" {
 		t.Fatalf("complete %v", e)
+	}
+	// Two tasks of two trials each, and the blocked cell's resumed smoke
+	// trial replaced its last failed one: every run declared is done once
+	// past the retried trials.
+	if p := progress(); p["retried"] != float64(limits.MaxInfraRetries+1) || p["done"].(float64)-p["retried"].(float64) != 4 {
+		t.Fatalf("at completion, the progress of the trials %v", p)
+	}
+	list := x.must(http.StatusOK, http.MethodGet, "/v1/experiments", "t-alice", nil)["items"].([]any)
+	if p := list[0].(map[string]any)["progress"].(map[string]any)["trials"].(map[string]any); p["retried"] != float64(limits.MaxInfraRetries+1) {
+		t.Fatalf("a list of experiments counts retried trials %v", p)
 	}
 	completed := x.must(http.StatusOK, http.MethodGet, "/v1/experiments/"+eid+"/events?limit=200&after=0", "t-alice", nil)
 	if !strings.Contains(string(mustJSON(t, completed)), "experiment.completed") {

@@ -247,8 +247,9 @@ func (x experiments) Get(ctx context.Context, eid string) (objects.Experiment, e
 	return e, nil
 }
 
-// progress counts an experiment's cells by state, and its trials by state
-// and by outcome.
+// progress counts an experiment's cells by state, its trials by state and
+// by outcome, and, under objects.TrialsRetried, the trials a retry
+// replaced, which stay counted under their states too.
 func progress(ctx context.Context, q querier, eid string) (objects.Progress, error) {
 	p := emptyProgress()
 	count := func(sql string, into map[string]int) error {
@@ -274,6 +275,9 @@ func progress(ctx context.Context, q querier, eid string) (objects.Progress, err
 		return p, err
 	}
 	if err := count(`SELECT state, count(*) FROM trials WHERE experiment = $1 GROUP BY state`, p.Trials); err != nil {
+		return p, err
+	}
+	if err := count(`SELECT '`+objects.TrialsRetried+`', count(*) FROM trials WHERE experiment = $1 AND retried HAVING count(*) > 0`, p.Trials); err != nil {
 		return p, err
 	}
 	return p, count(`SELECT outcome, count(*) FROM trials WHERE experiment = $1 AND outcome IS NOT NULL GROUP BY outcome`, p.Outcomes)

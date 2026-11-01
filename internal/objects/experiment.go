@@ -79,11 +79,19 @@ type Reference struct {
 }
 
 // Progress is an experiment's progress, computed and never written.
+// Trials counts the trials by state and, under TrialsRetried, the ones a
+// retry replaced.
 type Progress struct {
 	Cells    map[string]int `json:"cells"`
 	Trials   map[string]int `json:"trials"`
 	Outcomes map[string]int `json:"outcomes"`
 }
+
+// TrialsRetried is the member of Progress.Trials that counts the trials a
+// retry replaced, present when there is one. It is not a state: each such
+// trial is counted under its state too, so subtracting it counts each run
+// the experiment declared once, by its latest trial.
+const TrialsRetried = "retried"
 
 // Experiment is one execution of a suite against candidates. Scheduling
 // is the order in which its cells take its parallelism and its external
