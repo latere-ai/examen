@@ -12,6 +12,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -176,19 +177,22 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	log.InfoContext(ctx, "listening", "address", ln.Addr().String())
 
 	background, stopWork := context.WithCancel(context.WithoutCancel(ctx))
-	defer stopWork()
+	// The loops end before the store closes: a grading in flight writes to
+	// it until the loop that started it returns.
+	var loops sync.WaitGroup
+	defer func() { stopWork(); loops.Wait() }()
 	every := sweepEvery
 	if hooks.SweepEvery > 0 {
 		every = hooks.SweepEvery
 	}
-	go sweep(background, st.Idempotency(), every, log)
+	loops.Go(func() { sweep(background, st.Idempotency(), every, log) })
 	tick := limits.ReportInterval
 	if hooks.WorkEvery > 0 {
 		tick = hooks.WorkEvery
 	}
-	go engine.Loop(background, tick)
+	loops.Go(func() { engine.Loop(background, tick) })
 	if engine.Grading != nil {
-		go engine.GradeLoop(background, tick)
+		loops.Go(func() { engine.GradeLoop(background, tick) })
 	}
 	if hooks.Ready != nil {
 		hooks.Ready <- ln.Addr().String()

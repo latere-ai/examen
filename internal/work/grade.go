@@ -83,14 +83,65 @@ const gradeWait = time.Minute
 // without a value.
 const gradeOutages = 30
 
+// pool is the workers of one replica's grading: a slot per grading that
+// runs at once, and the jobs holding one.
+type pool struct {
+	slots chan struct{}
+	wg    sync.WaitGroup
+	// collect keeps each job's error for the round that waits on them;
+	// the loop leaves it off, since a job logs its own.
+	collect bool
+	mu      sync.Mutex
+	errs    []error
+}
+
+// newPool makes a pool of the replica's Workers, at least one.
+func (e *Engine) newPool(collect bool) *pool {
+	n := 1
+	if e.Grading != nil {
+		n = max(e.Grading.Workers, 1)
+	}
+	return &pool{slots: make(chan struct{}, n), collect: collect}
+}
+
+// take claims a slot without waiting, and reports whether there was one.
+func (p *pool) take() bool {
+	select {
+	case p.slots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+// free is how many slots no job holds.
+func (p *pool) free() int { return cap(p.slots) - len(p.slots) }
+
 // Grade runs one round of the gradings due: each trial's checks together in
 // one check sandbox, and each judgment on its own, at most Workers at once,
 // and answers once every one it took ended or waits.
 func (e *Engine) Grade(ctx context.Context) error {
+	p := e.newPool(true)
+	err := e.round(ctx, p)
+	p.wg.Wait()
+	return errors.Join(err, errors.Join(p.errs...))
+}
+
+// round starts the due gradings that a free slot of p can run and returns
+// without waiting for them: p.wg counts the jobs it started. A slot is
+// taken before a job's rows are held, and when none is free the round
+// stops, so a grading it cannot start stays due for the next round
+// instead of sitting held until its hold lapses.
+func (e *Engine) round(ctx context.Context, p *pool) error {
 	g := e.Grading
 	if g == nil || (!g.Checks() && !g.Judges()) {
 		return nil
 	}
+	if p.free() == 0 {
+		return nil
+	}
+	// A trial's checks are one job over several rows, so the read keeps
+	// batch as its bound rather than the free slots.
 	due, err := e.Store.Gradings().Due(ctx, batch)
 	if err != nil {
 		return err
@@ -114,18 +165,18 @@ func (e *Engine) Grade(ctx context.Context) error {
 			jobs = append(jobs, job{hold: holdJudge, rows: []objects.Grading{d}})
 		}
 	}
-	workers := max(g.Workers, 1)
-	sem := make(chan struct{}, workers)
-	var wg sync.WaitGroup
-	var mu sync.Mutex
 	var errs []error
 	for _, j := range jobs {
+		if !p.take() {
+			break
+		}
 		ids := make([]string, len(j.rows))
 		for i, r := range j.rows {
 			ids[i] = r.ID
 		}
 		held, err := e.Store.Gradings().Hold(ctx, ids, j.hold)
 		if err != nil {
+			<-p.slots
 			errs = append(errs, err)
 			continue
 		}
@@ -136,33 +187,47 @@ func (e *Engine) Grade(ctx context.Context) error {
 			}
 		}
 		if len(rows) == 0 {
+			<-p.slots
 			continue
 		}
-		wg.Add(1)
-		sem <- struct{}{}
+		p.wg.Add(1)
 		go func() {
-			defer func() { <-sem; wg.Done() }()
-			var err error
-			if rows[0].Kind == objects.GraderCheck {
-				err = e.runChecks(ctx, rows)
-			} else {
-				err = e.runJudge(ctx, rows[0])
+			defer func() { <-p.slots; p.wg.Done() }()
+			err := e.runJob(ctx, rows)
+			if err == nil {
+				return
 			}
-			if err != nil {
-				e.log().WarnContext(ctx, "a grading did not end; it is taken again", "trial", rows[0].Trial, "grader", rows[0].Grader, "error", apierr.LogText(err))
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
+			e.log().WarnContext(ctx, "a grading did not end; it is taken again", "trial", rows[0].Trial, "grader", rows[0].Grader, "error", apierr.LogText(err))
+			if p.collect {
+				p.mu.Lock()
+				p.errs = append(p.errs, err)
+				p.mu.Unlock()
 			}
 		}()
 	}
-	wg.Wait()
 	return errors.Join(errs...)
 }
 
-// GradeLoop runs a round of the gradings due every interval until ctx
-// ends, apart from Tick, since a trial's checks take minutes.
+// runJob runs a held job: a trial's checks together, or one judgment.
+func (e *Engine) runJob(ctx context.Context, rows []objects.Grading) error {
+	if e.job != nil {
+		return e.job(ctx, rows)
+	}
+	if rows[0].Kind == objects.GraderCheck {
+		return e.runChecks(ctx, rows)
+	}
+	return e.runJudge(ctx, rows[0])
+}
+
+// GradeLoop grades the gradings due every interval until ctx ends, apart
+// from Tick, since a trial's checks take minutes. Its Workers persist
+// across rounds: each round starts as many due gradings as there are free
+// workers and does not wait for the ones already running, so one slow
+// check or judgment holds up no other run. It returns once the gradings it
+// started ended, so none writes after the caller closes the store.
 func (e *Engine) GradeLoop(ctx context.Context, every time.Duration) {
+	p := e.newPool(false)
+	defer p.wg.Wait()
 	tick := time.NewTicker(every)
 	defer tick.Stop()
 	for {
@@ -170,7 +235,7 @@ func (e *Engine) GradeLoop(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-tick.C:
-			if err := e.Grade(ctx); err != nil && ctx.Err() == nil {
+			if err := e.round(ctx, p); err != nil && ctx.Err() == nil {
 				e.log().WarnContext(ctx, "a round of grading did not finish; the next takes what it left", "error", apierr.LogText(err))
 			}
 		}

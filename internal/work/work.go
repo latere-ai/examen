@@ -49,6 +49,9 @@ type Engine struct {
 	Log     *slog.Logger
 	// Now is the clock of the usage reads; time.Now when nil.
 	Now func() time.Time
+	// job runs a held grading job in place of the checks and judges, for
+	// tests of the pool; nil runs them.
+	job func(ctx context.Context, rows []objects.Grading) error
 }
 
 func (e *Engine) log() *slog.Logger {

@@ -6,6 +6,16 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Fixed
+
+- **One slow check or judgment no longer holds up the grading of other
+  runs.** A replica graded in rounds and waited for every grading of a
+  round to end before it read the next, so a long check left free workers
+  idle and newly due gradings waiting. A replica now keeps up to its
+  workers grading at once and starts each newly due grading as a worker
+  frees up. On shutdown it waits for the gradings it started before the
+  store closes.
+
 ## v0.8.3 - 2026-11-01
 
 ### Added
