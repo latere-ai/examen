@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.8.4 - 2026-11-02
+
 ### Fixed
 
 - **One slow check or judgment no longer holds up the grading of other
