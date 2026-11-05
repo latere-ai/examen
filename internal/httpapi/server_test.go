@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"latere.ai/x/pkg/requestid"
+
 	"latere.ai/x/examen/api"
 	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
@@ -250,7 +252,7 @@ func TestRequestIDs(t *testing.T) {
 	if a := h.do(http.MethodGet, "/v1/openapi.yaml", "", nil, RequestIDHeader, "req-from-caller"); a.header.Get(RequestIDHeader) != "req-from-caller" {
 		t.Fatalf("the caller's id: %q", a.header.Get(RequestIDHeader))
 	}
-	for _, bad := range []string{"", strings.Repeat("x", maxRequestIDBytes+1), "has space"} {
+	for _, bad := range []string{"", strings.Repeat("x", requestid.MaxLen+1), "has space", "caf\u00e9"} {
 		got := h.do(http.MethodGet, "/v1/openapi.yaml", "", nil, RequestIDHeader, bad).header.Get(RequestIDHeader)
 		if got == bad || !strings.HasPrefix(got, "req_") {
 			t.Errorf("%q answered %q", bad, got)

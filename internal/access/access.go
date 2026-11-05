@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"latere.ai/x/pkg/authz"
+	"latere.ai/x/pkg/requestid"
 
 	"latere.ai/x/examen/authorizer"
 	"latere.ai/x/examen/internal/limits"
@@ -118,7 +119,7 @@ func RequestInfo(r *http.Request) authz.Caller {
 		// An address with no port is already the host.
 		host = r.RemoteAddr
 	}
-	return authz.Caller{ID: r.Header.Get("X-Request-Id"), IP: host, UserAgent: r.UserAgent()}
+	return authz.Caller{ID: r.Header.Get(requestid.Header), IP: host, UserAgent: r.UserAgent()}
 }
 
 // Decision is the answer to a question.

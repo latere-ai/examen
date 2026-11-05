@@ -12,18 +12,17 @@ package httpapi
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"latere.ai/x/pkg/health"
 	"latere.ai/x/pkg/otel"
 	"latere.ai/x/pkg/ratelimit"
+	"latere.ai/x/pkg/requestid"
 
 	"latere.ai/x/examen/api"
 	"latere.ai/x/examen/internal/access"
@@ -300,22 +299,15 @@ func (s *Server) draining(context.Context) error {
 }
 
 // RequestIDHeader carries a request's id both ways.
-const RequestIDHeader = "X-Request-Id"
-
-// maxRequestIDBytes bounds an id a caller sends; a longer one, or one with
-// a byte that is not visible ASCII, is replaced.
-const maxRequestIDBytes = 128
+const RequestIDHeader = requestid.Header
 
 // identified gives every request an id: the one the caller sent, when it is
 // short visible ASCII, or one of its own. The id is set on the request, so
 // the authorizer is told it, and on the answer.
 func identified(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rid := r.Header.Get(RequestIDHeader)
-		if !visibleASCII(rid, maxRequestIDBytes) {
-			rid = "req_" + strings.ToLower(rand.Text())
-			r.Header.Set(RequestIDHeader, rid)
-		}
+		rid := requestid.FromRequest(r)
+		r.Header.Set(RequestIDHeader, rid)
 		w.Header().Set(RequestIDHeader, rid)
 		next.ServeHTTP(w, r)
 	})
