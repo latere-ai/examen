@@ -66,6 +66,7 @@ v0.1 profile, which is what the first release serves (below).
 | `internal/version/` | the build's version, commit and date, stamped by the linker |
 | `test/stubs/` | a stub issuer, authorizer, minter and key endpoint, and stubs of Topos, Cella, Lux, Arca and Origo |
 | `deploy/base/`, `deploy/examples/generic/` | manifests with no host or account in them, and an example installation under `example.com` |
+| `deploy/prod/`, `deploy/bootstrap/` | Latere's own installation, which the release workflow applies, and the identity it deploys with and the objects it may not write |
 | `docs/` | running it, the configuration reference, the API guide, writing an authorizer, a minter and a key endpoint |
 
 The public packages are `api` and `authorizer`, which a client, an
@@ -371,6 +372,17 @@ release from the changelog section, naming the comparator and HTTP
 runner digests a grader or a candidate pins, and the scanner digest a
 publication's scan records.
 
+Between the build and the publish, a `deploy` job runs the shared deploy
+stage of `latere-ai/ci` where the repository variable
+`EXAMEN_RELEASE_DEPLOY` is set: `deploy/prod`, Latere's own overlay, is
+applied with `examend` pinned by the digest the build pushed, the
+Deployment is waited for, and `tools/smoke/release.sh` is repeated
+against the live origin until it passes. The stage reaches the cluster as
+the rollout identity of `deploy/bootstrap/rollout-identity.yaml`, through
+the repository secret `EXAMEN_KUBECONFIG`; a fork sets neither and deploys
+nothing. `test/deploy/release_test.go` holds the job's shape and that the
+identity covers exactly the kinds `deploy/prod` renders.
+
 ### Upgrade and rollback
 
 1. Read the changelog section of every release between the running one
@@ -591,8 +603,8 @@ files and stub cores; 18, publications.
 The release differs from the design above in a few places: with
 `EXAMEN_KEYS_URL` unset the key source reads `lux` rather than none;
 the start log does not say whether `serve` serves the v0.1 profile; no
-metric of the telemetry table is emitted; the layout's `deploy/` and
-`test/stubs/`, and every binary but `examend`, do not exist; and
+metric of the telemetry table is emitted; the layout's `deploy/base`,
+`deploy/examples/generic` and `test/stubs/`, and every binary but `examend`, do not exist; and
 `docs/` holds running it locally, the concepts, the configuration
 reference and writing an authorizer, without the API guide or a
 minimal authorizer, minter or key endpoint.
