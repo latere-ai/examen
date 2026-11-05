@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.8.6 - 2026-11-05
+
 ### Changed
 
 - **`EXAMEN_TRUSTED_PROXIES` now has an effect.** The client address the
