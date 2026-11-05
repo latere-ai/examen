@@ -127,6 +127,7 @@ value. Only `internal/config` reads the environment.
 | `internal/id/` | identifiers and digests |
 | `internal/limits/` | the limits of spec 002, each defined once |
 | `internal/version/` | the build's version, stamped by the linker |
+| `tools/smoke/` | `release.sh`, the live check the release pipeline runs after a rollout and an operator runs after an upgrade, given `BASE_URL` (the origin and base path of the installation) |
 | `test/e2e/` | end-to-end tests against a built `examend`: importing a published study, and a smoke test of a deployed server |
 | `docs/` | the documentation for people running and calling Examen |
 | `specs/` | one spec per component, in build order in [`specs/README.md`](specs/README.md) |
