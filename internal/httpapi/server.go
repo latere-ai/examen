@@ -166,6 +166,12 @@ func (s *Server) handler(served []route) http.Handler {
 		mux.Handle("GET "+p, probes)
 	}
 	b := s.BasePath
+	if b != "" {
+		// The build identity is also public below the base path, the one
+		// prefix the ingress forwards, so a release check reads it from
+		// outside. It takes no token and is the body /version serves.
+		mux.Handle("GET "+b+"/version", versionAt(probes))
+	}
 	for _, rt := range served {
 		mux.Handle(rt.method+" "+b+rt.path, s.serve(rt, limiter))
 	}
@@ -187,7 +193,20 @@ func (s *Server) handler(served []route) http.Handler {
 	}
 	return otel.Handler(identified(s.bounded(mux)), "examend",
 		otel.WithRouteTemplate(func(r *http.Request) string { return r.Pattern }),
-		otel.WithSkip(func(r *http.Request) bool { return isProbe(r.URL.Path) }))
+		otel.WithSkip(func(r *http.Request) bool {
+			return isProbe(r.URL.Path) || (b != "" && r.URL.Path == b+"/version")
+		}))
+}
+
+// versionAt serves the answer of the probes' /version at the path it is
+// mounted on, so the build identity below the base path is the very body
+// the root serves.
+func versionAt(probes http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rooted := r.Clone(r.Context())
+		rooted.URL.Path, rooted.URL.RawPath = "/version", ""
+		probes.ServeHTTP(w, rooted)
+	})
 }
 
 func isProbe(path string) bool {

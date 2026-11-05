@@ -284,6 +284,7 @@ the base path, with no token:
 | `/livez` | `200` while the process runs; it never carries an error |
 | `/readyz` | `200` when ready; otherwise `503` with the failing check's name and error. The checks: `database`, the pool answers and the schema check holds; `draining`, which fails from the stop signal on |
 | `/version` | `{version, commit, build_time}` as the linker stamped them; the release workflow compares `version` with the tag |
+| `{base}/version` | the same body below the base path, with no token, the one route of the three an ingress that forwards only the base path makes public; the release smoke compares its `version` with the tag |
 
 Readiness does not depend on the authorizer, the minter, the key
 endpoint, the issuers or the cores. Their outage fails the requests that need them with a `503`

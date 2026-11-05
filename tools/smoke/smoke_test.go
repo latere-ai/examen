@@ -15,13 +15,17 @@ import (
 	"testing"
 )
 
-// stub serves the one public route of examend below its base path: the
-// contract. A nil handler leaves the base path routing nothing.
-func stub(t *testing.T, contract http.HandlerFunc) *httptest.Server {
+// stub serves the public routes of examend below its base path: the
+// contract and the build's version. A nil handler leaves that route
+// unserved.
+func stub(t *testing.T, contract, version http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	if contract != nil {
 		mux.HandleFunc("GET /v1/evals/openapi.yaml", contract)
+	}
+	if version != nil {
+		mux.HandleFunc("GET /v1/evals/version", version)
 	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -31,6 +35,12 @@ func stub(t *testing.T, contract http.HandlerFunc) *httptest.Server {
 func healthy(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/yaml")
 	_, _ = w.Write([]byte("openapi: 3.1.0\ninfo:\n  title: Examen\n  version: \"1\"\n"))
+}
+
+// serving is a version route that serves the build v1.2.3.
+func serving(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(`{"version":"v1.2.3","commit":"abc1234","build_time":"2026-11-05T00:00:00Z"}` + "\n"))
 }
 
 // script is the path to release.sh, found from this file rather than from
@@ -61,7 +71,7 @@ func run(t *testing.T, env ...string) (string, bool) {
 }
 
 func TestSmokePassesAndWritesEvidence(t *testing.T) {
-	srv := stub(t, healthy)
+	srv := stub(t, healthy, serving)
 	evidence := filepath.Join(t.TempDir(), "smoke.md")
 	out, ok := run(t, "BASE_URL="+srv.URL+"/v1/evals", "TAG=v1.2.3", "COMMIT=abc1234", "OUTPUT_MD="+evidence)
 	if !ok {
@@ -71,15 +81,53 @@ func TestSmokePassesAndWritesEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"## Release evidence", "- Tag: `v1.2.3`", "- Commit: `abc1234`", "Version: not checked"} {
+	for _, want := range []string{"## Release evidence", "- Tag: `v1.2.3`", "- Commit: `abc1234`", "Served version: `v1.2.3`, equal to the tag"} {
 		if !strings.Contains(string(md), want) {
 			t.Errorf("the evidence lacks %q:\n%s", want, md)
 		}
 	}
 }
 
+func TestSmokeFailsWhenTheServedVersionIsNotTheTag(t *testing.T) {
+	srv := stub(t, healthy, serving)
+	out, ok := run(t, "BASE_URL="+srv.URL+"/v1/evals", "TAG=v1.2.4")
+	if ok {
+		t.Fatalf("the smoke passed with a served version that is not the tag:\n%s", out)
+	}
+	if !strings.Contains(out, "version mismatch: served v1.2.3, expected v1.2.4") {
+		t.Errorf("the failure does not name both versions:\n%s", out)
+	}
+}
+
+func TestSmokeRecordsTheVersionWithNoTag(t *testing.T) {
+	srv := stub(t, healthy, serving)
+	out, ok := run(t, "BASE_URL="+srv.URL+"/v1/evals")
+	if !ok || !strings.Contains(out, "served version recorded (v1.2.3)") {
+		t.Fatalf("want a pass that records the version (ok=%v):\n%s", ok, out)
+	}
+}
+
+func TestSmokeFailsWhenTheVersionRouteIsNotServed(t *testing.T) {
+	srv := stub(t, healthy, nil)
+	out, ok := run(t, "BASE_URL="+srv.URL+"/v1/evals", "TAG=v1.2.3")
+	if ok {
+		t.Fatalf("the smoke passed against a service with no version route:\n%s", out)
+	}
+	if !strings.Contains(out, "GET /version: expected 200, got 404") {
+		t.Errorf("the failure does not name the route:\n%s", out)
+	}
+}
+
+func TestSmokeFailsOnAVersionRouteThatNamesNoVersion(t *testing.T) {
+	srv := stub(t, healthy, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("{}\n")) })
+	out, ok := run(t, "BASE_URL="+srv.URL+"/v1/evals", "TAG=v1.2.3")
+	if ok || !strings.Contains(out, "no version in") {
+		t.Fatalf("want a failure naming the empty version (ok=%v):\n%s", ok, out)
+	}
+}
+
 func TestSmokeFailsWhenTheRouteIsNotServed(t *testing.T) {
-	srv := stub(t, nil)
+	srv := stub(t, nil, serving)
 	out, ok := run(t, "BASE_URL="+srv.URL+"/v1/evals", "TAG=v1.2.3")
 	if ok {
 		t.Fatalf("the smoke passed against a service that routes nothing:\n%s", out)
@@ -90,7 +138,7 @@ func TestSmokeFailsWhenTheRouteIsNotServed(t *testing.T) {
 }
 
 func TestSmokeFailsOnADocumentThatIsNotOpenAPI(t *testing.T) {
-	srv := stub(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>\n")) })
+	srv := stub(t, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("<html>\n")) }, serving)
 	out, ok := run(t, "BASE_URL="+srv.URL+"/v1/evals")
 	if ok {
 		t.Fatalf("the smoke passed against a page:\n%s", out)
@@ -101,7 +149,7 @@ func TestSmokeFailsOnADocumentThatIsNotOpenAPI(t *testing.T) {
 }
 
 func TestSmokeFailsWhenTheServiceIsDown(t *testing.T) {
-	srv := stub(t, healthy)
+	srv := stub(t, healthy, serving)
 	url := srv.URL
 	srv.Close()
 	out, ok := run(t, "BASE_URL="+url+"/v1/evals")

@@ -69,6 +69,30 @@ func TestProbes(t *testing.T) {
 	}
 }
 
+// The build identity is public below the base path, the prefix the ingress
+// forwards, and is the body the root serves; with no base path there is no
+// second route to add.
+func TestVersionBelowTheBasePath(t *testing.T) {
+	oldV, oldC, oldD := version.Version, version.Commit, version.Date
+	t.Cleanup(func() { version.Version, version.Commit, version.Date = oldV, oldC, oldD })
+	version.Version, version.Commit, version.Date = "v1.2.3", "abc1234", "2026-11-05T00:00:00Z"
+	h := newHarness(t, &fakeStore{}, nil, func(s *Server) { s.BasePath = "/v1/evals" })
+	a := h.do(http.MethodGet, "/v1/evals/version", "", nil)
+	want := `{"version":"v1.2.3","commit":"abc1234","build_time":"2026-11-05T00:00:00Z"}`
+	if a.status != http.StatusOK || strings.TrimSpace(string(a.body)) != want {
+		t.Fatalf("/v1/evals/version with no token: %d %s", a.status, a.body)
+	}
+	if root := h.do(http.MethodGet, "/version", "", nil); string(root.body) != string(a.body) {
+		t.Errorf("the root /version %s differs from %s", root.body, a.body)
+	}
+	if a := h.do(http.MethodPost, "/v1/evals/version", "", nil); a.status == http.StatusOK {
+		t.Errorf("POST /v1/evals/version answered %d", a.status)
+	}
+	if a := newHarness(t, &fakeStore{}, nil, func(s *Server) { s.BasePath = "" }).do(http.MethodGet, "/version", "", nil); a.status != http.StatusOK {
+		t.Errorf("/version with no base path: %d", a.status)
+	}
+}
+
 // The contract is served below the base path to anyone; a path no route
 // serves is the contract's 404, for every method, below the base path and
 // beside it.
