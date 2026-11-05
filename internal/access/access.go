@@ -24,12 +24,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"slices"
 	"time"
 
 	"latere.ai/x/pkg/authz"
+	"latere.ai/x/pkg/clientip"
 	"latere.ai/x/pkg/requestid"
 
 	"latere.ai/x/examen/authorizer"
@@ -111,15 +111,25 @@ func Ask(r *http.Request, action string, resource authz.Resource) Question {
 	return Question{Action: action, Resource: resource, Request: RequestInfo(r)}
 }
 
+// addressKey carries the client address a request was resolved to.
+type addressKey struct{}
+
+// WithAddress returns ctx carrying the client address of a request, as
+// clientip.Address worked it out past the proxies the installation trusts.
+func WithAddress(ctx context.Context, address string) context.Context {
+	return context.WithValue(ctx, addressKey{}, address)
+}
+
 // RequestInfo is what the authorizer is told about the request: its id,
-// the peer address as the server sees it, and the user agent.
+// the client address and the user agent. The address is the one
+// WithAddress put on the request's context, and the peer address when none
+// was.
 func RequestInfo(r *http.Request) authz.Caller {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		// An address with no port is already the host.
-		host = r.RemoteAddr
+	address, ok := r.Context().Value(addressKey{}).(string)
+	if !ok {
+		address = clientip.Peer(r)
 	}
-	return authz.Caller{ID: r.Header.Get(requestid.Header), IP: host, UserAgent: r.UserAgent()}
+	return authz.Caller{ID: r.Header.Get(requestid.Header), IP: address, UserAgent: r.UserAgent()}
 }
 
 // Decision is the answer to a question.

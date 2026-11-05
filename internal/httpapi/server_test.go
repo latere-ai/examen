@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -279,5 +280,42 @@ func TestRoutes(t *testing.T) {
 	}
 	if (&Server{Store: &fakeStore{}}).Handler() == nil {
 		t.Fatal("no handler")
+	}
+}
+
+// The authorizer is told the client address: the peer's, with X-Forwarded-For
+// believed only from a trusted proxy, and an IPv4-mapped peer unmapped.
+func TestAuthorizerIsToldTheClientAddress(t *testing.T) {
+	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	for _, tc := range []struct {
+		name, peer, forwarded string
+		trusted               []netip.Prefix
+		want                  string
+	}{
+		{"no proxy trusted", "192.0.2.1:4242", "203.0.113.9", nil, "192.0.2.1"},
+		{"a trusted proxy names the client", "10.1.2.3:4242", "203.0.113.9", trusted, "203.0.113.9"},
+		{"an untrusted peer cannot name one", "192.0.2.1:4242", "203.0.113.9", trusted, "192.0.2.1"},
+		{"a mapped peer is unmapped", "[::ffff:192.0.2.7]:4242", "", nil, "192.0.2.7"},
+		{"a mapped client is unmapped", "10.1.2.3:4242", "::ffff:203.0.113.9", trusted, "203.0.113.9"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seen := make(chan string, 1)
+			asking := route{method: http.MethodGet, path: "/asks", handle: func(_ *Server, w http.ResponseWriter, r *http.Request, _ access.Caller) error {
+				seen <- access.RequestInfo(r).IP
+				w.WriteHeader(http.StatusNoContent)
+				return nil
+			}}
+			h := newHarness(t, &fakeStore{}, []route{asking}, func(s *Server) { s.TrustedProxies = tc.trusted })
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/asks", nil)
+			r.RemoteAddr = tc.peer
+			r.Header.Set("Authorization", "Bearer t-alice")
+			if tc.forwarded != "" {
+				r.Header.Set("X-Forwarded-For", tc.forwarded)
+			}
+			h.h.ServeHTTP(httptest.NewRecorder(), r)
+			if got := <-seen; got != tc.want {
+				t.Fatalf("told %q, want %q", got, tc.want)
+			}
+		})
 	}
 }

@@ -15,10 +15,12 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"slices"
 	"sync"
 	"time"
 
+	"latere.ai/x/pkg/clientip"
 	"latere.ai/x/pkg/health"
 	"latere.ai/x/pkg/otel"
 	"latere.ai/x/pkg/ratelimit"
@@ -60,6 +62,10 @@ type Server struct {
 	// Auth verifies a caller and Authz answers its questions.
 	Auth  access.Authenticator
 	Authz access.Authorizer
+	// TrustedProxies are the address ranges from which X-Forwarded-For names
+	// the client address the authorizer is told. Empty trusts none, so the
+	// address is the peer's.
+	TrustedProxies []netip.Prefix
 	// BasePath is the prefix of every route: empty, or a path that starts
 	// with a slash and does not end with one.
 	BasePath string
@@ -190,7 +196,7 @@ func (s *Server) handler(served []route) http.Handler {
 	if b != "" {
 		mux.Handle("/", notFound)
 	}
-	return otel.Handler(identified(s.bounded(mux)), "examend",
+	return otel.Handler(identified(s.located(s.bounded(mux))), "examend",
 		otel.WithRouteTemplate(func(r *http.Request) string { return r.Pattern }),
 		otel.WithSkip(func(r *http.Request) bool {
 			return isProbe(r.URL.Path) || (b != "" && r.URL.Path == b+"/version")
@@ -310,6 +316,15 @@ func identified(next http.Handler) http.Handler {
 		r.Header.Set(RequestIDHeader, rid)
 		w.Header().Set(RequestIDHeader, rid)
 		next.ServeHTTP(w, r)
+	})
+}
+
+// located resolves the client address of every request once, past the
+// proxies the installation trusts, and keeps it on the request's context
+// for the authorizer to be told.
+func (s *Server) located(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(access.WithAddress(r.Context(), clientip.Address(r, s.TrustedProxies))))
 	})
 }
 

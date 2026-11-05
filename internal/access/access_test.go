@@ -326,6 +326,14 @@ func TestAsk(t *testing.T) {
 	if access.RequestInfo(r).IP != "192.0.2.2" {
 		t.Fatal("a peer with no port")
 	}
+	r.RemoteAddr = "[::ffff:192.0.2.3]:4242"
+	if access.RequestInfo(r).IP != "192.0.2.3" {
+		t.Fatal("a mapped peer is not unmapped")
+	}
+	r = r.WithContext(access.WithAddress(r.Context(), "203.0.113.9"))
+	if access.RequestInfo(r).IP != "203.0.113.9" {
+		t.Fatal("the resolved client address is not the one told")
+	}
 }
 
 // The owner policy decides each row of its table.

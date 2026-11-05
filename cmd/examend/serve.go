@@ -142,7 +142,7 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	var draining atomic.Bool
 	engine := &work.Engine{Store: st, Authz: who.Authorizer, Analyzer: compare.Analysis{}, Log: log}
 	api := &httpapi.Server{
-		Store: st, Auth: who.Authenticator, Authz: who.Authorizer, BasePath: s.BasePath,
+		Store: st, Auth: who.Authenticator, Authz: who.Authorizer, BasePath: s.BasePath, TrustedProxies: s.TrustedProxies,
 		Draining: draining.Load, Log: log, Engine: engine, Analyzer: compare.Analysis{}, Reserved: reserved(s),
 	}
 	// With the endpoint key source, each experiment whose runs a person's

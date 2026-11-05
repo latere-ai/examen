@@ -6,6 +6,13 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Changed
+
+- **`EXAMEN_TRUSTED_PROXIES` now has an effect.** The client address the
+  authorizer is told is the peer's, or, from a proxy the setting names,
+  the address that proxy reports in `X-Forwarded-For`. An IPv4-mapped
+  address is told as plain IPv4.
+
 ## v0.8.5 - 2026-11-05
 
 ### Added

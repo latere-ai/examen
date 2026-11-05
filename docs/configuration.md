@@ -30,7 +30,7 @@ is harmless, and a value that does not parse still stops the start.
 | `EXAMEN_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. Logs go to standard error, one JSON object per line. |
 | `EXAMEN_WORKERS` | `20` | How many work items, such as starting a session or grading a trial, one replica runs at once. |
 | `EXAMEN_PUBLIC_URL` | none | Where readers reach this server, for links in bar evaluations, events and publications. **No effect yet.** |
-| `EXAMEN_TRUSTED_PROXIES` | none | Comma-separated address ranges in CIDR form from which `X-Forwarded-For` names a public read's client. **No effect yet.** |
+| `EXAMEN_TRUSTED_PROXIES` | none | Comma-separated address ranges in CIDR form from which `X-Forwarded-For` names the client address the authorizer is told. A header from any other peer is ignored. |
 | `EXAMEN_DATABASE_URL` | required | The direct `postgres://` URL of the database. `migrate` always uses it, and `serve` uses it unless `EXAMEN_DATABASE_POOL_URL` is set. Pool size and statement settings are the URL's own parameters. |
 | `EXAMEN_DATABASE_POOL_URL` | none | A pooled endpoint, such as PgBouncer in transaction mode, that `serve` opens instead of the direct URL. |
 | `EXAMEN_OIDC_ISSUERS` | required | Comma-separated OpenID Connect issuers whose tokens are accepted. `examend` reads each issuer's discovery document and keys. |
