@@ -13,6 +13,18 @@ here is refused before it is pushed.
   the address that proxy reports in `X-Forwarded-For`. An IPv4-mapped
   address is told as plain IPv4.
 
+### Fixed
+
+- **An identifier stored in uppercase is read as one.** It was refused as
+  not an id.
+
+- **The migrator no longer sends `pool_*` parameters of the database URL
+  to Postgres** as settings.
+
+- **A request id is kept only when it is printable and at most 128
+  bytes,** the rule every Latere service applies; any other is replaced by
+  a fresh one.
+
 ## v0.8.5 - 2026-11-05
 
 ### Added
