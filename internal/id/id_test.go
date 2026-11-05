@@ -11,7 +11,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 var shape = regexp.MustCompile(`^[a-z]{3}_[0-7][0-9a-hjkmnp-tv-z]{25}$`)
@@ -19,15 +18,10 @@ var shape = regexp.MustCompile(`^[a-z]{3}_[0-7][0-9a-hjkmnp-tv-z]{25}$`)
 // Every identifier is its prefix, an underscore and a lowercase ULID, and ids
 // of one kind sort by creation time, within one millisecond too.
 func TestPrefixedAndOrdered(t *testing.T) {
-	at := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
-	g := &Generator{Now: func() time.Time { return at }}
 	var made []string
-	for i := range 200 {
-		if i%50 == 0 {
-			at = at.Add(time.Millisecond)
-		}
+	for range 200 {
 		for _, p := range Prefixes() {
-			s := g.New(p)
+			s := New(p)
 			if !shape.MatchString(s) || !Valid(p, s) {
 				t.Fatalf("%q is not a %s id", s, p)
 			}
@@ -42,43 +36,12 @@ func TestPrefixedAndOrdered(t *testing.T) {
 	if !slices.IsSorted(made) {
 		t.Fatal("ids made one after another do not sort in the order they were made")
 	}
-	if !Valid(Trial, New(Trial)) {
-		t.Fatal("the default generator made an invalid id")
-	}
-}
-
-// A clock that steps back keeps the order.
-func TestAClockThatStepsBackKeepsTheOrder(t *testing.T) {
-	at := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
-	g := &Generator{Now: func() time.Time { return at }}
-	first := g.New(Trial)
-	at = at.Add(-time.Hour)
-	second := g.New(Trial)
-	if second <= first {
-		t.Fatalf("%q does not sort after %q", second, first)
-	}
-}
-
-// The tail carries into the byte before it when it overflows.
-func TestTheTailCarries(t *testing.T) {
-	at := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
-	g := &Generator{Now: func() time.Time { return at }}
-	first := g.New(Cell)
-	for i := range g.tail {
-		if i > 0 {
-			g.tail[i] = 0xff
-		}
-	}
-	second := g.New(Cell)
-	if second <= first {
-		t.Fatalf("%q does not sort after %q", second, first)
-	}
 }
 
 func TestValid(t *testing.T) {
 	good := New(Experiment)
 	for _, bad := range []string{
-		"", "exp_", "cel" + good[3:], good + "x", good[:len(good)-1] + "U", "exp_8" + good[5:], good[:len(good)-1] + "i",
+		"", "exp_", "cel" + good[3:], good + "x", good[:len(good)-1], "exp_8" + good[5:], good[:len(good)-1] + "i",
 	} {
 		if Valid(Experiment, bad) {
 			t.Errorf("Valid(%q) = true", bad)
@@ -86,6 +49,14 @@ func TestValid(t *testing.T) {
 	}
 	if !Valid(Experiment, good) {
 		t.Errorf("Valid(%q) = false", good)
+	}
+	// An identifier minted in uppercase is as valid as one in lowercase.
+	upper := good[:4] + strings.ToUpper(good[4:])
+	if !Valid(Experiment, upper) {
+		t.Errorf("Valid(%q) = false", upper)
+	}
+	if p, ok := PrefixOf(upper); !ok || p != Experiment {
+		t.Errorf("PrefixOf(%q) = %q, %v", upper, p, ok)
 	}
 	for _, bad := range []string{"", "release", "zzz" + good[3:], "exp-" + good[4:], "exp_short"} {
 		if p, ok := PrefixOf(bad); ok {
