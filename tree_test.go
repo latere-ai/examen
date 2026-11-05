@@ -101,8 +101,8 @@ func TestPostgresReadinessAsksOverTCP(t *testing.T) {
 			}
 		}
 	}
-	if checks < 2 {
-		t.Fatalf("found %d readiness checks; the Makefile and verify.yml each hold one", checks)
+	if checks < 1 {
+		t.Fatalf("found %d readiness checks; the Makefile holds one", checks)
 	}
 }
 

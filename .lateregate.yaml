@@ -83,11 +83,25 @@ postgres:
   prefix: EXAMEN
 
 # The server image: lateregate builds it, checks its version, its size and
-# that it holds no shell. verify.yml starts it against a migrated database.
+# that it holds no shell. The image-serve suite below starts it against a
+# migrated database.
 image:
   images:
     - name: examend
       version_args: [version]
       version_expect: "examend "
       max_mib: 40
-      skip_start: serve needs a migrated Postgres; the image job in verify.yml migrates one and starts the image
+      skip_start: serve needs a migrated Postgres; the image-serve e2e suite migrates one and starts the image
+
+# The server image against a real Postgres: it migrates a database, then
+# starts with a read-only root file system and no capability and answers
+# /readyz. The image gate cannot start it, since serve needs a migrated
+# database. The script reaches the Postgres at the URL it is given.
+e2e:
+  - name: image-serve
+    why: the server image migrates a database, then starts read-only and answers its readiness probe
+    command: sh scripts/image-e2e.sh
+    services: [postgres]
+    env:
+      EXAMEN_DATABASE_URL: "${postgres.url}"
+    reads: [Dockerfile, scripts/image-e2e.sh]
