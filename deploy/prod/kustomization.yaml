@@ -33,7 +33,7 @@ resources:
 images:
   - name: examend
     newName: ghcr.io/latere-ai/examend
-    newTag: v0.8.4
+    newTag: v0.8.5
 configMapGenerator:
   - name: examend
     envs:
