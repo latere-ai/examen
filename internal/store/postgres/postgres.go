@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/url"
 	"strings"
 	"time"
 
@@ -165,9 +164,10 @@ const migrationLock = "examen: migrate"
 
 // migrate is Migrate with the migration files given.
 func migrate(ctx context.Context, directURL string, files fs.FS) (m Migrated, err error) {
-	dsn, err := migrationURL(directURL)
+	dsn, err := pgxmigrate.DriverURL(directURL)
 	if err != nil {
-		return Migrated{}, err
+		// DriverURL never echoes the URL, which can carry a password.
+		return Migrated{}, fmt.Errorf("store: the direct database URL: %w", err)
 	}
 	lock, err := pgx.Connect(ctx, directURL)
 	if err != nil {
@@ -182,7 +182,7 @@ func migrate(ctx context.Context, directURL string, files fs.FS) (m Migrated, er
 	if _, err := lock.Exec(ctx, `SELECT pg_advisory_lock(hashtextextended($1, 0))`, migrationLock); err != nil {
 		return Migrated{}, fmt.Errorf("store: taking the migration lock: %w", err)
 	}
-	carried, err := migrations.HighestOf(files)
+	carried, err := pgxmigrate.HighestOf(files, ".")
 	if err != nil {
 		return Migrated{}, fmt.Errorf("store: %w", err)
 	}
@@ -223,20 +223,6 @@ func schemaAt(ctx context.Context, dsn string, carried uint) (Schema, error) {
 		err = fmt.Errorf("store: closing the schema check's connection: %w", closeErr)
 	}
 	return s, err
-}
-
-// migrationURL is the direct URL under the scheme golang-migrate's pgx/v5
-// driver registers. The errors name no part of the URL.
-func migrationURL(raw string) (string, error) {
-	u, err := url.Parse(raw)
-	if err != nil {
-		return "", errors.New("store: the direct database URL is not a URL")
-	}
-	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
-		return "", errors.New("store: the direct database URL does not have the scheme postgres")
-	}
-	u.Scheme = "pgx5"
-	return u.String(), nil
 }
 
 // Options opens the store.

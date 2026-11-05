@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
-	"testing/fstest"
 )
 
 // The binary carries its migrations, forward only, the first of them
@@ -34,25 +33,3 @@ func TestTheEmbeddedMigrations(t *testing.T) {
 		t.Fatal("the first migration does not write the major this binary carries")
 	}
 }
-
-func TestHighestOf(t *testing.T) {
-	got, err := HighestOf(fstest.MapFS{
-		"000002_b.up.sql": {}, "000010_c.up.sql": {}, "000001_a.up.sql": {}, "README": {},
-	})
-	if err != nil || got != 10 {
-		t.Fatalf("%d %v", got, err)
-	}
-	if _, err := HighestOf(fstest.MapFS{"x_a.up.sql": {}}); err == nil {
-		t.Error("a migration with no number")
-	}
-	if _, err := HighestOf(fstest.MapFS{}); err == nil {
-		t.Error("no migration")
-	}
-	if _, err := HighestOf(brokenFS{}); err == nil {
-		t.Error("a directory that cannot be read")
-	}
-}
-
-type brokenFS struct{}
-
-func (brokenFS) Open(string) (fs.File, error) { return nil, fs.ErrPermission }
