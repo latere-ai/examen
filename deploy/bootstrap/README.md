@@ -4,7 +4,7 @@ The release pipeline never reads this directory. Everything it applies runs
 again on every release, so everything it applies must be re-appliable, and
 the resources here are not: a token Secret is minted once, an identity that
 could rewrite its own Role could grant itself anything, and an object that
-selects another service's Pods is not one a release may write.
+selects another service's Pods is not one this release may write.
 
 `deploy/prod` is Latere's production tree for the core, applied by the
 `deploy` job of `.github/workflows/release.yml`. The init container of its
@@ -19,7 +19,6 @@ not start.
 | File | Applied by | When |
 |---|---|---|
 | `rollout-identity.yaml` | an operator | once, and again when a kind is added to `deploy/prod` |
-| `networkpolicy-platformd-tls.yaml` | an operator | once, and again if it changes |
 
 ## The rollout identity
 
@@ -64,7 +63,7 @@ file again, and running the same steps.
 
 ## Admitting the core to platformd
 
-`networkpolicy-platformd-tls.yaml` admits the core's Pods to platformd's
-internal TLS listener, which they ask at `/internal/examen/authorize`. It
-selects platformd's Pods, so a release's identity is refused it and an
-operator applies it with `kubectl --context do-fra1-latere-k8s apply -f`.
+The policy that admits the core's Pods to platformd's internal TLS listener,
+`examend-platformd-tls`, selects platformd's Pods, so platformd's release
+applies it from `deploy/prod` in `latere-ai/platform`. No operator step
+remains for it.
