@@ -1,0 +1,33 @@
+# The core's one rule at the platform origin: /v1/evals on api.latere.ai,
+# beside /v1/parsing and the other capabilities, forwarded without a
+# rewrite, because the core serves its API under EXAMEN_BASE_PATH. There is
+# no tls block and no issuer annotation: the host's certificate is the
+# origin's, which arcad's Ingress holds for every rule on api.latere.ai.
+#
+# An experiment's progress stream is Server-Sent Events, open for as long as
+# a client follows it, so the read and send timeouts are an hour and the
+# response is not buffered, which would hold the stream's events until it
+# ended; the core writes a keepalive every 15 seconds. The body limit is the
+# core's own, MAX_REQUEST_BYTES, 4 MiB.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: examend
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 4m
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: api.latere.ai
+      http:
+        paths:
+          - path: /v1/evals
+            pathType: Prefix
+            backend:
+              service:
+                name: examend
+                port:
+                  name: public

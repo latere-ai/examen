@@ -1,0 +1,16 @@
+# The core's one listener: the API under /v1/evals and the probes beside
+# it. The ingress controller routes the prefix here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: examend
+  labels:
+    app.kubernetes.io/name: examend
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: examend
+  ports:
+    - name: public
+      port: 8080
+      targetPort: public
