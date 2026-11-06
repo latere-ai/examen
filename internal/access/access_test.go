@@ -5,7 +5,7 @@ package access_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -459,7 +459,7 @@ func TestNewAndTheProbe(t *testing.T) {
 	}
 	// An endpoint that allows everything allows the probe, and is named.
 	yes := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if err := json.NewEncoder(w).Encode(map[string]any{"allow": true}); err != nil {
+		if err := json.MarshalWrite(w, map[string]any{"allow": true}); err != nil {
 			t.Error(err)
 		}
 	}))

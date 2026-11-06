@@ -5,7 +5,8 @@ package postgres_test
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"slices"
 	"strings"
@@ -311,7 +312,7 @@ func TestWritesFailWhole(t *testing.T) {
 	w.eachFault("apply", func() func() error {
 		n := id.New(id.Metric)[4:12]
 		return func() error {
-			_, _, err := w.st.Versions().Apply(ctx, objects.Version{ID: id.New(id.Metric), Kind: objects.KindMetric, Owner: owner, Name: "m" + n, Digest: "sha256:" + strings.Repeat("b", 56) + n, Body: json.RawMessage(`{}`)}, store.Precondition{})
+			_, _, err := w.st.Versions().Apply(ctx, objects.Version{ID: id.New(id.Metric), Kind: objects.KindMetric, Owner: owner, Name: "m" + n, Digest: "sha256:" + strings.Repeat("b", 56) + n, Body: jsontext.Value(`{}`)}, store.Precondition{})
 			return err
 		}
 	})

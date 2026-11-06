@@ -4,8 +4,6 @@
 package httpapi
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"maps"
 	"net/http"
@@ -171,21 +169,6 @@ func labelFilter(r *http.Request, d access.Decision) (labels map[string]string, 
 		out[key] = vs[0]
 	}
 	return out, false, nil
-}
-
-// decodeBytes reads a JSON body already read whole: one object, no member
-// the contract does not describe, nothing after it.
-func decodeBytes(body []byte, v any) error {
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
-	dec.UseNumber()
-	if err := dec.Decode(v); err != nil {
-		return decodeError(err)
-	}
-	if dec.More() {
-		return apierr.New(apierr.CodeInvalidRequest, "the body holds more than one JSON value")
-	}
-	return nil
 }
 
 // ifMatch reads If-Match and If-None-Match: a quoted tag that must be

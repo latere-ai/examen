@@ -4,7 +4,8 @@
 package objects
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"time"
 )
 
@@ -18,7 +19,7 @@ type Version struct {
 	Digest    string
 	Current   bool
 	CreatedAt time.Time
-	Body      json.RawMessage
+	Body      jsontext.Value
 }
 
 // Answer is the version as the API answers it: the kind's fields, and
@@ -41,9 +42,9 @@ func (v Version) Answer() (map[string]any, error) {
 // and are never stored.
 type Budget struct {
 	Name              string `json:"name"`
-	CapUSDMicro       *int64 `json:"cap_usd_micro,omitempty"`
-	SpentUSDMicro     *int64 `json:"spent_usd_micro,omitempty"`
-	RemainingUSDMicro *int64 `json:"remaining_usd_micro,omitempty"`
+	CapUSDMicro       *int64 `json:"cap_usd_micro,omitzero"`
+	SpentUSDMicro     *int64 `json:"spent_usd_micro,omitzero"`
+	RemainingUSDMicro *int64 `json:"remaining_usd_micro,omitzero"`
 	// Currency is the Budget's currency when it is not USD, in which case
 	// the figures are absent.
 	Currency string `json:"currency,omitempty"`
@@ -111,12 +112,12 @@ type Experiment struct {
 	Comparisons []DeclaredComparison `json:"comparisons"`
 	// Independence is the experiment's declared test of independence;
 	// nil when it declares none.
-	Independence *Independence     `json:"independence,omitempty"`
+	Independence *Independence     `json:"independence,omitzero"`
 	State        string            `json:"state"`
 	CreatedBy    string            `json:"created_by"`
-	Judgments    []json.RawMessage `json:"judgments"`
-	Progress     *Progress         `json:"progress,omitempty"`
-	Usage        *Usage            `json:"usage,omitempty"`
+	Judgments    []jsontext.Value  `json:"judgments"`
+	Progress     *Progress         `json:"progress,omitzero"`
+	Usage        *Usage            `json:"usage,omitzero"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
 	CreatedAt    time.Time         `json:"created_at"`
 	UpdatedAt    time.Time         `json:"updated_at"`
@@ -216,12 +217,12 @@ const (
 // calls; they are absent until those are read.
 type Observed struct {
 	CostState       string                  `json:"cost_state,omitempty"`
-	CostUSD         *float64                `json:"cost_usd,omitempty"`
+	CostUSD         *float64                `json:"cost_usd,omitzero"`
 	Served          []ModelCount            `json:"served,omitempty"`
-	InputTokens     *int64                  `json:"input_tokens,omitempty"`
-	OutputTokens    *int64                  `json:"output_tokens,omitempty"`
-	ReasoningTokens *int64                  `json:"reasoning_tokens,omitempty"`
-	Duration        *float64                `json:"duration,omitempty"`
+	InputTokens     *int64                  `json:"input_tokens,omitzero"`
+	OutputTokens    *int64                  `json:"output_tokens,omitzero"`
+	ReasoningTokens *int64                  `json:"reasoning_tokens,omitzero"`
+	Duration        *float64                `json:"duration,omitzero"`
 	ServiceVersions map[string]string       `json:"service_versions,omitempty"`
 	ServiceUsage    map[string]ServiceUsage `json:"service_usage,omitempty"`
 	// LuxRequests are the Lux request ids an external harness submitted
@@ -286,7 +287,7 @@ type EvidenceRef struct {
 	Owner  string `json:"owner"`
 	Path   string `json:"path"`
 	Digest string `json:"digest"`
-	Size   *int64 `json:"size,omitempty"`
+	Size   *int64 `json:"size,omitzero"`
 }
 
 // OutputsSummary summarizes a trial's outputs.
@@ -296,29 +297,29 @@ type OutputsSummary struct {
 
 // Trial is one attempt by a candidate at a task.
 type Trial struct {
-	ID           string            `json:"id"`
-	Owner        string            `json:"owner"`
-	Experiment   string            `json:"experiment"`
-	Cell         string            `json:"cell"`
-	Index        int               `json:"index"`
-	ExecutorRef  string            `json:"executor_ref,omitempty"`
-	Lease        *Lease            `json:"lease,omitempty"`
-	State        string            `json:"state"`
-	Outcome      string            `json:"outcome,omitempty"`
-	Failure      *Failure          `json:"failure,omitempty"`
-	RetryOf      string            `json:"retry_of,omitempty"`
-	Sent         *Sent             `json:"sent,omitempty"`
-	Observed     Observed          `json:"observed"`
-	Declared     *Declared         `json:"declared,omitempty"`
-	Checks       []json.RawMessage `json:"checks"`
-	Judgments    []json.RawMessage `json:"judgments"`
-	Evidence     []EvidenceRef     `json:"evidence"`
-	Outputs      *OutputsSummary   `json:"outputs,omitempty"`
-	Imported     bool              `json:"imported"`
-	StartedAt    *time.Time        `json:"started_at,omitempty"`
-	AgentEndedAt *time.Time        `json:"agent_ended_at,omitempty"`
-	EndedAt      *time.Time        `json:"ended_at,omitempty"`
-	CreatedAt    time.Time         `json:"created_at"`
+	ID           string           `json:"id"`
+	Owner        string           `json:"owner"`
+	Experiment   string           `json:"experiment"`
+	Cell         string           `json:"cell"`
+	Index        int              `json:"index"`
+	ExecutorRef  string           `json:"executor_ref,omitempty"`
+	Lease        *Lease           `json:"lease,omitzero"`
+	State        string           `json:"state"`
+	Outcome      string           `json:"outcome,omitempty"`
+	Failure      *Failure         `json:"failure,omitzero"`
+	RetryOf      string           `json:"retry_of,omitempty"`
+	Sent         *Sent            `json:"sent,omitzero"`
+	Observed     Observed         `json:"observed"`
+	Declared     *Declared        `json:"declared,omitzero"`
+	Checks       []jsontext.Value `json:"checks"`
+	Judgments    []jsontext.Value `json:"judgments"`
+	Evidence     []EvidenceRef    `json:"evidence"`
+	Outputs      *OutputsSummary  `json:"outputs,omitzero"`
+	Imported     bool             `json:"imported"`
+	StartedAt    *time.Time       `json:"started_at,omitempty"`
+	AgentEndedAt *time.Time       `json:"agent_ended_at,omitempty"`
+	EndedAt      *time.Time       `json:"ended_at,omitempty"`
+	CreatedAt    time.Time        `json:"created_at"`
 	// Values is each trial-level metric's current value, by name, on a
 	// list's items alone.
 	Values map[string]any `json:"values,omitempty"`
@@ -378,12 +379,12 @@ const (
 
 // Event is one entry of an experiment's event log.
 type Event struct {
-	ID         string          `json:"id"`
-	Experiment string          `json:"-"`
-	Seq        int64           `json:"seq"`
-	Type       string          `json:"type"`
-	Data       json.RawMessage `json:"data"`
-	At         time.Time       `json:"at"`
+	ID         string         `json:"id"`
+	Experiment string         `json:"-"`
+	Seq        int64          `json:"seq"`
+	Type       string         `json:"type"`
+	Data       jsontext.Value `json:"data"`
+	At         time.Time      `json:"at"`
 }
 
 // Sink reports whether an event type is a sink event.
@@ -420,7 +421,7 @@ type TaxonomySource struct {
 	Owner         string `json:"owner,omitempty"`
 	Canonicalizer string `json:"canonicalizer,omitempty"`
 	Experiment    string `json:"experiment,omitempty"`
-	Generation    int    `json:"generation,omitempty"`
+	Generation    int    `json:"generation,omitzero"`
 }
 
 // Taxonomy is one version of a suite's mapping of an open-vocabulary
@@ -451,48 +452,48 @@ const (
 // summaries and the members only the analysis reads are kept as it
 // rendered them.
 type ResultRow struct {
-	Level           string          `json:"level"`
-	Metric          string          `json:"metric"`
-	MetricName      string          `json:"metric_name"`
-	Direction       string          `json:"direction"`
-	Task            string          `json:"task,omitempty"`
-	TaskDigests     json.RawMessage `json:"task_digests,omitempty"`
-	Candidate       json.RawMessage `json:"candidate,omitempty"`
-	Reference       json.RawMessage `json:"reference,omitempty"`
-	Delta           json.RawMessage `json:"delta,omitempty"`
-	DeltaKind       string          `json:"delta_kind,omitempty"`
-	DeltaInterval   json.RawMessage `json:"delta_interval,omitempty"`
-	NoDeltaInterval string          `json:"no_delta_interval,omitempty"`
-	Method          string          `json:"method,omitempty"`
-	Statistic       string          `json:"statistic,omitempty"`
-	Exact           *bool           `json:"exact,omitempty"`
-	Resamples       *int            `json:"resamples,omitempty"`
-	Seed            string          `json:"seed,omitempty"`
-	P               *float64        `json:"p,omitempty"`
-	Q               *float64        `json:"q,omitempty"`
-	H               *float64        `json:"h,omitempty"`
-	Verdict         string          `json:"verdict,omitempty"`
-	Reason          string          `json:"reason,omitempty"`
-	LeftOut         json.RawMessage `json:"left_out,omitempty"`
-	Confounds       json.RawMessage `json:"confounds,omitempty"`
+	Level           string         `json:"level"`
+	Metric          string         `json:"metric"`
+	MetricName      string         `json:"metric_name"`
+	Direction       string         `json:"direction"`
+	Task            string         `json:"task,omitempty"`
+	TaskDigests     jsontext.Value `json:"task_digests,omitzero"`
+	Candidate       jsontext.Value `json:"candidate,omitzero"`
+	Reference       jsontext.Value `json:"reference,omitzero"`
+	Delta           jsontext.Value `json:"delta,omitzero"`
+	DeltaKind       string         `json:"delta_kind,omitempty"`
+	DeltaInterval   jsontext.Value `json:"delta_interval,omitzero"`
+	NoDeltaInterval string         `json:"no_delta_interval,omitempty"`
+	Method          string         `json:"method,omitempty"`
+	Statistic       string         `json:"statistic,omitempty"`
+	Exact           *bool          `json:"exact,omitzero"`
+	Resamples       *int           `json:"resamples,omitzero"`
+	Seed            string         `json:"seed,omitempty"`
+	P               *float64       `json:"p,omitzero"`
+	Q               *float64       `json:"q,omitzero"`
+	H               *float64       `json:"h,omitzero"`
+	Verdict         string         `json:"verdict,omitempty"`
+	Reason          string         `json:"reason,omitempty"`
+	LeftOut         jsontext.Value `json:"left_out,omitzero"`
+	Confounds       jsontext.Value `json:"confounds,omitzero"`
 }
 
 // Computed are the members of a comparison the analysis fills.
 type Computed struct {
-	SingleVariable  *bool           `json:"single_variable,omitempty"`
-	Confounds       []string        `json:"confounds"`
-	Results         []ResultRow     `json:"results"`
-	Taxonomies      json.RawMessage `json:"taxonomies,omitempty"`
-	UnpairedTasks   json.RawMessage `json:"unpaired_tasks,omitempty"`
-	CandidateSuite  json.RawMessage `json:"candidate_suite,omitempty"`
-	Windows         json.RawMessage `json:"windows,omitempty"`
-	VerdictCounts   json.RawMessage `json:"verdict_counts,omitempty"`
-	Correction      json.RawMessage `json:"correction,omitempty"`
-	AnalysisVersion string          `json:"analysis_version,omitempty"`
-	Parameters      json.RawMessage `json:"parameters,omitempty"`
-	InputsDigest    string          `json:"inputs_digest,omitempty"`
-	Seed            string          `json:"seed,omitempty"`
-	ComputedAt      *time.Time      `json:"computed_at,omitempty"`
+	SingleVariable  *bool          `json:"single_variable,omitzero"`
+	Confounds       []string       `json:"confounds"`
+	Results         []ResultRow    `json:"results"`
+	Taxonomies      jsontext.Value `json:"taxonomies,omitzero"`
+	UnpairedTasks   jsontext.Value `json:"unpaired_tasks,omitzero"`
+	CandidateSuite  jsontext.Value `json:"candidate_suite,omitzero"`
+	Windows         jsontext.Value `json:"windows,omitzero"`
+	VerdictCounts   jsontext.Value `json:"verdict_counts,omitzero"`
+	Correction      jsontext.Value `json:"correction,omitzero"`
+	AnalysisVersion string         `json:"analysis_version,omitempty"`
+	Parameters      jsontext.Value `json:"parameters,omitzero"`
+	InputsDigest    string         `json:"inputs_digest,omitempty"`
+	Seed            string         `json:"seed,omitempty"`
+	ComputedAt      *time.Time     `json:"computed_at,omitempty"`
 
 	// VariableFields and Declared are the comparison's variable and
 	// declared_provenance as the analysis resolved them, which the store
@@ -514,7 +515,7 @@ type Comparison struct {
 	Task               string   `json:"task,omitempty"`
 	ReferenceTask      string   `json:"reference_task,omitempty"`
 	Automatic          bool     `json:"automatic"`
-	DeclaredIndex      *int     `json:"declared,omitempty"`
+	DeclaredIndex      *int     `json:"declared,omitzero"`
 	Exploratory        bool     `json:"exploratory"`
 	State              string   `json:"state"`
 	Final              bool     `json:"final"`
@@ -522,7 +523,7 @@ type Comparison struct {
 	DeclaredProvenance []string `json:"declared_provenance"`
 	// Declaration is, for a declared comparison of the general form, its
 	// declaration, whose two levels select its sides; nil otherwise.
-	Declaration *DeclaredComparison `json:"declaration,omitempty"`
+	Declaration *DeclaredComparison `json:"declaration,omitzero"`
 	Computed
 	CreatedAt time.Time `json:"created_at"`
 
@@ -581,7 +582,7 @@ type DeclaredAnalysis struct {
 	Final        bool             `json:"final"`
 	Family       DeclaredFamily   `json:"family"`
 	Comparisons  []DeclaredResult `json:"comparisons"`
-	Independence json.RawMessage  `json:"independence,omitempty"`
+	Independence jsontext.Value   `json:"independence,omitzero"`
 	ComputedAt   *time.Time       `json:"computed_at,omitempty"`
 }
 
@@ -599,8 +600,8 @@ type DeclaredResult struct {
 	Index      int      `json:"index"`
 	Comparison string   `json:"comparison,omitempty"`
 	Metric     string   `json:"metric"`
-	P          *float64 `json:"p,omitempty"`
-	Q          *float64 `json:"q,omitempty"`
+	P          *float64 `json:"p,omitzero"`
+	Q          *float64 `json:"q,omitzero"`
 	Verdict    string   `json:"verdict,omitempty"`
 	Reason     string   `json:"reason"`
 	Final      bool     `json:"final"`

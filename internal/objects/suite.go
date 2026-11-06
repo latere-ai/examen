@@ -4,7 +4,8 @@
 package objects
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"math"
 	"slices"
 	"strings"
@@ -368,16 +369,16 @@ func (r Resolved) GraderDigests(task string) []string {
 
 // Tuple is the provenance tuple of a cell (specs/002-objects.md).
 type Tuple struct {
-	CandidateKind      string          `json:"candidate.kind"`
-	AgentOrImageDigest string          `json:"agent_or_image_digest"`
-	Program            json.RawMessage `json:"program"`
-	Model              string          `json:"model"`
-	Reasoning          string          `json:"reasoning"`
-	Tools              []string        `json:"tools"`
-	TaskHash           string          `json:"task_hash"`
-	EnvironmentDigest  string          `json:"environment_digest"`
-	WorkspaceRef       string          `json:"workspace_ref"`
-	GraderDigests      []string        `json:"grader_digests"`
+	CandidateKind      string         `json:"candidate.kind"`
+	AgentOrImageDigest string         `json:"agent_or_image_digest"`
+	Program            jsontext.Value `json:"program"`
+	Model              string         `json:"model"`
+	Reasoning          string         `json:"reasoning"`
+	Tools              []string       `json:"tools"`
+	TaskHash           string         `json:"task_hash"`
+	EnvironmentDigest  string         `json:"environment_digest"`
+	WorkspaceRef       string         `json:"workspace_ref"`
+	GraderDigests      []string       `json:"grader_digests"`
 }
 
 // TupleOf resolves the tuple of the cell of a task and a candidate.
@@ -386,7 +387,7 @@ func (r Resolved) TupleOf(taskDigest string, c Candidate) (Tuple, error) {
 	tu := Tuple{
 		CandidateKind: c.Kind, Model: c.Model(), Reasoning: c.Reasoning(), Tools: []string{},
 		TaskHash: taskDigest, WorkspaceRef: t.Workspace.Ref(), GraderDigests: r.GraderDigests(taskDigest),
-		Program: json.RawMessage("null"),
+		Program: jsontext.Value("null"),
 	}
 	var program any
 	switch c.Kind {
@@ -403,7 +404,7 @@ func (r Resolved) TupleOf(taskDigest string, c Candidate) (Tuple, error) {
 		program = map[string]any{"harness": c.External.Harness, "version": c.External.Version, "flags": c.External.Flags}
 	}
 	if program != nil {
-		raw, err := json.Marshal(program)
+		raw, err := json.Marshal(program, id.RenderOptions)
 		if err != nil {
 			return Tuple{}, err
 		}

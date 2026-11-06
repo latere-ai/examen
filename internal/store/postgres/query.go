@@ -5,7 +5,8 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -79,11 +80,21 @@ func one(err error, what string) error {
 	return nil
 }
 
+// columnJSON writes a jsonb column: a nil slice or map as null, which a
+// nullable column reads as SQL NULL, and text that is not UTF-8 as U+FFFD,
+// which jsonb would refuse.
+var columnJSON = json.JoinOptions(
+	json.FormatNilSliceAsNull(true),
+	json.FormatNilMapAsNull(true),
+	jsontext.AllowDuplicateNames(true),
+	jsontext.AllowInvalidUTF8(true),
+)
+
 // marshal renders a value as JSON text for a jsonb column. JSON is bound
 // as text: a byte slice travels as bytea where a statement runs in exec
 // mode behind a pooler, and a jsonb column refuses it.
 func marshal(v any) (string, error) {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, columnJSON)
 	if err != nil {
 		return "", fmt.Errorf("postgres: rendering a column: %w", err)
 	}

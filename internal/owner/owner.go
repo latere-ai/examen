@@ -16,7 +16,7 @@ package owner
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -206,7 +206,7 @@ func (m *Minter) mint(ctx context.Context, r Request) (held, error) {
 func (m *Minter) call(ctx context.Context, in, out any) error {
 	ctx, cancel := context.WithTimeout(ctx, authz.Timeout)
 	defer cancel()
-	payload, err := json.Marshal(in)
+	payload, err := json.Marshal(in, json.Deterministic(true))
 	if err != nil {
 		return fmt.Errorf("owner: encode the ask: %w", err)
 	}

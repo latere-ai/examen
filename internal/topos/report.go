@@ -6,7 +6,7 @@ package topos
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"time"
@@ -107,7 +107,7 @@ func Read(s Session, events []Event) (Report, error) {
 	var lastError, lastDetail, lastStop, infra string
 	turned := false
 	for _, e := range events {
-		line, err := json.Marshal(e)
+		line, err := json.Marshal(e, logJSON)
 		if err != nil {
 			return r, fmt.Errorf("topos: encode event %d: %w", e.Seq, err)
 		}
@@ -119,7 +119,7 @@ func Read(s Session, events []Event) (Report, error) {
 				StopReason string `json:"stop_reason"`
 				Detail     string `json:"detail"`
 			}
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
+			if err := json.Unmarshal(e.Payload, &p, foreignJSON); err != nil {
 				return r, fmt.Errorf("topos: decode session.status %d: %w", e.Seq, err)
 			}
 			if e.Thread != "" {
@@ -135,7 +135,7 @@ func Read(s Session, events []Event) (Report, error) {
 			var p struct {
 				Code string `json:"code"`
 			}
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
+			if err := json.Unmarshal(e.Payload, &p, foreignJSON); err != nil {
 				return r, fmt.Errorf("topos: decode session.error %d: %w", e.Seq, err)
 			}
 			lastError = p.Code
@@ -150,7 +150,7 @@ func Read(s Session, events []Event) (Report, error) {
 					ID   string `json:"id"`
 				} `json:"machine"`
 			}
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
+			if err := json.Unmarshal(e.Payload, &p, foreignJSON); err != nil {
 				return r, fmt.Errorf("topos: decode session.machine %d: %w", e.Seq, err)
 			}
 			if m := (objects.Machine{Kind: p.Machine.Kind, ID: p.Machine.ID}); m.ID != "" && !slices.Contains(r.Machines, m) {
@@ -163,7 +163,7 @@ func Read(s Session, events []Event) (Report, error) {
 			var p struct {
 				StopReason string `json:"stop_reason"`
 			}
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
+			if err := json.Unmarshal(e.Payload, &p, foreignJSON); err != nil {
 				return r, fmt.Errorf("topos: decode agent.message %d: %w", e.Seq, err)
 			}
 			if e.Thread == "" {
@@ -174,7 +174,7 @@ func Read(s Session, events []Event) (Report, error) {
 			r.ToolCalls++
 		case EventModelRequest:
 			var p requestRecord
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
+			if err := json.Unmarshal(e.Payload, &p, foreignJSON); err != nil {
 				return r, fmt.Errorf("topos: decode model.request %d: %w", e.Seq, err)
 			}
 			r.Calls = append(r.Calls, p.call(reasoning))

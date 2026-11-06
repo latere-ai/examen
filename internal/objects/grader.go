@@ -31,10 +31,10 @@ type Grader struct {
 	Kind       string      `json:"kind"`
 	Level      string      `json:"level,omitempty"`
 	Produces   []string    `json:"produces"`
-	Check      *Check      `json:"check,omitempty"`
-	ModelJudge *ModelJudge `json:"model_judge,omitempty"`
-	AgentJudge *AgentJudge `json:"agent_judge,omitempty"`
-	Annotation *Annotation `json:"annotation,omitempty"`
+	Check      *Check      `json:"check,omitzero"`
+	ModelJudge *ModelJudge `json:"model_judge,omitzero"`
+	AgentJudge *AgentJudge `json:"agent_judge,omitzero"`
+	Annotation *Annotation `json:"annotation,omitzero"`
 }
 
 // Check is a check grader's command.
@@ -42,7 +42,7 @@ type Check struct {
 	Command []string          `json:"command"`
 	Workdir string            `json:"workdir,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
-	Files   *ArcaRef          `json:"files,omitempty"`
+	Files   *ArcaRef          `json:"files,omitzero"`
 	Image   string            `json:"image,omitempty"`
 }
 
@@ -50,11 +50,11 @@ type Check struct {
 // trial's checks recorded, one block of JSON from each produced metric's
 // name to its value, read once every check of the trial ended.
 type JudgeInputs struct {
-	Transcript   bool     `json:"transcript,omitempty"`
-	FinalMessage bool     `json:"final_message,omitempty"`
+	Transcript   bool     `json:"transcript,omitzero"`
+	FinalMessage bool     `json:"final_message,omitzero"`
 	Files        []string `json:"files,omitempty"`
 	Outputs      []string `json:"outputs,omitempty"`
-	Checks       bool     `json:"checks,omitempty"`
+	Checks       bool     `json:"checks,omitzero"`
 }
 
 // ModelJudge is one structured call through Lux with a pinned model.
@@ -63,7 +63,7 @@ type ModelJudge struct {
 	Prompt      string      `json:"prompt"`
 	Rubric      string      `json:"rubric"`
 	Inputs      JudgeInputs `json:"inputs"`
-	Temperature *float64    `json:"temperature,omitempty"`
+	Temperature *float64    `json:"temperature,omitzero"`
 	Reasoning   string      `json:"reasoning,omitempty"`
 	Preamble    string      `json:"preamble,omitempty"`
 	Role        string      `json:"role,omitempty"`

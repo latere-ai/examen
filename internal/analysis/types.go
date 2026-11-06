@@ -4,7 +4,7 @@
 package analysis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"time"
 )
 
@@ -215,7 +215,7 @@ type Trial struct {
 	Outcome Outcome `json:"outcome,omitempty"`
 	// Retried is true when a later trial retries this one, which is then
 	// never read.
-	Retried         bool              `json:"retried,omitempty"`
+	Retried         bool              `json:"retried,omitzero"`
 	StartedAt       time.Time         `json:"started_at"`
 	EndedAt         time.Time         `json:"ended_at"`
 	Requests        []Request         `json:"requests,omitempty"`
@@ -261,7 +261,7 @@ type Taxonomy struct {
 	Canonical []string          `json:"canonical"`
 	Map       map[string]string `json:"map"`
 	// PinnedByBar is true when a bar evaluation asked for this record.
-	PinnedByBar bool `json:"pinned_by_bar,omitempty"`
+	PinnedByBar bool `json:"pinned_by_bar,omitzero"`
 }
 
 // Calibration is the calibration of one judge for one label metric, as
@@ -294,26 +294,26 @@ type Input struct {
 	Variable string `json:"variable,omitempty"`
 	// AcrossTasks is true for a comparison whose variable is task: each side
 	// holds one cell of one candidate, and they are two tasks.
-	AcrossTasks bool `json:"across_tasks,omitempty"`
+	AcrossTasks bool `json:"across_tasks,omitzero"`
 	// Declaration is, for a declared comparison of the general form, its
 	// declaration (spec 008, Comparisons over cell variables): each side's
 	// cells are named by their strata, which pair them, and the suite's
 	// tasks are the strata, each with its candidate side's task digest.
 	// Without strata each side holds one cell and the comparison has the
 	// shape of one across tasks. Variable may then be task.
-	Declaration *Declaration `json:"declaration,omitempty"`
+	Declaration *Declaration `json:"declaration,omitzero"`
 	Exploratory bool         `json:"exploratory"`
 	// Declared is, for a comparison its experiment declared, D: the number
 	// of comparisons the experiment declared, whose primary results are
 	// corrected together. Its primary result is then in no comparison's
 	// family, draws PERMUTATION_RESAMPLES resolved with m = D, and carries
 	// its p alone. 0 for any other comparison.
-	Declared int `json:"declared,omitempty"`
+	Declared int `json:"declared,omitzero"`
 	// LabelTests is true once label tests are built (spec 008, Build
 	// order): a label result is then tested and can be changed; until then
 	// it carries its per-label figures and no p, q or verdict, outside the
 	// family. The first release builds no label tests.
-	LabelTests bool `json:"label_tests,omitempty"`
+	LabelTests bool `json:"label_tests,omitzero"`
 	// Taxonomies maps an open-vocabulary metric's digest to the record it
 	// is read at, on both sides.
 	Taxonomies   map[string]Taxonomy `json:"taxonomies,omitempty"`
@@ -339,22 +339,22 @@ type Summary struct {
 	NotApplicable int       `json:"not_applicable"`
 	// Value is the rate, mean, median, p90 or cell-level statistic, or a
 	// candidate-level metric's one value; nil when nothing is valued.
-	Value          any            `json:"value,omitempty"`
-	Numerator      *int           `json:"numerator,omitempty"`
+	Value          any            `json:"value,omitzero"`
+	Numerator      *int           `json:"numerator,omitzero"`
 	Denominator    int            `json:"denominator"`
 	ExcludedLabels map[string]int `json:"excluded_labels,omitempty"`
 	Missing        int            `json:"missing"`
-	Interval       *Interval      `json:"interval,omitempty"`
+	Interval       *Interval      `json:"interval,omitzero"`
 	NoInterval     string         `json:"no_interval,omitempty"`
-	Mean           *float64       `json:"mean,omitempty"`
-	SD             *float64       `json:"sd,omitempty"`
-	Min            *float64       `json:"min,omitempty"`
-	Max            *float64       `json:"max,omitempty"`
+	Mean           *float64       `json:"mean,omitzero"`
+	SD             *float64       `json:"sd,omitzero"`
+	Min            *float64       `json:"min,omitzero"`
+	Max            *float64       `json:"max,omitzero"`
 	Distribution   []LabelShare   `json:"distribution,omitempty"`
 	Mode           string         `json:"mode,omitempty"`
-	Unmapped       int            `json:"unmapped,omitempty"`
-	Tasks          *int           `json:"tasks,omitempty"`
-	Coverage       *float64       `json:"coverage,omitempty"`
+	Unmapped       int            `json:"unmapped,omitzero"`
+	Tasks          *int           `json:"tasks,omitzero"`
+	Coverage       *float64       `json:"coverage,omitzero"`
 	Excluded       map[string]int `json:"excluded,omitempty"`
 	Final          bool           `json:"final"`
 }
@@ -372,8 +372,8 @@ type LabelShare struct {
 	Label      string    `json:"label"`
 	Count      int       `json:"count"`
 	Proportion float64   `json:"proportion"`
-	Interval   *Interval `json:"interval,omitempty"`
-	Unmapped   bool      `json:"unmapped,omitempty"`
+	Interval   *Interval `json:"interval,omitzero"`
+	Unmapped   bool      `json:"unmapped,omitzero"`
 }
 
 // Delta is a result's delta: a number, or for a label metric an object
@@ -383,10 +383,11 @@ type Delta struct {
 	PerLabel map[string]float64
 }
 
-// MarshalJSON writes the number or the object.
+// MarshalJSON writes the number or the object, its labels in order: a call's
+// options do not reach this method, so the order is pinned here.
 func (d Delta) MarshalJSON() ([]byte, error) {
 	if d.PerLabel != nil {
-		return json.Marshal(d.PerLabel)
+		return json.Marshal(d.PerLabel, json.Deterministic(true))
 	}
 	return json.Marshal(d.Value)
 }
@@ -398,10 +399,11 @@ type DeltaInterval struct {
 	PerLabel map[string]Interval
 }
 
-// MarshalJSON writes the interval or the object.
+// MarshalJSON writes the interval or the object, its labels in order: a
+// call's options do not reach this method, so the order is pinned here.
 func (d DeltaInterval) MarshalJSON() ([]byte, error) {
 	if d.PerLabel != nil {
-		return json.Marshal(d.PerLabel)
+		return json.Marshal(d.PerLabel, json.Deterministic(true))
 	}
 	return json.Marshal(d.Interval)
 }
@@ -441,8 +443,8 @@ type Window struct {
 type Confound struct {
 	Name      string   `json:"name"`
 	Tasks     []string `json:"tasks,omitempty"`
-	Candidate any      `json:"candidate,omitempty"`
-	Reference any      `json:"reference,omitempty"`
+	Candidate any      `json:"candidate,omitzero"`
+	Reference any      `json:"reference,omitzero"`
 	Grader    string   `json:"grader,omitempty"`
 }
 
@@ -466,23 +468,23 @@ type Result struct {
 	MetricName      string         `json:"metric_name"`
 	Direction       Direction      `json:"direction"`
 	Task            string         `json:"task,omitempty"`
-	TaskDigests     *TaskDigests   `json:"task_digests,omitempty"`
+	TaskDigests     *TaskDigests   `json:"task_digests,omitzero"`
 	A               string         `json:"a,omitempty"`
 	B               string         `json:"b,omitempty"`
 	Candidate       Summary        `json:"candidate"`
 	Reference       Summary        `json:"reference"`
-	Delta           *Delta         `json:"delta,omitempty"`
+	Delta           *Delta         `json:"delta,omitzero"`
 	DeltaKind       string         `json:"delta_kind,omitempty"`
-	DeltaInterval   *DeltaInterval `json:"delta_interval,omitempty"`
+	DeltaInterval   *DeltaInterval `json:"delta_interval,omitzero"`
 	NoDeltaInterval string         `json:"no_delta_interval,omitempty"`
 	Method          string         `json:"method,omitempty"`
 	Statistic       string         `json:"statistic,omitempty"`
-	Exact           *bool          `json:"exact,omitempty"`
-	Resamples       *int           `json:"resamples,omitempty"`
+	Exact           *bool          `json:"exact,omitzero"`
+	Resamples       *int           `json:"resamples,omitzero"`
 	Seed            string         `json:"seed,omitempty"`
-	P               *float64       `json:"p,omitempty"`
-	Q               *float64       `json:"q,omitempty"`
-	H               *float64       `json:"h,omitempty"`
+	P               *float64       `json:"p,omitzero"`
+	Q               *float64       `json:"q,omitzero"`
+	H               *float64       `json:"h,omitzero"`
 	Verdict         Verdict        `json:"verdict,omitempty"`
 	Reason          string         `json:"reason"`
 	LeftOut         []LeftOut      `json:"left_out,omitempty"`
@@ -497,8 +499,8 @@ type UnpairedTasks struct {
 
 // Windows are the two sides' windows over every trial a comparison read.
 type Windows struct {
-	Candidate *Window `json:"candidate,omitempty"`
-	Reference *Window `json:"reference,omitempty"`
+	Candidate *Window `json:"candidate,omitzero"`
+	Reference *Window `json:"reference,omitzero"`
 }
 
 // Correction is a comparison's record of its correction: the method, the
@@ -510,7 +512,7 @@ type Correction struct {
 	Family  int    `json:"family"`
 	// Declared is, on a declared comparison, the size of the declared
 	// family its primary result is corrected in.
-	Declared int `json:"declared,omitempty"`
+	Declared int `json:"declared,omitzero"`
 }
 
 // Resolved are the values of PERMUTATION_RESAMPLES a comparison resolved:
@@ -595,5 +597,5 @@ const (
 type Cost struct {
 	USD     float64    `json:"usd"`
 	Status  CostStatus `json:"status"`
-	Service float64    `json:"service_usd,omitempty"`
+	Service float64    `json:"service_usd,omitzero"`
 }

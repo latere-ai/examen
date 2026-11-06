@@ -22,7 +22,8 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -425,8 +426,8 @@ func TestLiveSmoke(t *testing.T) {
 	deadline := lapsing.ExpiresAt.Add(lapseMargin)
 	for {
 		var tr struct {
-			State string          `json:"state"`
-			Lease json.RawMessage `json:"lease"`
+			State string         `json:"state"`
+			Lease jsontext.Value `json:"lease"`
 		}
 		c.must(http.StatusOK, http.MethodGet, "/trials/"+lapsed, nil, &tr)
 		if tr.State == "pending" && (len(tr.Lease) == 0 || string(tr.Lease) == "null") {

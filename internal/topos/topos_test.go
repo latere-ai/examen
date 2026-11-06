@@ -4,7 +4,7 @@
 package topos
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -27,7 +27,7 @@ func paged(t *testing.T) (*Client, *[]string) {
 			if end < len(items) {
 				next = strconv.Itoa(end)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": items[start:end], "next_cursor": next})
+			_ = json.MarshalWrite(w, map[string]any{"items": items[start:end], "next_cursor": next})
 		}
 		switch {
 		case r.URL.Path == "/agents/helper/versions":
@@ -36,7 +36,7 @@ func paged(t *testing.T) (*Client, *[]string) {
 			page([]any{map[string]any{"seq": 1, "type": "a"}, map[string]any{"seq": 2, "type": "b"}, map[string]any{"seq": 3, "type": "c"}})
 		case r.URL.Path == "/sessions" && r.Method == http.MethodPost:
 			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "ses_1", "status": "idle", "rollout": "r"})
+			_ = json.MarshalWrite(w, map[string]any{"id": "ses_1", "status": "idle", "rollout": "r"})
 		case r.URL.Path == "/sessions/ses_1/events" || r.URL.Path == "/sessions/ses_1/end":
 			w.WriteHeader(http.StatusOK)
 		case r.URL.Path == "/sessions/busy":

@@ -6,7 +6,7 @@ package topos
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strings"
@@ -59,7 +59,7 @@ func EvidenceOf(events []Event) (Evidence, error) {
 	work := map[string]WorkFile{}
 	unvouched := map[string]bool{}
 	for _, e := range events {
-		line, err := json.Marshal(e)
+		line, err := json.Marshal(e, logJSON)
 		if err != nil {
 			return ev, fmt.Errorf("topos: encode event %d: %w", e.Seq, err)
 		}
@@ -77,7 +77,7 @@ func EvidenceOf(events []Event) (Evidence, error) {
 					} `json:"blocks"`
 				} `json:"message"`
 			}
-			if err := json.Unmarshal(e.Payload, &p); err != nil {
+			if err := json.Unmarshal(e.Payload, &p, foreignJSON); err != nil {
 				return ev, fmt.Errorf("topos: decode agent.message %d: %w", e.Seq, err)
 			}
 			var text []string
@@ -89,7 +89,7 @@ func EvidenceOf(events []Event) (Evidence, error) {
 			ev.FinalMessage = strings.Join(text, "\n\n")
 		case EventWorkSaved:
 			var w workSaved
-			if err := json.Unmarshal(e.Payload, &w); err != nil {
+			if err := json.Unmarshal(e.Payload, &w, foreignJSON); err != nil {
 				return ev, fmt.Errorf("topos: decode work.saved %d: %w", e.Seq, err)
 			}
 			if w.Whole {

@@ -68,6 +68,41 @@ func TestDigestIgnoresOrderAndSpace(t *testing.T) {
 	}
 }
 
+// A document we did not write may repeat a member, hold bytes that are not
+// UTF-8 or the separators U+2028 and U+2029: the canonical form keeps the
+// last repeat, reads a bad byte as U+FFFD and escapes the separators.
+func TestCanonicalForeignDocuments(t *testing.T) {
+	cases := []struct{ doc, canonical string }{
+		{`{"a":1,"b":2,"a":3}`, `{"a":3,"b":2}`},
+		{"{\"a\":\"x\xffy\",\"b\xfe\":1}", "{\"a\":\"x\uFFFDy\",\"b\uFFFD\":1}"},
+		{"[\"\u2028\u2029\",\"\\b\\f\\u0001\"]", `["\u2028\u2029","\b\f\u0001"]`},
+		{`{"é":1,"e":2,"z":[],"Z":{}}`, `{"Z":{},"e":2,"z":[],"é":1}`},
+	}
+	for _, c := range cases {
+		got, err := Canonical([]byte(c.doc))
+		if err != nil || string(got) != c.canonical {
+			t.Errorf("Canonical(%q) = %q, %v; want %q", c.doc, got, err, c.canonical)
+		}
+	}
+}
+
+// A value is rendered with a nil slice or map as null, as it always was, so
+// the digest of an object already pinned does not move.
+func TestDigestRendersNilAsNull(t *testing.T) {
+	type obj struct {
+		Tags []string          `json:"tags"`
+		Map  map[string]string `json:"map"`
+	}
+	got, err := Digest(obj{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := DigestJSON([]byte(`{"tags":null,"map":null}`))
+	if err != nil || got != want {
+		t.Fatalf("Digest = %s, %v; want %s", got, err, want)
+	}
+}
+
 func TestNoCanonicalForm(t *testing.T) {
 	for _, doc := range []string{``, `{`, `{"a":1} {"b":2}`, `{"a":1} x`, `nope`} {
 		if c, err := Canonical([]byte(doc)); err == nil {

@@ -4,7 +4,7 @@
 package objects
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 
 	"latere.ai/x/examen/internal/apierr"
@@ -44,9 +44,9 @@ const declaredMaxBytes = 255
 type Candidate struct {
 	Name     string            `json:"name"`
 	Kind     string            `json:"kind"`
-	Topos    *Topos            `json:"topos,omitempty"`
-	Program  *Program          `json:"program,omitempty"`
-	External *External         `json:"external,omitempty"`
+	Topos    *Topos            `json:"topos,omitzero"`
+	Program  *Program          `json:"program,omitzero"`
+	External *External         `json:"external,omitzero"`
 	Metadata map[string]string `json:"metadata,omitempty"`
 }
 
@@ -64,11 +64,11 @@ type Program struct {
 	Image       string            `json:"image"`
 	Command     []string          `json:"command,omitempty"`
 	Env         map[string]string `json:"env,omitempty"`
-	Config      json.RawMessage   `json:"config,omitempty"`
+	Config      jsontext.Value    `json:"config,omitzero"`
 	Model       string            `json:"model,omitempty"`
 	Reasoning   string            `json:"reasoning,omitempty"`
 	Credentials []Credential      `json:"credentials,omitempty"`
-	Lux         *ProgramLux       `json:"lux,omitempty"`
+	Lux         *ProgramLux       `json:"lux,omitzero"`
 }
 
 // Credential is an owner token for an audience, delivered as a Cella

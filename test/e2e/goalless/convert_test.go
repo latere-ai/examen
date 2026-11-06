@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -78,7 +78,7 @@ type config struct {
 // name is the candidate's name: the harness, the model and a digest of the
 // whole configuration, so two configurations are two candidates.
 func (c config) name() string {
-	b, err := json.Marshal(c)
+	b, err := json.Marshal(c, json.Deterministic(true))
 	if err != nil {
 		panic(err) // a config of strings always marshals
 	}

@@ -4,7 +4,7 @@
 package httpapi
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"strconv"
@@ -173,7 +173,7 @@ func applyHandler(k kindRoute) func(*Server, http.ResponseWriter, *http.Request,
 		if err != nil {
 			return err
 		}
-		body, err := json.Marshal(a.value)
+		body, err := json.Marshal(a.value, id.RenderOptions)
 		if err != nil {
 			return apierr.Internal(err)
 		}

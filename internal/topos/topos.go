@@ -12,7 +12,8 @@ package topos
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -126,13 +127,44 @@ type Session struct {
 
 // Event is one event of a session's log.
 type Event struct {
-	ID      string          `json:"id"`
-	Seq     uint64          `json:"seq"`
-	Type    string          `json:"type"`
-	Time    time.Time       `json:"time"`
-	Thread  string          `json:"thread,omitempty"`
-	Payload json.RawMessage `json:"payload"`
+	ID      string         `json:"id"`
+	Seq     uint64         `json:"seq"`
+	Type    string         `json:"type"`
+	Time    time.Time      `json:"time"`
+	Thread  string         `json:"thread,omitempty"`
+	Payload jsontext.Value `json:"payload"`
 }
+
+// foreignJSON reads JSON whose content an agent or a model wrote, such as
+// an event's payload: a repeated member keeps its last value, bytes that are
+// not UTF-8 read as U+FFFD and a member name matches in any letter case.
+var foreignJSON = json.JoinOptions(
+	jsontext.AllowDuplicateNames(true),
+	jsontext.AllowInvalidUTF8(true),
+	json.MatchCaseInsensitiveNames(true),
+)
+
+// logJSON writes an event as one line of the log a digest is taken over.
+// The same event has the same bytes whenever it is written, and the bytes
+// are the ones a digest already named: members of a map in a fixed order,
+// a nil slice or map as null, <, > and & and the line separators escaped,
+// and a payload written as it was read, whether it repeats a member, spells
+// a character as an escape or holds bytes that are not UTF-8.
+var logJSON = json.JoinOptions(
+	json.Deterministic(true),
+	json.FormatNilSliceAsNull(true),
+	json.FormatNilMapAsNull(true),
+	jsontext.EscapeForHTML(true),
+	jsontext.EscapeForJS(true),
+	jsontext.AllowDuplicateNames(true),
+	jsontext.AllowInvalidUTF8(true),
+	jsontext.PreserveRawStrings(true),
+)
+
+// requestJSON writes a request body the same way every time it is written,
+// since a retried request carries the same idempotency key and must carry
+// the same bytes.
+var requestJSON = json.Deterministic(true)
 
 // Repository is a repository a session works in, at a ref.
 type Repository struct {
@@ -158,9 +190,9 @@ type Create struct {
 	EndOnIdle bool              `json:"end_on_idle"`
 	Attended  bool              `json:"attended"`
 	Rollout   string            `json:"rollout,omitempty"`
-	Model     *Model            `json:"model,omitempty"`
+	Model     *Model            `json:"model,omitzero"`
 	Resources []Repository      `json:"resources,omitempty"`
-	Limits    *Limits           `json:"limits,omitempty"`
+	Limits    *Limits           `json:"limits,omitzero"`
 }
 
 // Version answers the number of the version of agent name whose digest is
@@ -253,7 +285,7 @@ func (c *Client) call(ctx context.Context, token, method, path, key string, in, 
 	var payload []byte
 	if in != nil {
 		var err error
-		if payload, err = json.Marshal(in); err != nil {
+		if payload, err = json.Marshal(in, requestJSON); err != nil {
 			return fmt.Errorf("topos: encode the request: %w", err)
 		}
 	}
@@ -283,7 +315,7 @@ func (c *Client) call(ctx context.Context, token, method, path, key string, in, 
 		if out == nil || len(raw) == 0 {
 			return nil
 		}
-		if err := json.Unmarshal(raw, out); err != nil {
+		if err := json.Unmarshal(raw, out, foreignJSON); err != nil {
 			return fmt.Errorf("%w: the answer does not parse", ErrUnavailable)
 		}
 		return nil
@@ -295,7 +327,7 @@ func (c *Client) call(ctx context.Context, token, method, path, key string, in, 
 			Code string `json:"code"`
 		} `json:"error"`
 	}
-	_ = json.Unmarshal(raw, &e)
+	_ = json.Unmarshal(raw, &e, foreignJSON)
 	return &RefusedError{Status: resp.StatusCode, Code: e.Error.Code}
 }
 

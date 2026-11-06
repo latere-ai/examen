@@ -8,7 +8,7 @@
 package topostest
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -205,7 +205,7 @@ func (st *Stub) serve(w http.ResponseWriter, r *http.Request) {
 			var b struct {
 				Reason string `json:"reason"`
 			}
-			_ = json.NewDecoder(r.Body).Decode(&b)
+			_ = json.UnmarshalRead(r.Body, &b)
 			if s.s.Status != topos.StatusIdle {
 				st.refuse(w, http.StatusConflict, "conflict")
 				return

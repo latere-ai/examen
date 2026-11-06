@@ -13,7 +13,8 @@ package cella
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -186,7 +187,7 @@ func (c *Client) Create(ctx context.Context, token string, s Spec, hold time.Dur
 		meta["labels"] = s.Labels
 	}
 	body := map[string]any{"apiVersion": apiVersion, "kind": "Sandbox", "metadata": meta, "spec": spec}
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, requestJSON)
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("cella: encode the manifest: %w", err)
 	}
@@ -256,7 +257,7 @@ func (c *Client) Run(ctx context.Context, token, id string, e Exec) (Result, err
 	if e.Timeout > 0 {
 		body["timeout"] = e.Timeout.String()
 	}
-	raw, err := json.Marshal(body)
+	raw, err := json.Marshal(body, requestJSON)
 	if err != nil {
 		return Result{}, fmt.Errorf("cella: encode the command: %w", err)
 	}
@@ -264,6 +265,24 @@ func (c *Client) Run(ctx context.Context, token, id string, e Exec) (Result, err
 	err = c.call(ctx, token, http.MethodPost, "/sandboxes/"+url.PathEscape(id)+"/exec?wait=1", "application/json", raw, e.Timeout+callTimeout, &r)
 	return r, err
 }
+
+// foreignJSON reads an answer that carries what a command wrote: a repeated
+// member keeps its last value, bytes that are not UTF-8 read as U+FFFD and
+// a member name matches in any letter case.
+var foreignJSON = json.JoinOptions(
+	jsontext.AllowDuplicateNames(true),
+	jsontext.AllowInvalidUTF8(true),
+	json.MatchCaseInsensitiveNames(true),
+)
+
+// requestJSON writes what is sent to Cella: members of a map in order, a nil
+// list as null, and text that is not UTF-8 as U+FFFD.
+var requestJSON = json.JoinOptions(
+	json.Deterministic(true),
+	json.FormatNilSliceAsNull(true),
+	json.FormatNilMapAsNull(true),
+	jsontext.AllowInvalidUTF8(true),
+)
 
 // call sends one request with the owner token and decodes a 2xx answer
 // into out. The token, the address and the body are in no error.
@@ -299,7 +318,7 @@ func (c *Client) send(ctx context.Context, token, method, path, contentType stri
 		if out == nil || len(raw) == 0 {
 			return nil
 		}
-		if err := json.Unmarshal(raw, out); err != nil {
+		if err := json.Unmarshal(raw, out, foreignJSON); err != nil {
 			return fmt.Errorf("%w: the answer does not parse", ErrUnavailable)
 		}
 		return nil
@@ -314,7 +333,7 @@ func (c *Client) send(ctx context.Context, token, method, path, contentType stri
 			} `json:"details"`
 		} `json:"error"`
 	}
-	_ = json.Unmarshal(raw, &e)
+	_ = json.Unmarshal(raw, &e, foreignJSON)
 	return &RefusedError{Status: resp.StatusCode, Code: e.Error.Code, Detail: e.Error.Details.Detail}
 }
 

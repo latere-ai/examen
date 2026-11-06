@@ -5,7 +5,8 @@ package compare
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"slices"
@@ -174,7 +175,7 @@ func newWorld(t *testing.T) *world {
 		"exp_old": {ID: "exp_old", Owner: "alice", SuiteID: "sui_old"},
 	}, cells: map[string][]objects.Cell{}, trials: map[string][]objects.Trial{}}
 	tuple := func(task, model string) objects.Tuple {
-		return objects.Tuple{CandidateKind: objects.CandidateExternal, Program: json.RawMessage(`{"harness":"h"}`), Model: model, Tools: []string{"write", "read"}, TaskHash: task}
+		return objects.Tuple{CandidateKind: objects.CandidateExternal, Program: jsontext.Value(`{"harness":"h"}`), Model: model, Tools: []string{"write", "read"}, TaskHash: task}
 	}
 	x.cells["exp_new"] = []objects.Cell{
 		{ID: "cel_a", Experiment: "exp_new", Task: taskA, Candidate: candNew, Tuple: tuple(taskA, "m-2"), State: objects.StateComplete},
@@ -304,7 +305,7 @@ func TestInputSides(t *testing.T) {
 		}
 	}
 	unreadable := objects.Comparison{ID: "c", Experiment: "exp_new", Candidate: candNew, ReferenceCandidate: candOld,
-		Parameters: json.RawMessage(`[]`)}
+		Parameters: jsontext.Value(`[]`)}
 	if _, err := Input(ctx, unreadable, w.src); err == nil {
 		t.Error("unreadable parameters: no error")
 	}
@@ -466,11 +467,11 @@ func TestReadErrors(t *testing.T) {
 	base := objects.Comparison{ID: "c", Experiment: "exp_new", Candidate: candNew, ReferenceCandidate: candOld}
 	for name, break_ := range map[string]func(w *world){
 		"no suite":           func(w *world) { delete(w.v.byID, "sui_new") },
-		"a suite of no JSON": func(w *world) { ver := w.v.byID["sui_new"]; ver.Body = json.RawMessage(`[`); w.v.byID["sui_new"] = ver },
+		"a suite of no JSON": func(w *world) { ver := w.v.byID["sui_new"]; ver.Body = jsontext.Value(`[`); w.v.byID["sui_new"] = ver },
 		"no metric":          func(w *world) { delete(w.v.byDigest, objects.KindMetric+" "+topic) },
 		"a metric of no JSON": func(w *world) {
 			ver := w.v.byDigest[objects.KindMetric+" "+topic]
-			ver.Body = json.RawMessage(`[`)
+			ver.Body = jsontext.Value(`[`)
 			w.v.byDigest[objects.KindMetric+" "+topic] = ver
 		},
 		"no suite grader": func(w *world) {

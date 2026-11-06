@@ -3,7 +3,7 @@
 
 package objects
 
-import "encoding/json"
+import "encoding/json/jsontext"
 
 // JudgePreamble is Examen's judge preamble (specs/006-grading.md, "Input
 // assembly"), the first of a model judge's system content. It is pinned on
@@ -47,7 +47,7 @@ const GradingPending = "pending"
 type CheckRun struct {
 	Grader       string  `json:"grader"`
 	State        string  `json:"state"`
-	ExitCode     *int    `json:"exit_code,omitempty"`
+	ExitCode     *int    `json:"exit_code,omitzero"`
 	Reason       string  `json:"reason,omitempty"`
 	Duration     float64 `json:"duration"`
 	StdoutSize   int64   `json:"stdout_size"`
@@ -72,7 +72,7 @@ type CheckRun struct {
 // attempt, and a developer's reason for an end other than ok.
 type Judgment struct {
 	Grader        string         `json:"grader"`
-	Generation    int            `json:"generation,omitempty"`
+	Generation    int            `json:"generation,omitzero"`
 	State         string         `json:"state"`
 	Attempts      []Attempt      `json:"attempts"`
 	RequestDigest string         `json:"request_digest,omitempty"`
@@ -80,7 +80,7 @@ type Judgment struct {
 	Boundary      string         `json:"boundary,omitempty"`
 	ServedModel   string         `json:"served_model,omitempty"`
 	Tokens        JudgmentTokens `json:"tokens"`
-	Cost          *int64         `json:"cost_usd_micro,omitempty"`
+	Cost          *int64         `json:"cost_usd_micro,omitzero"`
 	Reason        string         `json:"reason,omitempty"`
 }
 
@@ -107,16 +107,16 @@ type JudgmentTokens struct {
 // grader, its kind (a check or a model judge), its place among the trial's
 // gradings, its state and, once it ended, its record.
 type Grading struct {
-	ID         string          `json:"-"`
-	Experiment string          `json:"-"`
-	Cell       string          `json:"-"`
-	Trial      string          `json:"-"`
-	Grader     string          `json:"grader"`
-	Kind       string          `json:"kind"`
-	Position   int             `json:"-"`
-	State      string          `json:"state"`
-	Attempts   int             `json:"-"`
-	Record     json.RawMessage `json:"-"`
+	ID         string         `json:"-"`
+	Experiment string         `json:"-"`
+	Cell       string         `json:"-"`
+	Trial      string         `json:"-"`
+	Grader     string         `json:"grader"`
+	Kind       string         `json:"kind"`
+	Position   int            `json:"-"`
+	State      string         `json:"state"`
+	Attempts   int            `json:"-"`
+	Record     jsontext.Value `json:"-"`
 }
 
 // NewGrading is a grading a finished trial is given when it reaches done:

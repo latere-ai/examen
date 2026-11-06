@@ -5,7 +5,8 @@ package httpapi
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -126,7 +127,7 @@ func jbTrial(i int) objects.Trial {
 		State: objects.StateDone, Outcome: objects.OutcomeCompleted,
 		Sent:     &objects.Sent{Requests: 14, BySetting: []objects.SentSetting{{Model: "anthropic/claude-haiku-5.5", Reasoning: "low", Requests: 14}}},
 		Observed: objects.Observed{CostState: objects.CostKnown, CostUSD: &cost, InputTokens: &in, OutputTokens: &out, Duration: &dur, Served: []objects.ModelCount{{Model: "anthropic/claude-haiku-5.5", Requests: 14}}},
-		Checks:   []json.RawMessage{json.RawMessage(`{"grader":"sha256:aa","state":"ok"}`)}, Judgments: []json.RawMessage{},
+		Checks:   []jsontext.Value{jsontext.Value(`{"grader":"sha256:aa","state":"ok"}`)}, Judgments: []jsontext.Value{},
 		Evidence:  []objects.EvidenceRef{{Kind: objects.EvidenceOutput, Name: "workspace/", Owner: "usr_01JC8M2Q4V7Y", Path: fmt.Sprintf("trials/%d/workspace/", i), Digest: jbDigest(i), Size: &sz}},
 		StartedAt: &started, AgentEndedAt: &ended, EndedAt: &ended, CreatedAt: started,
 		Values: map[string]any{"tests_pass": true, "quality": 0.75},
@@ -168,7 +169,7 @@ func jbExperiment(n int) objects.Experiment {
 		Budget:      objects.Budget{Name: "team-budget", CapUSDMicro: &cap, SpentUSDMicro: &spent, RemainingUSDMicro: &remaining},
 		Parallelism: 8, Reference: objects.Reference{Baseline: "main", Candidate: "agent-0000"}, Mode: "managed", Scheduling: "interleaved",
 		Comparisons: []objects.DeclaredComparison{{Candidate: "agent-0001", ReferenceCandidate: "agent-0000", Metric: "tests_pass"}},
-		State:       "running", CreatedBy: "usr_01JC8M2Q4V7Y", Judgments: []json.RawMessage{},
+		State:       "running", CreatedBy: "usr_01JC8M2Q4V7Y", Judgments: []jsontext.Value{},
 		Progress:  &objects.Progress{Cells: map[string]int{"pending": 12, "running": 8, "done": 40 * n}, Trials: map[string]int{"pending": 60, "running": 8, "done": 200 * n}, Outcomes: map[string]int{"completed": 190 * n, "timed_out": 6 * n, "declined": 4 * n}},
 		Usage:     &objects.Usage{Requests: 2800 * int64(n), CostUSDMicro: spent},
 		Metadata:  map[string]string{"branch": "feature/json-v2", "commit": strings.Repeat("a", 40)},

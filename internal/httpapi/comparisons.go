@@ -4,7 +4,7 @@
 package httpapi
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"net/http"
 	"slices"
@@ -360,22 +360,22 @@ type gridTrials struct {
 
 // gridCell is one entry of a grid row.
 type gridCell struct {
-	Cell         string          `json:"cell"`
-	Candidate    string          `json:"candidate"`
-	State        string          `json:"state"`
-	ParkedReason string          `json:"parked_reason,omitempty"`
-	Trials       gridTrials      `json:"trials"`
-	Summary      json.RawMessage `json:"summary,omitempty"`
-	Verdict      string          `json:"verdict,omitempty"`
-	Reason       string          `json:"reason,omitempty"`
-	Comparison   string          `json:"comparison,omitempty"`
+	Cell         string         `json:"cell"`
+	Candidate    string         `json:"candidate"`
+	State        string         `json:"state"`
+	ParkedReason string         `json:"parked_reason,omitempty"`
+	Trials       gridTrials     `json:"trials"`
+	Summary      jsontext.Value `json:"summary,omitzero"`
+	Verdict      string         `json:"verdict,omitempty"`
+	Reason       string         `json:"reason,omitempty"`
+	Comparison   string         `json:"comparison,omitempty"`
 }
 
 // gridRow is one task of a grid.
 type gridRow struct {
-	Task             taskName        `json:"task"`
-	Cells            []gridCell      `json:"cells"`
-	ReferenceSummary json.RawMessage `json:"reference_summary,omitempty"`
+	Task             taskName       `json:"task"`
+	Cells            []gridCell     `json:"cells"`
+	ReferenceSummary jsontext.Value `json:"reference_summary,omitzero"`
 }
 
 // gridAnswer is the candidate × task grid of specs/003-api.md.

@@ -42,8 +42,8 @@ type DeclaredEntry struct {
 	Index      int      `json:"index"`
 	Comparison string   `json:"comparison,omitempty"`
 	Metric     string   `json:"metric"`
-	P          *float64 `json:"p,omitempty"`
-	Q          *float64 `json:"q,omitempty"`
+	P          *float64 `json:"p,omitzero"`
+	Q          *float64 `json:"q,omitzero"`
 	Verdict    Verdict  `json:"verdict,omitempty"`
 	Reason     string   `json:"reason"`
 	Final      bool     `json:"final"`

@@ -84,7 +84,7 @@ type Entry struct {
 type TableInput struct {
 	Parameters Parameters `json:"parameters"`
 	Metric     Metric     `json:"metric"`
-	Of         *Metric    `json:"of,omitempty"`
+	Of         *Metric    `json:"of,omitzero"`
 	Reference  string     `json:"reference,omitempty"`
 	Entries    []Entry    `json:"entries"`
 }
@@ -102,7 +102,7 @@ type RankedEntry struct {
 	Rank        Rank    `json:"rank"`
 	Summary     Summary `json:"summary"`
 	Declared    bool    `json:"declared"`
-	VsReference *Result `json:"vs_reference,omitempty"`
+	VsReference *Result `json:"vs_reference,omitzero"`
 }
 
 // UnrankedEntry is an entry the table does not rank, and why.

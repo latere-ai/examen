@@ -4,7 +4,7 @@
 package owner
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +26,7 @@ func minter(t *testing.T, answer func(w http.ResponseWriter, body map[string]any
 			t.Errorf("the minter was asked with %q", r.Header.Get("Authorization"))
 		}
 		var body map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		if err := json.UnmarshalRead(r.Body, &body); err != nil {
 			t.Errorf("decode: %v", err)
 		}
 		last = body
@@ -45,7 +45,7 @@ var ask = Request{Owner: "iss|alice", Subject: "iss|alice", Audience: "topos", E
 // another token.
 func TestTokensAreKeptUntilTheirRenewal(t *testing.T) {
 	m, n, last := minter(t, func(w http.ResponseWriter, body map[string]any) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"token": "tok-" + body["audience"].(string), "expires_in": 300})
+		_ = json.MarshalWrite(w, map[string]any{"token": "tok-" + body["audience"].(string), "expires_in": 300})
 	})
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	m.Now = func() time.Time { return now }
@@ -53,7 +53,7 @@ func TestTokensAreKeptUntilTheirRenewal(t *testing.T) {
 	if err != nil || tok != "tok-topos" {
 		t.Fatalf("token %q, %v", tok, err)
 	}
-	b, _ := json.Marshal(*last)
+	b, _ := json.Marshal(*last, json.Deterministic(true))
 	if want := `{"audience":"topos","claims":{"examen":{"experiment":"exp_1","purpose":"trial"}},"owner":"iss|alice","subject":"iss|alice","ttl":900}`; string(b) != want {
 		t.Fatalf("the ask was %s, want %s", b, want)
 	}
@@ -82,7 +82,7 @@ func TestTheLabelsComeWithTheToken(t *testing.T) {
 		if labels {
 			out["labels"] = map[string]string{"tenant": "p-1"}
 		}
-		_ = json.NewEncoder(w).Encode(out)
+		_ = json.MarshalWrite(w, out)
 	})
 	got, err := m.Labels(t.Context(), ask)
 	if err != nil || got["tenant"] != "p-1" || len(got) != 1 {
@@ -109,7 +109,7 @@ func TestTheLabelsComeWithTheToken(t *testing.T) {
 // hour is used OWNER_TOKEN_MAX_LIFETIME at most.
 func TestALongTokenIsUsedNoLongerThanTheMaxLifetime(t *testing.T) {
 	m, n, _ := minter(t, func(w http.ResponseWriter, _ map[string]any) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"token": "tok", "expires_in": 3600})
+		_ = json.MarshalWrite(w, map[string]any{"token": "tok", "expires_in": 3600})
 	})
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	m.Now = func() time.Time { return now }

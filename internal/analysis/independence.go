@@ -31,7 +31,7 @@ type IndependenceInput struct {
 	Sides    []Side            `json:"sides"`
 	// LabelTests is true once label tests are built; until then the
 	// result carries its summaries and no p-value or verdict.
-	LabelTests   bool                `json:"label_tests,omitempty"`
+	LabelTests   bool                `json:"label_tests,omitzero"`
 	Taxonomies   map[string]Taxonomy `json:"taxonomies,omitempty"`
 	Calibrations []Calibration       `json:"calibrations,omitempty"`
 }
@@ -69,11 +69,11 @@ type IndependenceResult struct {
 	LeftOut         []IndependenceLeftOut  `json:"left_out"`
 	Method          string                 `json:"method,omitempty"`
 	Statistic       string                 `json:"statistic,omitempty"`
-	Exact           *bool                  `json:"exact,omitempty"`
-	Resamples       *int                   `json:"resamples,omitempty"`
+	Exact           *bool                  `json:"exact,omitzero"`
+	Resamples       *int                   `json:"resamples,omitzero"`
 	Seed            string                 `json:"seed"`
-	P               *float64               `json:"p,omitempty"`
-	Q               *float64               `json:"q,omitempty"`
+	P               *float64               `json:"p,omitzero"`
+	Q               *float64               `json:"q,omitzero"`
 	Verdict         Verdict                `json:"verdict,omitempty"`
 	Reason          string                 `json:"reason"`
 	Confounds       []IndependenceConfound `json:"confounds"`

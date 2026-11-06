@@ -20,7 +20,7 @@
 package analysis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"

@@ -14,7 +14,8 @@ package keys
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"time"
 )
@@ -132,7 +133,7 @@ type Record struct {
 	Cost     int64
 	Currency string
 	Priced   bool
-	Raw      json.RawMessage
+	Raw      jsontext.Value
 }
 
 // The statuses of a record.
@@ -186,7 +187,7 @@ type wireRecord struct {
 
 // ParseRecord reads one of Lux's request records. A record with no id, no
 // time or a status Lux does not write is an error.
-func ParseRecord(raw json.RawMessage) (Record, error) {
+func ParseRecord(raw jsontext.Value) (Record, error) {
 	var w wireRecord
 	if err := json.Unmarshal(raw, &w); err != nil {
 		return Record{}, err

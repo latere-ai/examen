@@ -5,7 +5,8 @@ package grade
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"slices"
 	"strings"
@@ -67,8 +68,8 @@ func TestAssemblyIsDeterministic(t *testing.T) {
 		t.Fatalf("the call's tool: %+v %+v", r.Tools, r.ToolChoice)
 	}
 	var schema struct {
-		Required   []string                   `json:"required"`
-		Properties map[string]json.RawMessage `json:"properties"`
+		Required   []string                  `json:"required"`
+		Properties map[string]jsontext.Value `json:"properties"`
 	}
 	if err := json.Unmarshal(r.Tools[0].InputSchema, &schema); err != nil || len(schema.Required) != 2 || !strings.Contains(string(schema.Properties["kind"]), `"enum":["game","tool"]`) {
 		t.Fatalf("the tool's schema: %s %v", r.Tools[0].InputSchema, err)
@@ -191,7 +192,7 @@ func TestInputBound(t *testing.T) {
 }
 
 func answer(args string, stop ir.StopReason) lux.Response {
-	return lux.Response{StopReason: stop, Blocks: []lux.Block{{Type: ir.BlockToolUse, ToolUse: &lux.ToolUse{ID: "t1", Name: ToolName, Args: json.RawMessage(args)}}}}
+	return lux.Response{StopReason: stop, Blocks: []lux.Block{{Type: ir.BlockToolUse, ToolUse: &lux.ToolUse{ID: "t1", Name: ToolName, Args: jsontext.Value(args)}}}}
 }
 
 // TestMalformedAnswers: an answer is checked whatever the provider
@@ -208,7 +209,7 @@ func TestMalformedAnswers(t *testing.T) {
 	for name, resp := range map[string]lux.Response{
 		"no tool call":     {Blocks: []lux.Block{{Type: ir.BlockText, Text: "game"}}},
 		"two tool calls":   two,
-		"another tool":     {Blocks: []lux.Block{{Type: ir.BlockToolUse, ToolUse: &lux.ToolUse{Name: "other", Args: json.RawMessage(good)}}}},
+		"another tool":     {Blocks: []lux.Block{{Type: ir.BlockToolUse, ToolUse: &lux.ToolUse{Name: "other", Args: jsontext.Value(good)}}}},
 		"not an object":    answer(`[1]`, ir.StopToolUse),
 		"a missing metric": answer(`{"kind": {"value": "game", "rationale": "r"}}`, ir.StopToolUse),
 		"an extra metric":  answer(`{"kind": {"value": "game", "rationale": "r"}, "idea": {"value": "x", "rationale": "r"}, "mood": {"value": 1, "rationale": "r"}}`, ir.StopToolUse),

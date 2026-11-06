@@ -5,7 +5,7 @@ package apierr
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"

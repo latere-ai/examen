@@ -4,7 +4,7 @@
 package topos
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"strings"
 	"testing"
@@ -34,7 +34,7 @@ func jbLog(n int) (Session, []Event) {
 	size := 0
 	add := func(typ, thread string, payload any) {
 		e := jbEvent(uint64(len(events)+1), typ, thread, payload)
-		line, err := json.Marshal(e)
+		line, err := json.Marshal(e, logJSON)
 		if err != nil {
 			panic(err)
 		}
@@ -134,7 +134,7 @@ func BenchmarkJSONEventPageUnmarshal(b *testing.B) {
 					Items      []Event `json:"items"`
 					NextCursor string  `json:"next_cursor"`
 				}
-				if err := json.Unmarshal(raw, &page); err != nil {
+				if err := json.Unmarshal(raw, &page, foreignJSON); err != nil {
 					b.Fatal(err)
 				}
 				if len(page.Items) != len(events) {
@@ -157,7 +157,7 @@ func BenchmarkJSONSessionUnmarshal(b *testing.B) {
 	b.SetBytes(int64(len(raw)))
 	for b.Loop() {
 		var got Session
-		if err := json.Unmarshal(raw, &got); err != nil {
+		if err := json.Unmarshal(raw, &got, foreignJSON); err != nil {
 			b.Fatal(err)
 		}
 		if got.ID != s.ID {

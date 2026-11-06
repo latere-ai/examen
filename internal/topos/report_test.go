@@ -4,7 +4,7 @@
 package topos
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"slices"
 	"strings"
 	"testing"
@@ -16,7 +16,7 @@ import (
 var t0 = time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 
 func ev(typ, thread string, at time.Duration, payload string) Event {
-	return Event{ID: "evt_" + typ, Type: typ, Thread: thread, Time: t0.Add(at), Payload: json.RawMessage(payload)}
+	return Event{ID: "evt_" + typ, Type: typ, Thread: thread, Time: t0.Add(at), Payload: jsontext.Value(payload)}
 }
 
 // TestOutcomes holds each row of spec 005's topos outcome table: how a

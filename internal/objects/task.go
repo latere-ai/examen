@@ -4,7 +4,7 @@
 package objects
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"maps"
 	"regexp"
 	"slices"
@@ -30,8 +30,8 @@ type Task struct {
 	Inputs      []FileSource `json:"inputs,omitempty"`
 	Reference   []FileSource `json:"reference,omitempty"`
 	Outputs     []string     `json:"outputs,omitempty"`
-	Workspace   *Workspace   `json:"workspace,omitempty"`
-	Environment *Environment `json:"environment,omitempty"`
+	Workspace   *Workspace   `json:"workspace,omitzero"`
+	Environment *Environment `json:"environment,omitzero"`
 	Checks      []string     `json:"checks,omitempty"`
 	// Graders are judges and annotation queues applied to this task's
 	// trials alone, beside the suite's graders: a judge whose prompt is
@@ -39,7 +39,7 @@ type Task struct {
 	// task's seed project.
 	Graders  []string `json:"graders,omitempty"`
 	Timeout  string   `json:"timeout,omitempty"`
-	MaxTurns int      `json:"max_turns,omitempty"`
+	MaxTurns int      `json:"max_turns,omitzero"`
 	Evidence []string `json:"evidence,omitempty"`
 	// Factors place the task in a design: each factor's name to the
 	// task's level of it. A declared comparison or a test of independence
@@ -53,9 +53,9 @@ type Task struct {
 // inline text.
 type FileSource struct {
 	Name  string    `json:"name"`
-	Arca  *ArcaRef  `json:"arca,omitempty"`
-	Origo *OrigoRef `json:"origo,omitempty"`
-	Text  *string   `json:"text,omitempty"`
+	Arca  *ArcaRef  `json:"arca,omitzero"`
+	Origo *OrigoRef `json:"origo,omitzero"`
+	Text  *string   `json:"text,omitzero"`
 }
 
 // ArcaRef is a path in an owner's Arca space and the digest of what it
@@ -83,9 +83,9 @@ type Workspace struct {
 
 // Environment is the Cella sandbox template a trial runs in.
 type Environment struct {
-	Image     string          `json:"image"`
-	Resources json.RawMessage `json:"resources,omitempty"`
-	Network   json.RawMessage `json:"network,omitempty"`
+	Image     string         `json:"image"`
+	Resources jsontext.Value `json:"resources,omitzero"`
+	Network   jsontext.Value `json:"network,omitzero"`
 }
 
 var (

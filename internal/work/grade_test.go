@@ -9,7 +9,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -121,7 +121,7 @@ func (f *files) serve(w http.ResponseWriter, r *http.Request) {
 				entries = append(entries, arca.Entry{Path: p, Size: int64(len(b)), Checksum: sha(b), ChecksumKind: "sha256"})
 			}
 		}
-		_ = json.NewEncoder(w).Encode(map[string]any{"entries": entries})
+		_ = json.MarshalWrite(w, map[string]any{"entries": entries})
 		return
 	}
 	if f.down != "" && strings.HasPrefix(path, f.down) {
@@ -236,7 +236,7 @@ func (c *sandboxes) serve(w http.ResponseWriter, r *http.Request) {
 		if c.ran != nil {
 			c.ran(check)
 		}
-		_ = json.NewEncoder(w).Encode(c.answers[check])
+		_ = json.MarshalWrite(w, c.answers[check])
 	case r.Method == http.MethodDelete:
 		c.deleted = append(c.deleted, strings.Split(r.URL.Path, "/")[2])
 		w.WriteHeader(http.StatusNoContent)

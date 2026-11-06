@@ -6,7 +6,8 @@ package compare
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 
@@ -165,7 +166,7 @@ type pendingIndependence struct {
 // answers the result as the declared analysis keeps it and whether it is
 // final; before any cell it reads holds a finished trial, or when pending
 // asks for no figure, what it declared and why it has no figure yet.
-func independence(ctx context.Context, e objects.Experiment, su suiteOf, src Source, pending bool) (json.RawMessage, bool, error) {
+func independence(ctx context.Context, e objects.Experiment, su suiteOf, src Source, pending bool) (jsontext.Value, bool, error) {
 	ind := *e.Independence
 	design, err := designOf(ctx, src.Versions, e, su)
 	if err != nil {
@@ -216,7 +217,7 @@ func independence(ctx context.Context, e objects.Experiment, su suiteOf, src Sou
 		raw, err := json.Marshal(pendingIndependence{
 			Metric: ind.Metric, MetricName: su.resolved.Metrics[ind.Metric].Name, Variable: ind.Variable, By: in.By, Where: ind.Where,
 			Levels: sel.Levels, Reason: analysis.ReasonIndependenceNotComputed,
-		})
+		}, storedJSON)
 		return raw, false, err
 	}
 	if in.Taxonomies, err = taxonomies(ctx, src.Taxonomies, su); err != nil {
@@ -229,7 +230,7 @@ func independence(ctx context.Context, e objects.Experiment, su suiteOf, src Sou
 	if err != nil {
 		return nil, false, fmt.Errorf("compare: the test of independence of %s: %w", e.ID, err)
 	}
-	raw, err := json.Marshal(res)
+	raw, err := json.Marshal(res, storedJSON)
 	return raw, res.Final, err
 }
 

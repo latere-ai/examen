@@ -15,7 +15,7 @@ package compare
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 
 	"latere.ai/x/examen/internal/objects"
@@ -43,7 +43,7 @@ type Analyzer interface {
 	Compare(ctx context.Context, c objects.Comparison, src Source) (objects.Computed, []string, error)
 	// Summaries are spec 002's summaries of one metric over each of an
 	// experiment's cells' trials, by cell id, as the analysis renders them.
-	Summaries(ctx context.Context, e objects.Experiment, cells []objects.Cell, metric string, src Source) (map[string]json.RawMessage, error)
+	Summaries(ctx context.Context, e objects.Experiment, cells []objects.Cell, metric string, src Source) (map[string]jsontext.Value, error)
 	// Declared is an experiment's declared analysis, from the newest
 	// comparison of each of its declared comparisons.
 	Declared(ctx context.Context, e objects.Experiment, family []objects.Comparison, src Source) (objects.DeclaredAnalysis, error)
@@ -59,7 +59,7 @@ func (NotComputed) Compare(context.Context, objects.Comparison, Source) (objects
 }
 
 // Summaries answers ErrNotComputed.
-func (NotComputed) Summaries(context.Context, objects.Experiment, []objects.Cell, string, Source) (map[string]json.RawMessage, error) {
+func (NotComputed) Summaries(context.Context, objects.Experiment, []objects.Cell, string, Source) (map[string]jsontext.Value, error) {
 	return nil, ErrNotComputed
 }
 

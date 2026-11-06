@@ -6,7 +6,8 @@ package keys
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -52,7 +53,7 @@ type leaseBody struct {
 	Models     []string          `json:"models"`
 	Surface    string            `json:"surface,omitempty"`
 	Labels     map[string]string `json:"labels"`
-	TTL        int64             `json:"ttl,omitempty"`
+	TTL        int64             `json:"ttl,omitzero"`
 }
 
 // leaseAnswer is the endpoint's 200 to a lease. expires_at is absent for a
@@ -141,8 +142,8 @@ type usageBody struct {
 }
 
 type usageAnswer struct {
-	Records    []json.RawMessage `json:"records"`
-	NextCursor string            `json:"next_cursor"`
+	Records    []jsontext.Value `json:"records"`
+	NextCursor string           `json:"next_cursor"`
 }
 
 // Usage reads one page of the records of an experiment's external Key.

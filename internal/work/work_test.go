@@ -6,7 +6,8 @@ package work
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"log/slog"
 	"strings"
@@ -70,7 +71,7 @@ func (f figures) Compare(context.Context, objects.Comparison, compare.Source) (o
 	return objects.Computed{Confounds: []string{}, Results: []objects.ResultRow{{Level: "suite", Verdict: "within_noise"}}, AnalysisVersion: "examen.analysis/v1"}, []string{"msr_a"}, nil
 }
 
-func (figures) Summaries(context.Context, objects.Experiment, []objects.Cell, string, compare.Source) (map[string]json.RawMessage, error) {
+func (figures) Summaries(context.Context, objects.Experiment, []objects.Cell, string, compare.Source) (map[string]jsontext.Value, error) {
 	return nil, compare.ErrNotComputed
 }
 
@@ -193,7 +194,7 @@ type independent struct {
 func (d independent) Declared(_ context.Context, e objects.Experiment, family []objects.Comparison, _ compare.Source) (objects.DeclaredAnalysis, error) {
 	*d.asked++
 	return objects.DeclaredAnalysis{Experiment: e.ID, Family: objects.DeclaredFamily{Method: "benjamini_hochberg", Level: 0.05},
-		Comparisons: []objects.DeclaredResult{}, Independence: json.RawMessage(`{"p":0.5}`)}, nil
+		Comparisons: []objects.DeclaredResult{}, Independence: jsontext.Value(`{"p":0.5}`)}, nil
 }
 
 // An experiment that declares a test of independence and keeps no

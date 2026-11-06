@@ -7,7 +7,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"strconv"
@@ -21,6 +22,16 @@ import (
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
 	"latere.ai/x/examen/internal/store"
+)
+
+// providerJSON writes what is sent to a model provider and hashed: members
+// in a fixed order so the same request has the same bytes, a nil slice or
+// map as null, and text that is not UTF-8 as U+FFFD.
+var providerJSON = json.JoinOptions(
+	json.Deterministic(true),
+	json.FormatNilSliceAsNull(true),
+	json.FormatNilMapAsNull(true),
+	jsontext.AllowInvalidUTF8(true),
 )
 
 // ToolName is the one tool a model judge is offered and must call.
@@ -138,7 +149,7 @@ func Assemble(g objects.Grader, graderDigest, trial string, produces []Produced,
 	if j.Reasoning != "" {
 		req.Reasoning = &lux.Reasoning{Level: wire.ReasoningLevel(j.Reasoning)}
 	}
-	body, err := json.Marshal(req)
+	body, err := json.Marshal(req, providerJSON)
 	if err != nil {
 		return Request{}, fmt.Errorf("grade: encode the judgment's request: %w", err)
 	}
@@ -191,7 +202,7 @@ func describeType(m objects.Metric) string {
 
 // inputSchema is record_judgment's input: one member per metric, all
 // required and no other, each {value, rationale}.
-func inputSchema(produces []Produced) (json.RawMessage, error) {
+func inputSchema(produces []Produced) (jsontext.Value, error) {
 	props := map[string]any{}
 	var required []string
 	for _, p := range produces {
@@ -206,7 +217,7 @@ func inputSchema(produces []Produced) (json.RawMessage, error) {
 		}
 		required = append(required, p.Metric.Name)
 	}
-	raw, err := json.Marshal(map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false})
+	raw, err := json.Marshal(map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}, providerJSON)
 	if err != nil {
 		return nil, fmt.Errorf("grade: encode the judgment's schema: %w", err)
 	}
@@ -391,10 +402,8 @@ func ReadAnswer(resp lux.Response, produces []Produced) Answer {
 	case calls[0].Name != ToolName:
 		return malformed("the answer called " + calls[0].Name)
 	}
-	dec := json.NewDecoder(bytes.NewReader(calls[0].Args))
-	dec.UseNumber()
-	var input map[string]json.RawMessage
-	if err := dec.Decode(&input); err != nil || input == nil {
+	var input map[string]jsontext.Value
+	if err := json.UnmarshalDecode(jsontext.NewDecoder(bytes.NewReader(calls[0].Args), foreignJSON), &input, foreignJSON); err != nil || input == nil {
 		return malformed("the call's input is not one JSON object")
 	}
 	names := map[string]bool{}
@@ -416,10 +425,8 @@ func ReadAnswer(resp lux.Response, produces []Produced) Answer {
 			Value     any     `json:"value"`
 			Rationale *string `json:"rationale"`
 		}
-		dec := json.NewDecoder(bytes.NewReader(raw))
-		dec.UseNumber()
-		var shape map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &shape); err != nil || shape == nil {
+		var shape map[string]jsontext.Value
+		if err := json.Unmarshal(raw, &shape, foreignJSON); err != nil || shape == nil {
 			return malformed(p.Metric.Name + " is not {value, rationale}")
 		}
 		for k := range shape {
@@ -427,7 +434,7 @@ func ReadAnswer(resp lux.Response, produces []Produced) Answer {
 				return malformed(p.Metric.Name + "." + k + " is no member of {value, rationale}")
 			}
 		}
-		if err := dec.Decode(&member); err != nil {
+		if err := json.Unmarshal(raw, &member, foreignJSON); err != nil {
 			return malformed(p.Metric.Name + " is not {value, rationale}")
 		}
 		switch {

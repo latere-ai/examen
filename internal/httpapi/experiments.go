@@ -6,7 +6,8 @@ package httpapi
 import (
 	"cmp"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"net/http"
@@ -380,6 +381,18 @@ func declarations(list []declaredBody, res objects.Resolved, design []objects.De
 	return out, selections, nil
 }
 
+// comparisonKeyJSON writes a comparison's key as it has always been written,
+// since a key is compared with the keys already recorded: members of a map
+// in a fixed order, a nil slice as null, and <, > and & and the line
+// separators escaped.
+var comparisonKeyJSON = json.JoinOptions(
+	json.Deterministic(true),
+	json.FormatNilSliceAsNull(true),
+	json.FormatNilMapAsNull(true),
+	jsontext.EscapeForHTML(true),
+	jsontext.EscapeForJS(true),
+)
+
 // comparisonKey identifies a declared comparison whatever its form, the
 // orientation of its levels and the order of its strata: a pair of
 // candidates reads as the candidate compared by task, and a candidate's
@@ -407,7 +420,7 @@ func comparisonKey(d objects.DeclaredComparison, primary string) (string, error)
 		Where    map[string]string `json:"where"`
 		By       []string          `json:"by"`
 		Metric   string            `json:"metric"`
-	}{variable, levels, where, by, cmp.Or(d.Metric, primary)})
+	}{variable, levels, where, by, cmp.Or(d.Metric, primary)}, comparisonKeyJSON)
 	return string(b), err
 }
 

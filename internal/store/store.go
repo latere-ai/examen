@@ -14,7 +14,7 @@ package store
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"time"
 
@@ -614,9 +614,9 @@ type UsageRecord struct {
 	Provider  string
 	Status    string
 	Error     string
-	Tokens    json.RawMessage
+	Tokens    jsontext.Value
 	CostMicro int64
 	Currency  string
 	Priced    bool
-	Record    json.RawMessage
+	Record    jsontext.Value
 }

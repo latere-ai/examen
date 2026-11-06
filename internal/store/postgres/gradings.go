@@ -5,7 +5,8 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"strings"
@@ -33,7 +34,7 @@ func scanGrading(row pgx.Row) (objects.Grading, error) {
 		return g, err
 	}
 	if len(record) > 0 {
-		g.Record = json.RawMessage(record)
+		g.Record = jsontext.Value(record)
 	}
 	return g, nil
 }
@@ -224,7 +225,7 @@ func (g gradings) End(ctx context.Context, end store.GradingEnd) error {
 // recordWith is a grading's record as stored, with the generation its run
 // appended when it appended one.
 func recordWith(record any, generation *int) (string, error) {
-	raw, err := json.Marshal(record)
+	raw, err := json.Marshal(record, columnJSON)
 	if err != nil {
 		return "", fmt.Errorf("postgres: rendering a grading's record: %w", err)
 	}
@@ -232,7 +233,7 @@ func recordWith(record any, generation *int) (string, error) {
 		return string(raw), nil
 	}
 	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
+	if err := json.Unmarshal(raw, &m, columnJSON); err != nil {
 		return "", fmt.Errorf("postgres: rendering a grading's record: %w", err)
 	}
 	m["generation"] = *generation

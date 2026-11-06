@@ -8,7 +8,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"io"
 	"net/http"
 
@@ -155,7 +156,7 @@ func (r *recorder) Write(b []byte) (int, error) {
 // withMember is a JSON object's body with one member set to v, or left out
 // when v is nil.
 func withMember(body []byte, name string, v any) ([]byte, error) {
-	var m map[string]json.RawMessage
+	var m map[string]jsontext.Value
 	if err := json.Unmarshal(body, &m); err != nil {
 		return nil, err
 	}
@@ -167,5 +168,5 @@ func withMember(body []byte, name string, v any) ([]byte, error) {
 		}
 		m[name] = raw
 	}
-	return json.Marshal(m)
+	return json.Marshal(m, json.Deterministic(true))
 }

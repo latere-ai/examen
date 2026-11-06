@@ -15,7 +15,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"io"
 	"maps"
@@ -578,7 +578,7 @@ func (a *api) importStudy(s *study, su suite) []*experiment {
 
 // digest is the first 32 hex digits of the SHA-256 of a value's JSON.
 func digest(v any) string {
-	b, err := json.Marshal(v)
+	b, err := json.Marshal(v, json.Deterministic(true))
 	if err != nil {
 		panic(err) // maps of strings, numbers and times always marshal
 	}

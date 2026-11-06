@@ -5,7 +5,8 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"maps"
 	"net/http"
@@ -62,16 +63,16 @@ func (f figures) Compare(ctx context.Context, c objects.Comparison, src compare.
 		}
 		metric = su.PrimaryMetric
 		out.Results = append(out.Results, objects.ResultRow{Level: "task", Metric: metric, MetricName: "quality", Task: task.Name,
-			Reference: json.RawMessage(`{"n":1}`), Verdict: "insufficient", Reason: "task " + task.Name + " has 1 trial; 5 needed"})
+			Reference: jsontext.Value(`{"n":1}`), Verdict: "insufficient", Reason: "task " + task.Name + " has 1 trial; 5 needed"})
 	}
 	out.Results = append(out.Results, objects.ResultRow{Level: "suite", Metric: metric, MetricName: "quality", Verdict: "insufficient"})
 	return out, []string{"msr_1"}, nil
 }
 
-func (figures) Summaries(_ context.Context, _ objects.Experiment, cells []objects.Cell, _ string, _ compare.Source) (map[string]json.RawMessage, error) {
-	out := map[string]json.RawMessage{}
+func (figures) Summaries(_ context.Context, _ objects.Experiment, cells []objects.Cell, _ string, _ compare.Source) (map[string]jsontext.Value, error) {
+	out := map[string]jsontext.Value{}
 	for _, c := range cells {
-		out[c.ID] = json.RawMessage(`{"aggregate":"mean","n":1}`)
+		out[c.ID] = jsontext.Value(`{"aggregate":"mean","n":1}`)
 	}
 	return out, nil
 }

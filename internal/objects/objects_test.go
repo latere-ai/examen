@@ -4,7 +4,8 @@
 package objects
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"math"
 	"slices"
@@ -251,7 +252,7 @@ func task() Task {
 		Reference:   []FileSource{{Name: "expected.json", Origo: &OrigoRef{Repository: "acme/app", Commit: strings.Repeat("a", 40), Path: "expected.json"}}},
 		Outputs:     []string{"fields.json", "workspace/"},
 		Workspace:   &Workspace{Kind: WorkspaceOrigo, Repository: "acme/app", Commit: strings.Repeat("b", 40)},
-		Environment: &Environment{Image: "ghcr.io/acme/env@" + d2, Resources: json.RawMessage(`{"cpu":"2"}`)},
+		Environment: &Environment{Image: "ghcr.io/acme/env@" + d2, Resources: jsontext.Value(`{"cpu":"2"}`)},
 		Checks:      []string{d3}, Timeout: "45m", MaxTurns: 40, Evidence: []string{"logs/out.txt"},
 		Metadata: map[string]string{"area": "build"},
 	}
@@ -652,8 +653,7 @@ func TestValuesAndCurrent(t *testing.T) {
 	}{
 		{Metric{Type: TypeBinary}, true, true, true},
 		{Metric{Type: TypeBinary}, 1.0, nil, false},
-		{score, json.Number("0.5"), 0.5, true},
-		{score, json.Number("x"), nil, false},
+		{score, 0.5, 0.5, true},
 		{score, 2.0, nil, false},
 		{score, math.NaN(), nil, false},
 		{score, "high", nil, false},
@@ -718,12 +718,12 @@ func TestValuesAndCurrent(t *testing.T) {
 }
 
 func TestVersionAnswer(t *testing.T) {
-	v := Version{ID: "met_1", Kind: KindMetric, Owner: "o", Name: "q", Digest: d1, Current: true, Body: json.RawMessage(`{"name":"q","type":"binary"}`)}
+	v := Version{ID: "met_1", Kind: KindMetric, Owner: "o", Name: "q", Digest: d1, Current: true, Body: jsontext.Value(`{"name":"q","type":"binary"}`)}
 	a, err := v.Answer()
 	if err != nil || a["type"] != "binary" || a["id"] != "met_1" || a["current"] != true {
 		t.Fatalf("%v %v", a, err)
 	}
-	if _, err := (Version{Body: json.RawMessage(`[`)}).Answer(); err == nil {
+	if _, err := (Version{Body: jsontext.Value(`[`)}).Answer(); err == nil {
 		t.Fatal("a body that does not parse")
 	}
 }

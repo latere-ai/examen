@@ -66,7 +66,7 @@ type Metric struct {
 	Level         string    `json:"level,omitempty"`
 	AppliesTo     []string  `json:"applies_to,omitempty"`
 	Of            string    `json:"of,omitempty"`
-	ExcludeLabels *[]string `json:"exclude_labels,omitempty"`
+	ExcludeLabels *[]string `json:"exclude_labels,omitzero"`
 	Aggregate     string    `json:"aggregate,omitempty"`
 	Unit          string    `json:"unit,omitempty"`
 	Description   string    `json:"description,omitempty"`

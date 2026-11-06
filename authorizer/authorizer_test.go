@@ -5,7 +5,8 @@ package authorizer_test
 
 import (
 	"bufio"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"os"
 	"path/filepath"
@@ -130,7 +131,7 @@ func TestVocabulary(t *testing.T) {
 func TestDecodeLimits(t *testing.T) {
 	full := `{"owner":"https://issuer.example.com|org","max_parallelism":4,"max_trials":100,"max_active_experiments":2,
 		"executors":["external"],"judge_models":["claude-*"],"credential_audiences":["lectio"],"budget":"b-1","attribution":"Example Org"}`
-	l, err := authorizer.DecodeLimits(authz.Decision{Allow: true, Limits: json.RawMessage(full)})
+	l, err := authorizer.DecodeLimits(authz.Decision{Allow: true, Limits: jsontext.Value(full)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +144,7 @@ func TestDecodeLimits(t *testing.T) {
 		t.Fatalf("got %s want %s", b1, b2)
 	}
 	for _, none := range []string{"", "null", "  ", `{}`, `{"attribution":null}`} {
-		if l, err := authorizer.DecodeLimits(authz.Decision{Limits: json.RawMessage(none)}); err != nil || mustJSON(t, l) != "{}" {
+		if l, err := authorizer.DecodeLimits(authz.Decision{Limits: jsontext.Value(none)}); err != nil || mustJSON(t, l) != "{}" {
 			t.Errorf("%q: %+v %v", none, l, err)
 		}
 	}
@@ -154,7 +155,7 @@ func TestDecodeLimits(t *testing.T) {
 		`{"attribution":""}`, `{"attribution":"` + strings.Repeat("x", authorizer.AttributionMaxBytes+1) + `"}`,
 		`{"executors":["docker"]}`,
 	} {
-		if _, err := authorizer.DecodeLimits(authz.Decision{Allow: true, Limits: json.RawMessage(bad)}); !errors.Is(err, authorizer.ErrUnreadableLimits) {
+		if _, err := authorizer.DecodeLimits(authz.Decision{Allow: true, Limits: jsontext.Value(bad)}); !errors.Is(err, authorizer.ErrUnreadableLimits) {
 			t.Errorf("%s: %v", bad, err)
 		}
 	}

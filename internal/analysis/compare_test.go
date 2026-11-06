@@ -5,7 +5,7 @@ package analysis
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"math"
@@ -253,14 +253,14 @@ func TestAddingACandidateChangesNoOtherVerdict(t *testing.T) {
 	m := binaryMetric("pass", HigherIsBetter)
 	ref := map[string][]any{"t1": bools(2, 10), "t2": bools(3, 10)}
 	in := pairInput(m, map[string][]any{"t1": bools(8, 10), "t2": bools(7, 10)}, ref)
-	before, err := json.Marshal(mustCompare(t, in))
+	before, err := json.Marshal(mustCompare(t, in), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}
 	other := pairInput(m, map[string][]any{"t1": bools(1, 10), "t2": bools(10, 10)}, ref)
 	other.Candidate.Candidate = "sha256:third"
 	mustCompare(t, other)
-	after, err := json.Marshal(mustCompare(t, in))
+	after, err := json.Marshal(mustCompare(t, in), json.Deterministic(true))
 	if err != nil {
 		t.Fatal(err)
 	}

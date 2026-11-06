@@ -6,7 +6,8 @@ package httpapi
 import (
 	"bytes"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"net/http"
@@ -40,12 +41,17 @@ func decode(r *http.Request, v any) error {
 	if err != nil {
 		return err
 	}
-	dec := json.NewDecoder(bytes.NewReader(body))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
+	return decodeBytes(body, v)
+}
+
+// decodeBytes reads a JSON body already read whole: one object, no member
+// the contract does not describe, nothing after it.
+func decodeBytes(body []byte, v any) error {
+	dec := jsontext.NewDecoder(bytes.NewReader(body))
+	if err := json.UnmarshalDecode(dec, v, json.RejectUnknownMembers(true)); err != nil {
 		return decodeError(err)
 	}
-	if dec.More() {
+	if _, err := dec.ReadToken(); !errors.Is(err, io.EOF) {
 		return apierr.New(apierr.CodeInvalidRequest, "the body holds more than one JSON value")
 	}
 	return nil
@@ -53,15 +59,26 @@ func decode(r *http.Request, v any) error {
 
 // decodeError names the member a body's error is about.
 func decodeError(err error) error {
-	var typeErr *json.UnmarshalTypeError
-	switch {
-	case strings.HasPrefix(err.Error(), "json: unknown field "):
-		name := strings.Trim(strings.TrimPrefix(err.Error(), "json: unknown field "), `"`)
-		return apierr.OnField(apierr.CodeUnknownField, name, "the contract describes no member "+name)
-	case errors.As(err, &typeErr):
-		return apierr.OnField(apierr.CodeInvalidRequest, typeErr.Field, "the member has the JSON type "+typeErr.Value+", not "+typeErr.Type.String())
+	var sem *json.SemanticError
+	if !errors.As(err, &sem) {
+		return apierr.New(apierr.CodeInvalidRequest, "the body is not JSON: "+err.Error())
 	}
-	return apierr.New(apierr.CodeInvalidRequest, "the body is not JSON: "+err.Error())
+	if sem.Err != nil && strings.HasPrefix(sem.Err.Error(), "unknown object member name") {
+		var name string
+		for tok := range sem.JSONPointer.Tokens() {
+			name = tok
+		}
+		return apierr.OnField(apierr.CodeUnknownField, name, "the contract describes no member "+name)
+	}
+	var path []string
+	for tok := range sem.JSONPointer.Tokens() {
+		path = append(path, tok)
+	}
+	want := "a different type"
+	if sem.GoType != nil {
+		want = sem.GoType.String()
+	}
+	return apierr.OnField(apierr.CodeInvalidRequest, strings.Join(path, "."), "the member has the JSON type "+sem.JSONKind.String()+", not "+want)
 }
 
 // reply writes a value as the JSON answer with its status.

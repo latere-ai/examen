@@ -5,7 +5,7 @@ package analysis
 
 import (
 	"cmp"
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 	"time"
@@ -27,7 +27,7 @@ type docMeasurement struct {
 	SelfReported bool   `json:"self_reported"`
 	// Canonical is the canonical label an open-vocabulary value maps to;
 	// absent when it maps to none.
-	Canonical *string `json:"canonical,omitempty"`
+	Canonical *string `json:"canonical,omitzero"`
 }
 
 type docTrial struct {
@@ -76,8 +76,8 @@ type document struct {
 	Parameters      Parameters         `json:"parameters"`
 	Variable        []string           `json:"variable"`
 	Exploratory     bool               `json:"exploratory"`
-	Declared        int                `json:"declared,omitempty"`
-	Declaration     *Declaration       `json:"declaration,omitempty"`
+	Declared        int                `json:"declared,omitzero"`
+	Declaration     *Declaration       `json:"declaration,omitzero"`
 	LabelTests      bool               `json:"label_tests"`
 	Weights         map[string]float64 `json:"weights"`
 	PrimaryMetric   string             `json:"primary_metric"`
@@ -217,7 +217,7 @@ func (c *computer) inputsDocument() document {
 // documentDigest is "sha256:" and the hex of the SHA-256 of a document's
 // canonical JSON.
 func documentDigest(doc any) (string, error) {
-	b, err := json.Marshal(doc)
+	b, err := json.Marshal(doc, id.RenderOptions)
 	if err != nil {
 		return "", fmt.Errorf("analysis: rendering the inputs document: %w", err)
 	}
@@ -231,7 +231,7 @@ func InputsDocument(in Input) ([]byte, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	b, err := json.Marshal(c.inputsDocument())
+	b, err := json.Marshal(c.inputsDocument(), id.RenderOptions)
 	if err != nil {
 		return nil, "", fmt.Errorf("analysis: rendering the inputs document: %w", err)
 	}

@@ -5,7 +5,8 @@ package keys
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -198,11 +199,11 @@ func TestParseRecord(t *testing.T) {
 		"a status":   `{"id":"req_1","at":"2026-10-19T09:30:00Z","status":"done"}`,
 		"not a JSON": `[`,
 	} {
-		if _, err := ParseRecord(json.RawMessage(raw)); err == nil {
+		if _, err := ParseRecord(jsontext.Value(raw)); err == nil {
 			t.Errorf("%s: parsed", name)
 		}
 	}
-	r, err := ParseRecord(json.RawMessage(`{"id":"req_1","at":"2026-10-19T09:30:00Z","status":"refused","error":"model_not_found","model":{"name":""}}`))
+	r, err := ParseRecord(jsontext.Value(`{"id":"req_1","at":"2026-10-19T09:30:00Z","status":"refused","error":"model_not_found","model":{"name":""}}`))
 	if err != nil || r.Served() != "" || r.Status != StatusRefused || r.Error != "model_not_found" {
 		t.Errorf("%v %+v", err, r)
 	}

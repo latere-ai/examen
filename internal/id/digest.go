@@ -7,12 +7,15 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // DigestPrefix starts every digest.
@@ -25,30 +28,111 @@ const DigestPrefix = "sha256:"
 //   - no whitespace between tokens and no newline at the end;
 //   - a number written as it was given, digit for digit, so 1.50 stays
 //     1.50 and a large integer loses no precision;
-//   - strings escaped as encoding/json escapes them, with <, > and & kept
-//     as they are, so a digest does not depend on a renderer's HTML rule.
+//   - strings escaped as JSON requires, plus U+2028 and U+2029, with <, > and
+//     & kept as they are, so a digest does not depend on a renderer's HTML rule.
 //
 // A document with anything after its one value, or that is not JSON, has
 // no canonical form.
 
+// documentOptions reads a document as it may arrive: a repeated member name
+// keeps its last value and bytes that are not UTF-8 read as U+FFFD.
+var documentOptions = json.JoinOptions(
+	jsontext.AllowDuplicateNames(true),
+	jsontext.AllowInvalidUTF8(true),
+)
+
 // Canonical is the canonical JSON of a JSON document.
 func Canonical(doc []byte) ([]byte, error) {
-	dec := json.NewDecoder(bytes.NewReader(doc))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(doc), documentOptions)
+	var out bytes.Buffer
+	if err := writeCanonical(dec, &out); err != nil {
 		return nil, fmt.Errorf("id: the document is not JSON: %w", err)
 	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+	if _, err := dec.ReadToken(); !errors.Is(err, io.EOF) {
 		return nil, errors.New("id: the document holds more than one value")
 	}
-	var out bytes.Buffer
-	enc := json.NewEncoder(&out)
-	enc.SetEscapeHTML(false)
-	if err := enc.Encode(v); err != nil {
-		return nil, fmt.Errorf("id: encoding the canonical form: %w", err)
+	return out.Bytes(), nil
+}
+
+// writeCanonical reads the next value of dec and writes its canonical form.
+func writeCanonical(dec *jsontext.Decoder, out *bytes.Buffer) error {
+	tok, err := dec.ReadToken()
+	if err != nil {
+		return err
 	}
-	return bytes.TrimSuffix(out.Bytes(), []byte("\n")), nil
+	switch tok.Kind() {
+	case '{':
+		members := map[string][]byte{}
+		for dec.PeekKind() != '}' {
+			k, err := dec.ReadToken()
+			if err != nil {
+				return err
+			}
+			// A token is valid until the next read, so the name is taken now.
+			name := validUTF8(k.String())
+			var v bytes.Buffer
+			if err := writeCanonical(dec, &v); err != nil {
+				return err
+			}
+			members[name] = v.Bytes()
+		}
+		if _, err := dec.ReadToken(); err != nil {
+			return err
+		}
+		names := slices.Sorted(maps.Keys(members))
+		out.WriteByte('{')
+		for i, name := range names {
+			if i > 0 {
+				out.WriteByte(',')
+			}
+			q, err := quote(name)
+			if err != nil {
+				return err
+			}
+			out.Write(q)
+			out.WriteByte(':')
+			out.Write(members[name])
+		}
+		out.WriteByte('}')
+	case '[':
+		out.WriteByte('[')
+		for first := true; dec.PeekKind() != ']'; first = false {
+			if !first {
+				out.WriteByte(',')
+			}
+			if err := writeCanonical(dec, out); err != nil {
+				return err
+			}
+		}
+		if _, err := dec.ReadToken(); err != nil {
+			return err
+		}
+		out.WriteByte(']')
+	case '"':
+		q, err := quote(validUTF8(tok.String()))
+		if err != nil {
+			return err
+		}
+		out.Write(q)
+	default:
+		// A number keeps the digits it was written with.
+		out.WriteString(tok.String())
+	}
+	return nil
+}
+
+// validUTF8 replaces each byte that is not UTF-8 with U+FFFD.
+func validUTF8(s string) string {
+	if utf8.ValidString(s) {
+		return s
+	}
+	return string([]rune(s))
+}
+
+// quote writes a string as a JSON string with <, > and & kept as they are;
+// U+2028 and U+2029 are escaped.
+func quote(s string) ([]byte, error) {
+	return json.Marshal(s, jsontext.EscapeForJS(true))
 }
 
 // DigestJSON is the digest of a JSON document: "sha256:" and the hex of
@@ -62,9 +146,20 @@ func DigestJSON(doc []byte) (string, error) {
 	return DigestPrefix + hex.EncodeToString(sum[:]), nil
 }
 
-// Digest is the digest of a value as encoding/json renders it.
+// RenderOptions render a value whose JSON a digest is taken over as it has
+// always been rendered: members of a map in order, a nil slice or map as
+// null, and bytes that are not UTF-8 as U+FFFD. Another rendering would
+// change the digest of an object already pinned.
+var RenderOptions = json.JoinOptions(
+	json.Deterministic(true),
+	json.FormatNilSliceAsNull(true),
+	json.FormatNilMapAsNull(true),
+	jsontext.AllowInvalidUTF8(true),
+)
+
+// Digest is the digest of a value as its JSON tags render it.
 func Digest(v any) (string, error) {
-	doc, err := json.Marshal(v)
+	doc, err := json.Marshal(v, RenderOptions)
 	if err != nil {
 		return "", fmt.Errorf("id: rendering the value: %w", err)
 	}

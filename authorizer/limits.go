@@ -5,9 +5,11 @@ package authorizer
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
 
 	"latere.ai/x/pkg/authz"
@@ -41,14 +43,14 @@ type Limits struct {
 	Owner string `json:"owner,omitempty"`
 	// MaxParallelism is the highest parallelism an experiment may set; 0
 	// leaves MAX_PARALLELISM.
-	MaxParallelism int `json:"max_parallelism,omitempty"`
+	MaxParallelism int `json:"max_parallelism,omitzero"`
 	// MaxTrials is cells × trials one experiment may declare; 0 is no cap
 	// beyond spec 002's.
-	MaxTrials int `json:"max_trials,omitempty"`
+	MaxTrials int `json:"max_trials,omitzero"`
 	// MaxActiveExperiments is how many of the owner's experiments may be
 	// neither complete nor canceled; 0 leaves
 	// MAX_ACTIVE_EXPERIMENTS_PER_OWNER.
-	MaxActiveExperiments int `json:"max_active_experiments,omitempty"`
+	MaxActiveExperiments int `json:"max_active_experiments,omitzero"`
 	// Executors are the executors an experiment may use; empty is every
 	// configured one.
 	Executors []string `json:"executors,omitempty"`
@@ -90,15 +92,14 @@ func DecodeLimits(d authz.Decision) (Limits, error) {
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
 		return l, nil
 	}
-	// The keys are read first and compared by their exact spelling: the
-	// decoder below matches a member's name without regard to case, and a
-	// key spelled another way is one this version does not know.
-	var members map[string]json.RawMessage
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	if err := dec.Decode(&members); err != nil {
+	// The keys are read first and compared by their exact spelling: a key
+	// spelled another way is one this version does not know.
+	var members map[string]jsontext.Value
+	dec := jsontext.NewDecoder(bytes.NewReader(raw))
+	if err := json.UnmarshalDecode(dec, &members); err != nil {
 		return Limits{}, fmt.Errorf("%w: %w", ErrUnreadableLimits, err)
 	}
-	if dec.More() {
+	if _, err := dec.ReadToken(); !errors.Is(err, io.EOF) {
 		return Limits{}, fmt.Errorf("%w: more than one object", ErrUnreadableLimits)
 	}
 	for key := range members {

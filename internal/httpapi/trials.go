@@ -4,7 +4,7 @@
 package httpapi
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"net/http"
 	"slices"
@@ -654,10 +654,10 @@ type leasedTrial struct {
 	Candidate   leasedCandidate `json:"candidate"`
 	Task        taskName        `json:"task"`
 	Instruction string          `json:"instruction,omitempty"`
-	Inputs      *[]inputLink    `json:"inputs,omitempty"`
+	Inputs      *[]inputLink    `json:"inputs,omitzero"`
 	Outputs     []string        `json:"outputs"`
 	Timeout     string          `json:"timeout"`
-	MaxTurns    int             `json:"max_turns,omitempty"`
+	MaxTurns    int             `json:"max_turns,omitzero"`
 	// LuxLabels is the value of the Lux-Labels header each of the trial's
 	// model calls carries, which attributes the call to the trial.
 	LuxLabels string `json:"lux_labels"`
@@ -678,7 +678,7 @@ type inputLink struct {
 type leasedCandidate struct {
 	Name     string            `json:"name"`
 	Digest   string            `json:"digest"`
-	External *objects.External `json:"external,omitempty"`
+	External *objects.External `json:"external,omitzero"`
 }
 
 // taskName is a task by its name and digest.

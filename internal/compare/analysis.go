@@ -5,7 +5,8 @@ package compare
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"maps"
@@ -210,12 +211,12 @@ func Record(c analysis.Comparison) (objects.Computed, error) {
 		out.Confounds = []string{}
 	}
 	var err error
-	raw := func(v any) json.RawMessage {
+	raw := func(v any) jsontext.Value {
 		if err != nil {
 			return nil
 		}
 		var b []byte
-		b, err = json.Marshal(v)
+		b, err = json.Marshal(v, storedJSON)
 		return b
 	}
 	for _, r := range c.Results {
@@ -226,7 +227,7 @@ func Record(c analysis.Comparison) (objects.Computed, error) {
 			P: r.P, Q: r.Q, H: r.H, Verdict: string(r.Verdict), Reason: r.Reason, Confounds: raw(r.Confounds),
 		}
 		if r.Confounds == nil {
-			row.Confounds = json.RawMessage(`[]`)
+			row.Confounds = jsontext.Value(`[]`)
 		}
 		if r.TaskDigests != nil {
 			row.TaskDigests = raw(r.TaskDigests)
@@ -268,8 +269,8 @@ func Record(c analysis.Comparison) (objects.Computed, error) {
 // same procedures as a comparison, from the cell's own inputs document, so
 // the same trials give the same figures bit for bit. A cell's summary of a
 // candidate-level metric is no figure, and is absent.
-func (Analysis) Summaries(ctx context.Context, e objects.Experiment, cells []objects.Cell, metric string, src Source) (map[string]json.RawMessage, error) {
-	out := map[string]json.RawMessage{}
+func (Analysis) Summaries(ctx context.Context, e objects.Experiment, cells []objects.Cell, metric string, src Source) (map[string]jsontext.Value, error) {
+	out := map[string]jsontext.Value{}
 	if len(cells) == 0 {
 		return out, nil
 	}
@@ -294,7 +295,7 @@ func (Analysis) Summaries(ctx context.Context, e objects.Experiment, cells []obj
 		if !ok {
 			continue
 		}
-		b, err := json.Marshal(s)
+		b, err := json.Marshal(s, storedJSON)
 		if err != nil {
 			return nil, err
 		}
@@ -433,9 +434,13 @@ func primaryRow(c objects.Comparison, metric, level string) (objects.ResultRow, 
 	return objects.ResultRow{}, false
 }
 
+// storedJSON writes a stored figure with its map members in order, so the
+// same figure has the same bytes whenever it is written.
+var storedJSON = json.Deterministic(true)
+
 // recordedLevel is the FALSE_DISCOVERY_RATE a comparison recorded among its
 // parameters.
-func recordedLevel(raw json.RawMessage) (float64, bool) {
+func recordedLevel(raw jsontext.Value) (float64, bool) {
 	var p struct {
 		FalseDiscoveryRate *float64 `json:"false_discovery_rate"`
 	}
@@ -447,7 +452,7 @@ func recordedLevel(raw json.RawMessage) (float64, bool) {
 
 // readDelta reads a stored delta: a number, or an object from each label
 // to its difference.
-func readDelta(raw json.RawMessage) (analysis.Delta, error) {
+func readDelta(raw jsontext.Value) (analysis.Delta, error) {
 	var v float64
 	if err := json.Unmarshal(raw, &v); err == nil {
 		return analysis.Delta{Value: v}, nil

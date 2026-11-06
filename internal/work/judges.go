@@ -6,7 +6,8 @@ package work
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -212,7 +213,7 @@ func (e *Engine) callJudge(ctx context.Context, key, trial string, body []byte) 
 	switch {
 	case resp.StatusCode == http.StatusOK:
 		var out lux.Response
-		if err := json.Unmarshal(raw, &out); err != nil {
+		if err := json.Unmarshal(raw, &out, foreignJSON); err != nil {
 			return lux.Response{}, requestID, fmt.Errorf("%w: the answer does not parse", errLuxUnavailable)
 		}
 		if requestID == "" {
@@ -230,12 +231,21 @@ func (e *Engine) callJudge(ctx context.Context, key, trial string, body []byte) 
 			} `json:"details"`
 		} `json:"error"`
 	}
-	_ = json.Unmarshal(raw, &env)
+	_ = json.Unmarshal(raw, &env, foreignJSON)
 	if requestID == "" {
 		requestID = env.Error.Details.RequestID
 	}
 	return lux.Response{}, requestID, &luxError{status: resp.StatusCode, code: env.Error.Code, request: requestID}
 }
+
+// foreignJSON reads what a model provider answered, tool input included: a
+// repeated member keeps its last value, bytes that are not UTF-8 read as
+// U+FFFD and a member name matches in any letter case.
+var foreignJSON = json.JoinOptions(
+	jsontext.AllowDuplicateNames(true),
+	jsontext.AllowInvalidUTF8(true),
+	json.MatchCaseInsensitiveNames(true),
+)
 
 // hasCode reports whether an error envelope's code is one of codes.
 func hasCode(raw []byte, codes []string) bool {
@@ -244,7 +254,7 @@ func hasCode(raw []byte, codes []string) bool {
 			Code string `json:"code"`
 		} `json:"error"`
 	}
-	return json.Unmarshal(raw, &env) == nil && slices.Contains(codes, env.Error.Code)
+	return json.Unmarshal(raw, &env, foreignJSON) == nil && slices.Contains(codes, env.Error.Code)
 }
 
 // judgeEvidence reads the inputs a judge names: the final message, the
@@ -333,7 +343,7 @@ func (e *Engine) checkValues(ctx context.Context, r gradedRun) (string, error) {
 			}
 		}
 	}
-	raw, err := json.Marshal(values)
+	raw, err := json.Marshal(values, json.Deterministic(true))
 	if err != nil {
 		return "", fmt.Errorf("work: render the check values: %w", err)
 	}

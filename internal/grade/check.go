@@ -10,8 +10,8 @@
 package grade
 
 import (
-	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"slices"
@@ -86,16 +86,34 @@ func ReadCheck(produces []Produced, e Exit) CheckResult {
 	return CheckResult{State: objects.CheckOK, Values: values}
 }
 
+// foreignJSON reads JSON the service did not write: a check's stdout and a
+// model's tool input. A repeated member keeps its last value, bytes that
+// are not UTF-8 read as U+FFFD and a member name matches in any letter case.
+var foreignJSON = json.JoinOptions(
+	jsontext.AllowDuplicateNames(true),
+	jsontext.AllowInvalidUTF8(true),
+	json.MatchCaseInsensitiveNames(true),
+)
+
+// readValue reads one metric value; a reason is why the value is not one
+// this service reads, such as a number out of the range of a float64.
+func readValue(raw jsontext.Value) (any, string) {
+	var v any
+	if err := json.Unmarshal(raw, &v, foreignJSON); err != nil {
+		return nil, "the value is not a number this service reads"
+	}
+	return v, ""
+}
+
 // readMetrics reads the JSON form's one object; a reason is why it is not
 // one the grader's metrics admit.
 func readMetrics(produces []Produced, out string) ([]store.Measured, string) {
-	dec := json.NewDecoder(strings.NewReader(out))
-	dec.UseNumber()
-	var top map[string]json.RawMessage
-	if err := dec.Decode(&top); err != nil || top == nil {
+	dec := jsontext.NewDecoder(strings.NewReader(out), foreignJSON)
+	var top map[string]jsontext.Value
+	if err := json.UnmarshalDecode(dec, &top, foreignJSON); err != nil || top == nil {
 		return nil, "stdout is not one JSON object"
 	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+	if _, err := dec.ReadToken(); !errors.Is(err, io.EOF) {
 		return nil, "stdout holds more than one JSON value"
 	}
 	for k := range top {
@@ -107,10 +125,8 @@ func readMetrics(produces []Produced, out string) ([]store.Measured, string) {
 	if !ok {
 		return nil, "the object has no member metrics"
 	}
-	dec = json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var named map[string]any
-	if err := dec.Decode(&named); err != nil || named == nil {
+	var named map[string]jsontext.Value
+	if err := json.Unmarshal(raw, &named, foreignJSON); err != nil || named == nil {
 		return nil, "metrics is not an object"
 	}
 	names := make([]string, len(produces))
@@ -124,9 +140,13 @@ func readMetrics(produces []Produced, out string) ([]store.Measured, string) {
 	}
 	var values []store.Measured
 	for _, p := range produces {
-		v, ok := named[p.Metric.Name]
+		member, ok := named[p.Metric.Name]
 		if !ok {
 			return nil, "metrics." + p.Metric.Name + " is missing"
+		}
+		v, why := readValue(member)
+		if why != "" {
+			return nil, "metrics." + p.Metric.Name + ": " + why
 		}
 		if v == nil {
 			continue

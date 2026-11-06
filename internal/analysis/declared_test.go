@@ -5,7 +5,7 @@ package analysis
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"strings"
 	"testing"

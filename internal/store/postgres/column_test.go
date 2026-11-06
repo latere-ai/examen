@@ -9,6 +9,23 @@ import (
 	"testing"
 )
 
+// A nil list or map is null, so a nullable column stays SQL NULL, and text
+// that is not UTF-8 is written as U+FFFD, which jsonb accepts.
+func TestColumnBytes(t *testing.T) {
+	var list []string
+	var m map[string]string
+	for _, v := range []any{list, m, nil} {
+		got, err := marshalNullable(v)
+		if err != nil || got != nil {
+			t.Errorf("%#v: %v, %v", v, got, err)
+		}
+	}
+	s, err := marshal(map[string][]string{"a": nil, "b": {"x\xffy"}})
+	if err != nil || s != "{\"a\":null,\"b\":[\"x�y\"]}" && s != "{\"b\":[\"x�y\"],\"a\":null}" {
+		t.Errorf("%s, %v", s, err)
+	}
+}
+
 // TestAValueThatCannotRenderIsRefused: a column value JSON cannot render is
 // refused with an error, so a row is never written with a column it lost,
 // and a nullable column refuses it the same way rather than storing NULL.

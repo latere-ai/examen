@@ -6,7 +6,8 @@ package id
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"strconv"
 	"testing"
@@ -24,7 +25,7 @@ func jbDocument(n int) []byte {
 		t := map[string]any{
 			"task":   "task-" + strconv.Itoa(i),
 			"digest": DigestPrefix + hex.EncodeToString(sum[:]),
-			"values": map[string]any{"tests_pass": json.RawMessage(`1`), "quality": json.RawMessage(`0.50`), "cost_usd": json.RawMessage(`0.0123`), "size": json.RawMessage(`12345678901234567890`)},
+			"values": map[string]any{"tests_pass": jsontext.Value(`1`), "quality": jsontext.Value(`0.50`), "cost_usd": jsontext.Value(`0.0123`), "size": jsontext.Value(`12345678901234567890`)},
 			"labels": []string{"game", "tool", "library"},
 			"note":   "the run wrote the program, ran it against the sample input and kept the output",
 			"graded": i%2 == 0,

@@ -5,7 +5,6 @@ package analysis
 
 import (
 	"cmp"
-	"encoding/json"
 	"slices"
 	"strings"
 )
@@ -162,9 +161,6 @@ func toFloat(v any) (float64, bool) {
 		return float64(x), true
 	case int64:
 		return float64(x), true
-	case json.Number:
-		f, err := x.Float64()
-		return f, err == nil
 	}
 	return 0, false
 }

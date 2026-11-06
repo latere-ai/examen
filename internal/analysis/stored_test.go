@@ -4,7 +4,7 @@
 package analysis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"testing"
 )
@@ -71,8 +71,8 @@ func TestStoredAnalysis(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ja, _ := json.Marshal(a)
-	jb, _ := json.Marshal(b)
+	ja, _ := json.Marshal(a, byteExact)
+	jb, _ := json.Marshal(b, byteExact)
 	if string(ja) != string(jb) || a.Seed != RootSeed(a.InputsDigest).String() {
 		t.Error("a stored analysis recomputed from the same inputs differs")
 	}

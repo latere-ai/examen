@@ -4,7 +4,7 @@
 package grade
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strconv"
 	"strings"
@@ -131,7 +131,7 @@ func jbAnswer(produces []Produced, rationale int) lux.Response {
 		members[i] = strconv.Quote(p.Metric.Name) + `:{"value":` + v + `,"rationale":` + strconv.Quote(jbText(rationale)) + `}`
 	}
 	args := "{" + strings.Join(members, ",") + "}"
-	return lux.Response{StopReason: ir.StopToolUse, Blocks: []lux.Block{{Type: ir.BlockToolUse, ToolUse: &lux.ToolUse{ID: "toolu_1", Name: ToolName, Args: json.RawMessage(args)}}}}
+	return lux.Response{StopReason: ir.StopToolUse, Blocks: []lux.Block{{Type: ir.BlockToolUse, ToolUse: &lux.ToolUse{ID: "toolu_1", Name: ToolName, Args: jsontext.Value(args)}}}}
 }
 
 // BenchmarkJSONJudgeAnswerUnmarshal is the validation of a model judge's

@@ -6,6 +6,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"encoding/json/jsontext"
 	"fmt"
 	"maps"
 	"net/http"
@@ -217,6 +218,23 @@ func same(a, b answer) bool {
 	return a.status == b.status && bytes.Equal(a.body, b.body) && maps.EqualFunc(a.header, b.header, slices.Equal)
 }
 
+// sameRead reports whether two reads of one object answer the same: an
+// object's members may come in any order, since a response built from a map
+// is not sorted.
+func sameRead(a, b answer) bool {
+	return a.status == b.status && maps.EqualFunc(a.header, b.header, slices.Equal) && sameJSON(a.body, b.body)
+}
+
+// sameJSON compares two bodies as JSON in canonical form, or byte for byte
+// when either is not JSON.
+func sameJSON(a, b []byte) bool {
+	ca, cb := jsontext.Value(bytes.Clone(a)), jsontext.Value(bytes.Clone(b))
+	if ca.Canonicalize() != nil || cb.Canonicalize() != nil {
+		return bytes.Equal(a, b)
+	}
+	return bytes.Equal(ca, cb)
+}
+
 // Another owner's token reaches nothing, and cannot tell what exists: on
 // every route served, each request bob sends that names alice's objects
 // by id, name, digest or reference, in the path, the query or the body, is
@@ -277,7 +295,7 @@ func TestAnotherOwnersTokenReachesNothing(t *testing.T) {
 	}
 
 	for k, a := range reads() {
-		if b := before[k]; !same(a, b) {
+		if b := before[k]; !sameRead(a, b) {
 			t.Errorf("%s: bob's requests changed what alice reads\n  before: %d %s\n  after:  %d %s", k, b.status, b.body, a.status, a.body)
 		}
 	}

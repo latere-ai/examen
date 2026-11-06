@@ -5,7 +5,8 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"strconv"
@@ -35,7 +36,7 @@ func scanExperiment(row pgx.Row) (objects.Experiment, error) {
 		return objects.Experiment{}, err
 	}
 	e.CreatedAt, e.UpdatedAt = e.CreatedAt.UTC(), e.UpdatedAt.UTC()
-	e.Judgments = []json.RawMessage{}
+	e.Judgments = []jsontext.Value{}
 	if err := unmarshal(metadata, &e.Metadata); err != nil {
 		return objects.Experiment{}, err
 	}
@@ -459,7 +460,7 @@ func scanTrial(row pgx.Row) (objects.Trial, error) {
 	if leaseID != "" && t.State == objects.StateRunning && leaseExpires != nil {
 		t.Lease = &objects.Lease{ID: leaseID, Subject: leaseSubject, ExpiresAt: leaseExpires.UTC()}
 	}
-	t.Checks, t.Judgments, t.Evidence = []json.RawMessage{}, []json.RawMessage{}, []objects.EvidenceRef{}
+	t.Checks, t.Judgments, t.Evidence = []jsontext.Value{}, []jsontext.Value{}, []objects.EvidenceRef{}
 	for _, c := range []struct {
 		raw []byte
 		v   any

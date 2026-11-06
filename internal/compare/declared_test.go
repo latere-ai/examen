@@ -4,7 +4,7 @@
 package compare
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"math"
 	"testing"
@@ -24,7 +24,7 @@ func storedDeclared(t *testing.T, id string, index int, final, fresh bool, rows 
 		computed = at.Add(-time.Minute)
 	}
 	c.ComputedAt = &computed
-	c.Parameters = json.RawMessage(`{"false_discovery_rate":0.1}`)
+	c.Parameters = jsontext.Value(`{"false_discovery_rate":0.1}`)
 	c.Results = rows
 	return c
 }
@@ -40,12 +40,12 @@ func TestDeclared(t *testing.T) {
 	e := objects.Experiment{ID: "exp_new", Owner: "alice", SuiteID: "sui_new", Comparisons: make([]objects.DeclaredComparison, 6)}
 	e.Comparisons[1] = objects.DeclaredComparison{Candidate: candNew, Task: taskA, ReferenceTask: taskB}
 	f := func(v float64) *float64 { return &v }
-	pair := storedDeclared(t, "cmp_0", 0, true, true, objects.ResultRow{Level: "suite", Metric: score, Direction: "higher_is_better", P: f(0.01), Delta: json.RawMessage(`0.3`), Confounds: json.RawMessage(`[]`)})
+	pair := storedDeclared(t, "cmp_0", 0, true, true, objects.ResultRow{Level: "suite", Metric: score, Direction: "higher_is_better", P: f(0.01), Delta: jsontext.Value(`0.3`), Confounds: jsontext.Value(`[]`)})
 	tasks := storedDeclared(t, "cmp_1", 1, true, true,
 		objects.ResultRow{Level: "suite", Metric: score, P: f(0.9)},
-		objects.ResultRow{Level: "task", Metric: score, Direction: "none", P: f(0.02), Delta: json.RawMessage(`{"a":0,"b":0}`)})
+		objects.ResultRow{Level: "task", Metric: score, Direction: "none", P: f(0.02), Delta: jsontext.Value(`{"a":0,"b":0}`)})
 	tasks.ReferenceTask = taskB
-	self := storedDeclared(t, "cmp_2", 2, true, false, objects.ResultRow{Level: "suite", Metric: score, P: f(0.001), Confounds: json.RawMessage(`[{"name":"self_reported"}]`)})
+	self := storedDeclared(t, "cmp_2", 2, true, false, objects.ResultRow{Level: "suite", Metric: score, P: f(0.001), Confounds: jsontext.Value(`[{"name":"self_reported"}]`)})
 	short := storedDeclared(t, "cmp_3", 3, true, true, objects.ResultRow{Level: "suite", Metric: score, Verdict: "insufficient", Reason: "covers 50% of the suite's weight; 80% needed"})
 	failed := storedDeclared(t, "cmp_4", 4, true, true)
 	failed.State = objects.ComparisonFailed
@@ -89,11 +89,11 @@ func TestDeclared(t *testing.T) {
 
 	// A delta or confounds that do not read are errors, and so is a suite
 	// that cannot be read.
-	broken := storedDeclared(t, "cmp_0", 0, true, true, objects.ResultRow{Level: "suite", Metric: score, P: f(0.01), Delta: json.RawMessage(`"x"`)})
+	broken := storedDeclared(t, "cmp_0", 0, true, true, objects.ResultRow{Level: "suite", Metric: score, P: f(0.01), Delta: jsontext.Value(`"x"`)})
 	if _, err := (Analysis{}).Declared(t.Context(), e, []objects.Comparison{broken}, w.src); err == nil {
 		t.Error("a delta that does not read")
 	}
-	broken = storedDeclared(t, "cmp_0", 0, true, true, objects.ResultRow{Level: "suite", Metric: score, P: f(0.01), Confounds: json.RawMessage(`{`)})
+	broken = storedDeclared(t, "cmp_0", 0, true, true, objects.ResultRow{Level: "suite", Metric: score, P: f(0.01), Confounds: jsontext.Value(`{`)})
 	if _, err := (Analysis{}).Declared(t.Context(), e, []objects.Comparison{broken}, w.src); err == nil {
 		t.Error("confounds that do not read")
 	}
@@ -102,7 +102,7 @@ func TestDeclared(t *testing.T) {
 	if _, err := (Analysis{}).Declared(t.Context(), gone, nil, w.src); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("a suite that cannot be read: %v", err)
 	}
-	if _, ok := recordedLevel(json.RawMessage(`{}`)); ok {
+	if _, ok := recordedLevel(jsontext.Value(`{}`)); ok {
 		t.Error("a level from parameters that name none")
 	}
 }

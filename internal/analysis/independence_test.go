@@ -4,7 +4,7 @@
 package analysis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"math"
 	"slices"
 	"strings"
@@ -149,8 +149,8 @@ func TestIndependence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b1, _ := json.Marshal(r)
-	b2, _ := json.Marshal(again)
+	b1, _ := json.Marshal(r, byteExact)
+	b2, _ := json.Marshal(again, byteExact)
 	if string(b1) != string(b2) {
 		t.Error("the same input gave two results")
 	}

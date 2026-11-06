@@ -5,7 +5,7 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/json/v2"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -62,7 +62,11 @@ func TestProbes(t *testing.T) {
 		t.Fatalf("/readyz after the stop signal: %d %s", a.status, a.body)
 	}
 	a := h.do(http.MethodGet, "/version", "", nil)
-	var b struct{ Version, Commit, BuildTime string }
+	var b struct {
+		Version   string `json:"version"`
+		Commit    string `json:"commit"`
+		BuildTime string `json:"build_time"`
+	}
 	if err := json.Unmarshal(a.body, &b); err != nil || a.status != http.StatusOK || b.Version != version.Version || b.Commit != version.Commit {
 		t.Fatalf("/version %d %s", a.status, a.body)
 	}

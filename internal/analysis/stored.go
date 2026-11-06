@@ -4,7 +4,7 @@
 package analysis
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"fmt"
 	"slices"
 
@@ -32,7 +32,7 @@ type Spend struct {
 	NotPriced       int      `json:"not_priced"`
 	JudgesNotPriced int      `json:"judges_not_priced"`
 	ServiceUSD      float64  `json:"service_usd"`
-	CostPerSuccess  *float64 `json:"cost_per_success,omitempty"`
+	CostPerSuccess  *float64 `json:"cost_per_success,omitzero"`
 }
 
 // add sums another spend into this one, cost per success aside.
@@ -125,7 +125,7 @@ func (c *computer) storedDocument() ([]byte, string, error) {
 		Parameters      Parameters `json:"parameters"`
 		Tasks           []docTask  `json:"tasks"`
 	}{AnalysisVersion: Version, Parameters: c.p, Tasks: c.inputsDocument().Candidate.Tasks}
-	b, err := json.Marshal(doc)
+	b, err := json.Marshal(doc, id.RenderOptions)
 	if err != nil {
 		return nil, "", fmt.Errorf("analysis: rendering the inputs document: %w", err)
 	}

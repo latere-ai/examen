@@ -4,7 +4,6 @@
 package objects
 
 import (
-	"encoding/json"
 	"math"
 	"slices"
 	"strings"
@@ -29,13 +28,6 @@ func NormalizeLabel(s string) string {
 // of an open vocabulary normalized. The detail of a refusal says why for a
 // developer.
 func Value(m Metric, v any) (any, string) {
-	if n, ok := v.(json.Number); ok {
-		f, err := n.Float64()
-		if err != nil {
-			return nil, "the value is not a number this service reads"
-		}
-		v = f
-	}
 	switch m.Type {
 	case TypeBinary:
 		b, ok := v.(bool)

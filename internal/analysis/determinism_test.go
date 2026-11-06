@@ -7,7 +7,8 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"fmt"
 	"math"
 	"runtime"
@@ -86,9 +87,20 @@ func goldenComparison(t *testing.T) Comparison {
 	return c
 }
 
+// byteExact writes a value as the golden digest was taken over: members of
+// a map in a fixed order, a nil slice or map as null, and <, > and &
+// escaped. The tests compare bytes, so two runs must write the same ones.
+var byteExact = json.JoinOptions(
+	json.Deterministic(true),
+	json.FormatNilSliceAsNull(true),
+	json.FormatNilMapAsNull(true),
+	jsontext.EscapeForHTML(true),
+	jsontext.EscapeForJS(true),
+)
+
 func TestGoldenAcrossArchitectures(t *testing.T) {
 	c := goldenComparison(t)
-	b, err := json.Marshal(c)
+	b, err := json.Marshal(c, byteExact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +159,7 @@ func TestRecomputeFromRecordedInputs(t *testing.T) {
 	in.Parameters = smallParameters()
 	a := mustCompare(t, in)
 	readsEveryKind(t, a)
-	ja, err := json.Marshal(a)
+	ja, err := json.Marshal(a, byteExact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +175,7 @@ func TestRecomputeFromRecordedInputs(t *testing.T) {
 			}
 		}
 	}
-	jb, err := json.Marshal(mustCompare(t, shuffled))
+	jb, err := json.Marshal(mustCompare(t, shuffled), byteExact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +209,7 @@ func TestRecomputeFromRecordedInputs(t *testing.T) {
 		t.Errorf("recorded parameters %+v, want the ones computed with", a.Parameters)
 	}
 	in.Parameters = a.Parameters
-	jc, err := json.Marshal(mustCompare(t, in))
+	jc, err := json.Marshal(mustCompare(t, in), byteExact)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +217,7 @@ func TestRecomputeFromRecordedInputs(t *testing.T) {
 		t.Error("the recorded parameters gave another comparison")
 	}
 	var back Parameters
-	pj, err := json.Marshal(a.Parameters)
+	pj, err := json.Marshal(a.Parameters, byteExact)
 	if err != nil {
 		t.Fatal(err)
 	}
