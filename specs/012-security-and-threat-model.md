@@ -15,7 +15,7 @@ depends_on:
 affects: [cmd/examend/, cmd/examen-trial/, internal/, SECURITY.md]
 effort: medium
 created: 2026-10-17
-updated: 2026-10-19
+updated: 2026-11-07
 author: changkun
 ---
 
@@ -81,10 +81,9 @@ flowchart LR
   end
   subgraph machine["the trial's sandbox, under its egress policy"]
     run["the agent's work"]
-    checks["a topos trial's checks, network none"]
   end
   subgraph checkbox["the check sandbox, network none"]
-    cchecks["a cella or external trial's checks"]
+    cchecks["the checks of every trial"]
   end
   subgraph examen["Examen"]
     examend["examend"]
@@ -126,10 +125,11 @@ Six boundaries carry the defenses:
    reads or acts (spec 004). Objects of one owner reference another's
    only through an explicit share (spec 002).
 2. **The trial's sandbox to everything else.** The system under test
-   runs inside the trial's sandbox, under its egress policy. The checks
-   run with network `none`: a `topos` trial's in its machine after the
-   turn's processes are stopped, and a `cella` or `external` trial's in
-   the check sandbox, where no system under test ran. Nothing they
+   runs inside the trial's sandbox, under its egress policy. In this
+   release the checks of every trial run with network `none` in the check
+   sandbox, where no system under test ran; the design also runs a
+   `topos` trial's checks in its machine after the turn's processes are
+   stopped, which waits on Topos (row 26). Nothing they
    write is executed or obeyed by examend: a check's output is parsed
    under a strict contract (spec 006), and evidence reaches a judge
    only as delimited data.
@@ -155,41 +155,87 @@ Six boundaries carry the defenses:
 
 ### Threats and defenses
 
+Each row is a requirement the code holds, with the tests that hold it,
+or a requirement of the design that is not built, marked so in its test
+cell. `SECURITY.md` states the built rows in a reader's words. A name in
+the Test column is `<package directory>.<TestName>`, where `examen.` is
+the repository root; (container) marks a test that starts Postgres.
+`examen.TestNamedTestsExist` holds every name in this file and in
+`SECURITY.md` to a test that exists.
+
 | # | Who | What they can do | The defense | Spec | Test |
 |---|---|---|---|---|---|
-| 1 | hostile agent output or task content reaching a model judge | write into its transcript, final message or files text that tells the judge to ignore the rubric, give a value, add a metric, or end the evidence early with a forged marker | evidence is read as data and never as instructions: it is placed only in the user turn, each input in a block whose boundary is chosen after the content is fixed and occurs in none of it, so no content closes its block; the system content is the preamble, the prompt, the rubric and the metric list, and never a byte of evidence, the task's instruction included; the judge has one tool, `record_judgment`, and examend accepts only one call of it, validated against the schema, the ranges, the labels and the rationale bound, so injected text cannot add a metric, change a type or reach anything; temperature and model are pinned; calibration against people flags a judge whose agreement falls | 006 | `TestCanaryNeverInSystemContent`, `judge.TestEvidenceStaysInTheUserTurn`, `judge.FuzzBoundary`, `TestAnObedientJudgeCannotChangeTheSchema` |
-| 2 | hostile evidence reaching an agent judge | steer the judge agent to change the evidence, reach out of its machine, or answer for another trial | its inputs are read-only and outside its working directory, its machine's network is `none`, its tools are narrowed to reading ones with no connection, one session judges one trial, and its answer is read only from that session's own evidence and validated like a model judge's | 006, 005 | `judge.TestAgentJudge`, `TestAnAgentJudgeCannotReachOut` |
-| 3 | the agent gaming its own grading | edit a check's files, leave a process that rewrites check results while checks run, write a fake result file in advance, print a forged result that a check passes through | on `topos` a check trusts no file the agent could change: its files are in the image at a path the sandbox's user cannot write, or delivered read-only from a pinned Arca folder after the turn, and every process the agent started is stopped before the first check; a `cella` or `external` trial's checks run in a check sandbox the system under test never ran in, which holds only what examend wrote; a check's stdout must be exactly one object with every metric, so a forged object beside the real one is `malformed`, never a pass; the whole stdout is kept in evidence, so a result can be audited | 006, 005 | `TestAForgedSecondObjectIsMalformed`, `cella.TestChecksInTheCheckSandbox`, `TestCheckFilesAreReadOnly`, `TestALeftoverProcessCannotTouchResults` |
-| 4 | a check that lies or exfiltrates, or agent code it runs | report a value that is not true, send the workspace somewhere, spend on the model | a check runs only in a `topos` trial's machine or in a check sandbox, with network `none`, and never in examend, which parses and never executes; a check holds no model key and no owner credential; a value is the check's owner's claim, kept with its stdout; agent code that reads the key's placeholder from another process can spend only through Lux's host, on the candidate's model, under the hard Budget, and the spend carries no trial's label and is reported as the rollout's unattributed usage | 005, 006 | `check.TestEnvironment`, `execute.TestCheckPhaseHasNoNetwork`, `TestExamendExecutesNothing`, `luxread.TestCostFromRecords` |
-| 5 | cost exhaustion: an agent that loops, a model dearer than expected, a judge over large evidence, a large experiment, many experiments | spend the owner's money past what was meant | one hard Lux Budget per experiment, a soft one refused by the `lux` key source; every Key the key source leases or a core issues for the experiment draws on it, and on any Budget an installation adds above it, and allows no unpriced model; with the `endpoint` source Examen writes no Key or Budget, so a cap a budget owner set at the installation cannot be bypassed; smoke trials and the cost check against the smallest remainder across those Budgets, with `COST_ESTIMATE_MARGIN`, before any cell spends at scale; the limits `MAX_TRIALS_PER_CELL`, `MAX_CELLS_PER_EXPERIMENT`, `MAX_CANDIDATES_PER_EXPERIMENT`, `MAX_PARALLELISM`, `MAX_TRIAL_TIMEOUT`, `JUDGE_MAX_INPUT_BYTES`, `JUDGE_MAX_OUTPUT_TOKENS`, `JUDGE_MAX_ATTEMPTS` and `MAX_ACTIVE_EXPERIMENTS_PER_OWNER`; a refused request ends the trial `over_budget`, which parks its cell and is never retried automatically; a cancel releases the experiment's Keys | 005, 006, 004, 002 | `queue.TestCostCheck`, `queue.TestBudgetRunsOut`, `queue.TestUnpricedBlocks`, `TestSoftBudgetRefused`, `judge.TestJudgeKey`, `TestEveryKeyDrawsOnTheBudget`, `TestActiveExperimentsAreBounded` |
-| 6 | a caller of another owner, or a share used too widely | name another owner's experiment, trial, evidence or annotation queue by id; read through a shared suite or baseline; adopt or import across owners | every route asks the authorizer before it reads or acts, and with no authorizer an owner reaches only their own objects; a deny on a stored object answers as its absence, so an id is not confirmed; a shared baseline gives its reader the comparison's summaries and never its trials' evidence, a shared suite gives its definitions and never another owner's experiments, and no grantee runs an experiment, pins a baseline or applies a bar on a shared suite or names a shared baseline, since every share grants reading alone, and a shared experiment or publication gives reading and never evidence bytes beyond what a published version carries, which Arca grants; no action that runs an experiment rests on a share, so a reader neither spends the owner's budget nor feeds or changes its results, and a published benchmark runs on its owner's side alone; adoption never crosses owners; an import reads the core's records as the owner, so what the owner cannot read cannot be imported; evidence is written to and read from the owner's own Arca space with the owner's identity; annotators see only items of experiments the authorizer lets them answer | 004, 005, 006, 013 | `TestAnotherOwnersTokenReachesNothing`, `access.TestASharedExperimentDoesNotRun`, `access.TestAShareOpensReadsAlone`, `queue.TestAdoption`, `TestASharedBaselineExposesNoEvidence`, `TestImportIsAskedAsTheOwner` |
-| 7 | a judge's provider, and evidence that holds secrets | keep or train on the transcripts and files a judge sends; read a credential the agent printed | the owner chooses every judge model, the decline judge's included, Examen ships no default judge model, and the built-in decline judge calls no model; an authorizer holds judges to the models whose terms an owner accepts with `judge_models`; a judge's Key comes from the key source, which decides its data terms, so an installation's key endpoint can hold it to providers that keep nothing when the owner asks for that; a judge reads only the inputs its grader names, within `JUDGE_MAX_INPUT_BYTES`; model keys reach a machine only as placeholders the egress gateway swaps, so an agent cannot print one into evidence; evidence stays in the owner's Arca space and Topos | 006, 005, 004 | `judge.TestJudgeKey`, `TestNoDefaultJudgeModel`, `TestNoKeyValueInEvidence` |
-| 8 | a writer of the database, a client, a faulty executor, an overwrite in Arca | change a measurement, rewrite a trial's result, swap the evidence a judge reads | measurements are append-only: no route updates or deletes one, and the database refuses an update or delete of a measurement row from examend's own role; versioned objects are named by the digest of their canonical JSON and every reference pins one; a `done` trial is final and a report that differs is refused; evidence is written once (`If-None-Match: *`) with its SHA-256 taken when it is reported, and every read for grading checks it, ending in `evidence_changed` on a mismatch; comparisons and bar evaluations are computed, recorded with what they read, and never written by a client | 002, 005, 006 | `TestMeasurementsAreAppendOnly`, `execute.TestReportsOnlyMoveForward`, `judge.TestEvidenceChanged`, `TestDigestsAreCanonical` |
-| 9 | someone holding a captured token or link | replay a caller's bearer, an acting-as-owner token, the export sandbox's Arca token, a read link, a Lux Key; send a write twice | examend checks issuer, audience and expiry on every request and keeps no caller's token; a token it obtains to act as the owner is short-lived, bound to one core's audience, held in memory and never logged or stored (spec 004); examend serves no route a core calls, so there is no report to replay; every write that creates (apply, run, re-grade, annotation answer) carries a key and appends once; the export token lasts the export and is scoped by its Secret to Arca's host; a read link names one folder and expires at the trial's deadline; an input link a `prepare` job mints names one object or folder, expires after `INPUT_LINK_TTL`, stays in Postgres only while the job runs, is revoked when it ends and is scrubbed from every span; a rollout's Key is released when the rollout ends, and a judge's when the experiment ends | 004, 005, 006, 011 | `TestStaleOrForeignTokenRefused`, `TestNoInboundExecutorRoute`, `TestReplayedWriteAppendsOnce`, `cella.TestRolloutKeyReleasedAtEnd`, `execute.TestPrepareThroughBenchmarkLinks` |
-| 10 | a caller flooding the API | send large bodies, many requests, many experiments, or requests whose answer is costly to compute | a body ends at `MAX_REQUEST_BYTES`; a subject makes at most `API_REQUESTS_PER_MINUTE` requests to one replica, through `pkg/ratelimit`; an owner holds at most `MAX_ACTIVE_EXPERIMENTS_PER_OWNER` experiments not `complete` or `canceled`; every list is paged; every limit of spec 002 is enforced at apply; comparisons are computed by jobs and stored, so a read serves a stored result; a slow core holds only its own jobs' leases | 002, 003, 005 | `TestBodyBound`, `TestRateLimit`, `TestActiveExperimentsAreBounded`, `TestLimitsAreEnforcedAtApply` |
-| 11 | an owner, or a forged label, presenting trials as what they are not | import a session and claim it ran another agent or model; label a session as an Examen trial; mix chosen samples into an executed cell | provenance of an imported trial is read from the core's records, never from the request, and an import whose records differ from the tuple of the task and candidate it names, or do not pin a field, is refused, so a trial joins only the cell of its own tuple; an imported trial is marked, never adopted, and lives only in an experiment of mode `import`, which runs nothing; the prefix `examen.` is refused on every label a client supplies | 005, 003 | `topos.TestImport`, `TestReservedLabelsRefused` |
-| 12 | an annotator's bias, or one annotator outvoting others | label after seeing the candidate's name or a judge's value; answer the same item many times | an annotator never sees the candidate, another grader's measurements or another person's answer; each annotator counts once in a consensus, by their latest answer | 006 | `annotate.TestBlindAnswers`, `calibrate.TestOneVotePerAnnotator` |
-| 13 | the system under test reading the answer | read a task's references before or while it works, and write them out as its outputs | references are delivered only to checks: on `topos` after every process of the turn is stopped (R8); for a `cella` or `external` trial only into the check sandbox, which examend starts after the export or the submit and which the program's sandbox can neither reach nor trigger, and never in a lease answer; inputs and references are separate folders, so a link to the inputs reaches no reference | 005, 006 | `cella.TestChecksInTheCheckSandbox`, `topos.TestReferencesOnlyForChecks`, `external.TestLeaseCarriesNoReference` |
-| 14 | a program given a credential, or code it runs | take the owner token it was given and use it elsewhere or after its trial | a credential is never for an audience Examen acts through, a core's or its own, which is refused at apply, so a program never acts toward the services that run, meter, keep or grade it; it reaches only a candidate whose audience the authorizer's `credential_audiences` lists, and none without an authorizer; it is minted for one audience with the purpose `trial` and lasts at most `OWNER_TOKEN_MAX_LIFETIME`; the sandbox holds only a placeholder, which Cella's egress gateway swaps for the value only on a request to the credential's `host`; the value is renewed in place and deleted at the rollout's end, and is never in Postgres, an event, a log line or an error | 004, 005, 003 | `cella.TestCredentialSecrets`, `TestNoCredentialValueAnywhere`, `TestReservedCredentialAudienceRefused` |
-| 15 | a task or a candidate that names a host | make examend call an internal address or any host: an API under evaluation, a version endpoint, an input's source | examend makes no request to a host a task or a candidate names: an API is called by the HTTP runner inside the trial's sandbox, under that sandbox's network policy; every input and reference comes from Arca or Origo through the owner's identity, and inline text from the task; examend's own egress names only its configured endpoints | 005, 011 | `TestExamendCallsNoNamedHost` |
-| 16 | an external harness | submit false outputs, outcomes or times, self-report values that flatter it, or leave model calls out of its attribution | its outputs are graded by the task's checks in a check sandbox, as any trial's are; its provenance is declared, and every comparison that reads it lists that side in `declared_provenance`; a self-reported value is stored under `self:<harness>`, only for a metric no grader produces, carries `self_reported` on every result it enters, which then has no verdict and stays outside the corrected family, is never headlined, fails a bar, and leaves a benchmark entry unranked; a call it neither lists nor labels is not counted. The rest is its owner's own experiment | 005, 007, 008, 009, 010 | `external.TestSelfReported`, `analysis.TestSelfReported`, `analysis.TestDeclaredProvenance`, `bar.TestSelfReportedFailsClosed` |
-| 17 | a caller holding another subject's lease id | submit or renew trials another external harness holds | a lease belongs to the subject that took it, and a renewal or a submit by another subject is `409 lease_not_held`; each asks `trial.lease` or `trial.submit` of the experiment, so another owner's caller reaches nothing | 003, 004 | `external.TestForeignLease`, `TestAnotherOwnersTokenReachesNothing` |
-| 18 | a secret in what an owner publishes | an agent printed a credential into a transcript or an output, and the owner publishes it at `outputs` or `full` | before any link exists, a secret scan from Examen's pinned scanner image runs in a Cella sandbox with network `none` over the version's snapshot JSON at every evidence level, definitions with their `env`, headers and inline inputs included, and over every file the version would publish; a file the scanner cannot read is a finding; a finding blocks the version, names the file and rule and never the matched text, and a new version must exclude the file; `aggregates` publishes no trial content | 013 | `publish.TestSecretScanBlocks`, `publish.TestSnapshotIsScanned` |
-| 19 | someone who captures a link token or an Arca link token | read a publication meant for the people who were given its link, or keep reading after the owner stops sharing | a link token is 256 random bits, answered only to a caller allowed `publication.update`, never listed, logged, traced or put in an error, and replaced on request, which stops the old one; it resolves only while the publication is `unlisted` or `public` and not paused; an Arca link Examen created covers exactly one version's published folder, is replaced when the link token is replaced or the publication is made `private`, and is revoked at a withdrawal; a pause revokes nothing: Examen answers no public read and lists no link of a paused publication, and the installation refuses its link reads at the file store | 013, 011 | `publish.TestLinkTokenStaysSecret`, `publish.TestEvidenceThroughArcaLinks`, `publish.TestLinksFollowVisibility` |
-| 20 | a reader without sign-in | reach a live object, another owner's content, or a publication the owner never shared, or probe for which keys exist | the public routes answer snapshots alone and reach no experiment, trial, measurement or comparison; a key resolves by visibility, an unlisted publication only by its token; every read asks the authorizer with no subject; a denied read and an unknown key answer alike, and no answer carries the key | 013, 004, 003 | `publish.TestPublicReads` |
-| 21 | readers flooding the public routes | exhaust a replica with reads that need no sign-in | each client address makes at most `PUBLIC_REQUESTS_PER_MINUTE` public reads of one replica a minute, through `pkg/ratelimit`, behind proxies only the configuration trusts; a read serves a stored snapshot and computes nothing; a question with no subject carries no client address or user agent, so the authorizer's cache absorbs the readers of one version | 003, 004, 011 | `TestPublicRateLimit`, `TestAnonymousQuestionsAreCached` |
-| 22 | an owner publishing or listing what it should not, or a benchmark's answers leaking | make an item public without review, keep an item up after a takedown, or expose a benchmark's references to whoever reads it | `public` is reached only when the authorizer allows `publication.list` for an approved listing, and the owner policy lists nothing; an administrator's pause stops every public read at Examen and every link read at the installation's file store, revoking nothing; a benchmark snapshot names references by name and digest alone, and the input links a `prepare` job mints reach only that job, for one run; whoever runs a benchmark reads its references and checks, by design (What is not defended, below) | 013, 004 | `publish.TestPublicOnlyThroughAListing`, `publish.TestWithdrawAndPause`, `publish.TestBenchmarkHidesReferences` |
-| 23 | a submitter flattering its entry | enter a benchmark with values its external harness claimed for itself, or with a result of another suite version | a submission needs a published report of the benchmark's exact suite digest; its entry and its trials' values are copied from the report's experiment, mark declared provenance and self-reported values, and name its confounds; an entry whose primary values are missing or self-reported is unranked; ranked entries are compared over the tasks every one of them covers, by task-stratified tests over their own trial values, each verdict and rank interval adjusted across the whole table, rather than grouped; a benchmark takes submissions from its owner's side alone, refusing every other owner's `409 submissions_closed`, and a listed benchmark is `reviewed` and shows one entry per owner; a benchmark says that its entries are trusted only as far as their runner | 013, 008 | `publish.TestSubmissions`, `publish.TestResultsTableRankIntervals`, `publish.TestResultsTableReference`, `publish.TestListedBenchmarkIsReviewed` |
-| 24 | an external harness's output archive | send an archive that expands without bound, holds a link or a path out of the output directory, or millions of files, to exhaust examend or write outside the trial's folder | an archive is read as a stream from the owner's Arca space with its digest checked; only regular files and directories are taken, and a link, an absolute path, a `..` or a path leaving the output directory refuses it whole; what is kept stops at `MAX_OUTPUT_FILES` and `MAX_OUTPUT_BYTES`, a file above `OUTPUT_FILE_KEEP_MAX_BYTES` is kept by digest alone, and a trial over a limit runs no check rather than one over part of its outputs; in the v0.1 profile no archive is read at all, only its path and the digest the external harness declared are recorded, so the digest is the external harness's claim until a file store is configured (spec 005) | 005 | `evidence.TestDirectoryOutputs`, `external.TestOutputLimits` |
-| 25 | a model's output, published and opened in a browser | run script on the file store's origin from a published file, such as a web page an agent wrote, against whoever opens the link | Examen refuses a version at `outputs` or `full` unless the installation declares, with `EXAMEN_FILESTORE_DOWNLOAD_ONLY`, that every link read answers `Content-Disposition: attachment`, `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`; the public routes render no trial content | 013, 011 | `publish.TestDownloadOnlyRequired` |
-| 26 | a Volume reused by name and changed at the core | run a program or a check from another image than the one its candidate or grader pins | a Volume named from an image digest is attached only after its source digest is read and found equal to the name's, at every attach | 005 | `cella.TestVolumeDigestAtAttach` |
+| 1 | a caller with no token, or a token Examen does not accept | reach a route as nobody, or as someone an issuer never named | a route that takes a token is refused `401` when it carries no bearer, or one from an issuer not named in `EXAMEN_OIDC_ISSUERS`, for an audience not named in `EXAMEN_OIDC_AUDIENCE`, expired by more than 30 seconds, not valid until more than 30 seconds from now, or with a signature that does not check; the answer names the verifier's reason and never repeats the token; a progress stream closes when its bearer expires | 004, 003 | `access.TestWhatTheVerifierRefuses`, `access.TestTheSkewOnExpAndNbf`, `access.TestVerifierConformance`, `httpapi.TestRoutesNeedABearer`, `httpapi.TestTheStreamCloses` (container) |
+| 2 | a caller of another owner | name another owner's experiment, trial or measurement by id, or learn that it exists | under the owner policy, which decides when no authorizer is configured, every route that names a stored object answers a request with another owner's token exactly as it answers one for an object that does not exist, status, headers and body, and changes nothing; an owner acts on their own objects alone, and a create or an apply that names another owner is refused `403` | 004, 003 | `httpapi.TestAnotherOwnersTokenReachesNothing` (container), `access.TestOwnerPolicy`, `httpapi.TestReadsAcrossOwnersAndOutages` (container), `httpapi.TestARouteAsks` (container) |
+| 3 | an authorizer that cannot answer | get an action done while no decision exists | a request for which the authorizer gives no well-formed decision, or an allow whose limits or filter Examen cannot read, is refused `503 authorizer_unavailable` and makes nothing; unattended work waits while the authorizer does not answer, and an experiment whose `experiment.run` is denied hands out no trial and stops; `examend` does not start when the configured authorizer allows the reserved probe question | 004 | `access.TestNoDecisionFailsClosed`, `access.TestTheLimitsOfAnAllow`, `access.TestFilters`, `access.TestNewAndTheProbe`, `httpapi.TestARouteAsks` (container), `httpapi.TestRunDeniedAndUnavailable` (container), `work.TestAdvanceDenied` (container), `examend.TestServeRefuses` (container) |
+| 4 | a caller whose permission was withdrawn moments ago | keep acting on an allow already given | an allow is reused for its `ttl`, 60 seconds unless the authorizer says otherwise and 600 at most; a repeated lease asks the authorizer again before it answers with the experiment's model Key, and is refused as a first lease would be; a request repeated with the same `Idempotency-Key` within 24 hours replays the kept answer without a new question, and a progress stream asks again only when it has an event to send | 004, 003 | `httpapi.TestARepeatedLeaseAsksAgain` |
+| 5 | a caller that names its own client address | have the authorizer told an address it chose, or shed the rate limit by naming another | the client address the authorizer is told comes from `X-Forwarded-For` only when the peer is in `EXAMEN_TRUSTED_PROXIES`, as the last entry no trusted proxy wrote, and is the peer's address otherwise; past the server's first handler, which runs before the request's span starts, `X-Forwarded-For` holds that address alone or is gone | 004, 011 | `httpapi.TestAuthorizerIsToldTheClientAddress`, `httpapi.TestTheSpanSeesTheTrustedClientAddress`, `access.TestAsk` |
+| 6 | a caller that tries to exhaust a replica | send large bodies, many requests, slow requests, many experiments or many streams | a request body above `MAX_REQUEST_BYTES` (4 MiB) is refused `413` and nothing is made; a client address past `ADDRESS_REQUESTS_PER_MINUTE` (6,000) requests a minute to the routes that take a token on one replica is refused `429 rate_limited` with `Retry-After` before its token is read, valid or not, and a peer `EXAMEN_TRUSTED_PROXIES` does not list is counted by its own address whatever `X-Forwarded-For` it sends; a client address past `PUBLIC_REQUESTS_PER_MINUTE` (120) to `<base path>/version` and `<base path>/openapi.yaml` is refused alike; a subject past `API_REQUESTS_PER_MINUTE` (600) to one replica is refused `429 rate_limited`, and another subject is not; the server waits `READ_HEADER_TIMEOUT` (10 s) for headers and `READ_TIMEOUT` (1 minute) for the whole request, and closes idle connections after `IDLE_TIMEOUT` (2 minutes); an owner holds at most `MAX_ACTIVE_EXPERIMENTS_PER_OWNER` (16) active experiments, and a subject at most `MAX_STREAMS_PER_SUBJECT` (10) progress streams on one replica | 002, 003, 011 | `httpapi.TestRequestTooLarge`, `httpapi.TestAddressRateLimit`, `httpapi.TestRateLimit`, `examend.TestTheServerBoundsItsReads`, `httpapi.TestCreateLimits` (container), `httpapi.TestTheStream` (container), `limits.TestEveryLimitIsTheSpecs` |
+| 7 | a reader of answers and logs | find a token, a Key or a secret file's content in an answer, a log line or a start error | the verifier's refusal never repeats the token; neither a served request's token nor the authorizer's bearer is in the log; a refusal at start names the variable and never repeats a value that does not parse or a secret file's content, a secret prints as nothing, and a database URL's password is not in a start error; the minter's and the key endpoint's clients put neither their bearer nor a token in an error; an error nobody classified is answered `internal` with no detail and logged under its route's pattern, never its path; every error a log line carries has its URL queries and user info cut | 004, 011 | `access.TestWhatTheVerifierRefuses`, `examend.TestServe` (container), `examend.TestServeAnnouncesWhatIsConfigured` (container), `config.TestErrorsNameTheVariableOnly`, `config.TestRefusals`, `config.TestSecretsDoNotPrint`, `examend.TestServeRefuses` (container), `owner.TestRefusalsAndOutages`, `keys.TestTheEndpointsRefusals`, `apierr.TestInternal`, `httpapi.TestRoutesNeedABearer`, `examen.TestLoggedErrorsAreCut` |
+| 8 | a reader of an experiment, its log or its kept answers, after a model Key | read the experiment's model Key, or the `sign_in` handle a create carries | an experiment's model Key is in no read of the experiment, no log line and no kept answer of a repeated lease, and a leased Key prints without its value; the `sign_in` handle a create carries goes to the authorizer alone and is in no answer, read of the experiment, event or log line | 004, 003 | `httpapi.TestTheExperimentKey` (container), `httpapi.TestARepeatedLeaseKeepsNoKey` (container), `keys.TestTheEndpointLeasesAKey`, `httpapi.TestCreatePassesSignInToTheAuthorizerAlone` (container) |
+| 9 | a trial that would act beyond its owner | use Examen's access to a core as anyone but the experiment's owner | every call a `topos` trial makes to Topos carries an owner token minted for the experiment's owner and for Topos, and every owner token a check or a judge asks for is minted for the experiment's owner; a token is used for `OWNER_TOKEN_MAX_LIFETIME` (15 minutes) at most; a model judge's call carries a Key leased for that judge's one model, released when the experiment ends; a check sandbox is asked for with no network egress, which Cella enforces | 004, 005, 006 | `owner.TestTokensAreKeptUntilTheirRenewal`, `owner.TestALongTokenIsUsedNoLongerThanTheMaxLifetime`, `work.TestToposRunsEachTrialAsASession` (container), `work.TestEvalsGradesARun` (container), `work.TestCheckCallsCarryAFreshOwnerToken` (container), `cella.TestTheClient` |
+| 10 | an external harness that holds a lease, or a caller holding another subject's lease id | renew or submit trials another harness holds | a lease belongs to the subject that took it, and a renewal or a submit by another subject is refused with `lease_not_held` | 003, 004 | `postgres.TestStateRefusals` (container) |
+| 11 | an external harness that reports on itself | report values that flatter it, or have them counted as Examen's measurements | a value an external harness reports about its own trials is marked `self_reported`, keeps its p-value, gets no q-value and no verdict, and stays out of the family of comparisons corrected together | 005, 007, 008 | `analysis.TestSelfReported`, `httpapi.TestAnalyzedImport` (container) |
+| 12 | text written to sway a model judge | write into a transcript, a final message or a file text that tells the judge to ignore the rubric, give a value, add a metric or close the evidence early | a judge reads the evidence in its user turn only, inside a boundary that no input contains; its answer counts only as one call of its one tool with exactly the metrics, ranges and labels it produces, and anything else is `malformed` and yields no value; a check's output is read as strictly: a stdout that is not one object with every value is `malformed`, so a forged object beside the real one is never a pass | 006 | `grade.TestEvidenceStaysInTheUserTurn`, `grade.FuzzBoundary`, `grade.TestMalformedAnswers`, `grade.TestMalformedYieldsNothing` |
+| 13 | a session that names a path outside its working directory | have a file outside it kept as the trial's evidence | a file a session's log names by an absolute path, or by one with an empty, `.` or `..` part, is left out of the trial's kept copy | 005, 007 | `topos.TestAPathOutsideTheWorkingDirectoryIsNoFile` |
+| 14 | the system under test reading the answer | read a task's references before or while it works, and write them out as its outputs | a task's references reach its checks, and only its checks: not the system under test, and not a lease answer | 005, 006 | `work.TestChecksReceiveTheTasksReferences`, `work.TestAReferenceThatCannotBeDeliveredEndsTheChecks`, `work.TestASessionIsSentNoReference`, `httpapi.TestALeaseCarriesNoReference`, `httpapi.TestAnOrigoReferenceNeedsOrigoToReachItsChecks` |
+| 15 | evidence that changed after its trial ended | change a kept file after the trial ended and have it graded all the same | a kept file whose bytes are not the ones recorded when the trial ended is not graded: no check runs on it and no judge is asked; a session log that is gone runs no check | 005, 007 | `work.TestEvidenceThatChanged` (container) |
+| 16 | a grade or a definition rewritten after the fact | change a measurement, or a metric, grader, task, suite or candidate a measurement was made against | Postgres refuses an `UPDATE` of a measurement or of a version of a metric, grader, task, suite or candidate, and a `DELETE` of a measurement while its trial and experiment exist, so a grade once written is never overwritten; each grading ends once | 002, 007 | `postgres.TestMeasurementsAreAppendOnly` (container), `postgres.TestGradingsRunInOrderAndEndOnce` (container) |
+| 17 | two encodings of one definition | pass one definition off as another, or one as two | a versioned object is named by the SHA-256 of its canonical JSON, and two encodings of one object give one digest | 002 | `id.TestCanonicalGolden`, `id.TestDigestIgnoresOrderAndSpace` |
+| 18 | a comparison chosen after the results | run many comparisons and report the one that came out | comparisons declared at create, before any trial runs, are corrected together as one family; a comparison asked for afterwards is marked exploratory and has no result tested alone, since its primary metric is corrected with the rest; a comparison is final only once computed after the experiment ends | 008 | `analysis.TestPrimaryStandsAlone`, `analysis.TestExploratory`, `analysis.TestDeclaredComparison`, `httpapi.TestComparisons` (container), `httpapi.TestDeclaredComparisonsRefused` (container), `httpapi.TestAComparisonIsFinalOnceComputedAfterTheEnd` (container) |
+| 19 | a result that differs on another machine | publish a verdict another machine cannot reproduce | one golden comparison has a fixed SHA-256 digest; the analysis uses only operations IEEE 754 defines exactly and its own vendored functions, with no product the compiler could fuse with an add; a final comparison recomputed from its recorded inputs is byte-identical | 008 | `analysis.TestGoldenAcrossArchitectures`, `analysis.TestUsesVendoredMath`, `analysis.TestNoFusedMultiplyAdd`, `analysis.TestRecomputeFromRecordedInputs` |
+| 20 | the network between Examen and the services it calls | read or alter what Examen sends over plain `http` | an issuer, the authorizer, the minter, the key endpoint, Topos, Cella, Lux, Arca or Origo named over plain `http` stops the start unless its host is `localhost` or a loopback address | 011 | `config.TestRefusals` |
+| 21 | a client presenting a label as Examen's | label a task or an experiment as a trial Examen ran | a `metadata` key beginning `examen.` that a client supplies is refused `400 invalid_field`; the prefix is reserved for the labels Examen writes | 002, 003 | `objects.TestNamesAndRefs`, `httpapi.TestCreateRefusals` |
+| 22 | a write sent twice | append a create twice | a create sent twice with one `Idempotency-Key` appends once and replays the kept answer | 003 | `httpapi.TestIdempotency` |
+| 23 | a program that names an audience Examen acts through | take the owner's access to Topos, Cella, Lux or Arca for a program | a program candidate's credential for an audience Examen acts through is refused at apply with `credential_audience_reserved`; the authorizer is told the judge models and credential audiences an experiment names (`judge_models`, `credential_audiences`) and may hold them to a list. A model judge without a model is refused at apply, and Examen ships no default judge model | 002, 004 | `objects.TestCandidateRules`, `httpapi.TestApplyPreconditionsAndRefusals`, `access.TestTheLimitsOfAnAllow`, `objects.TestGraderRules` |
+| 24 | a judge, a loop or a large experiment | spend the owner's money past what was meant | the limits of spec 002 bound the trials, cells, candidates, parallelism and the judge's input and output; a trial that ends `over_budget` parks its cell until a retry; an experiment's Keys are released when it ends | 002, 005, 006 | `httpapi.TestCreateLimits` (container), `httpapi.TestOverBudgetParksAndRetryReopens`, `keys.TestTheEndpointsBudgetReleaseAndUsage`, `limits.TestEveryLimitIsTheSpecs` |
+
+The rows below are in the design and not built in this release. None
+has a test; each is marked `Not built`.
+
+| # | Who | What they can do | The defense | Spec | Test |
+|---|---|---|---|---|---|
+| 25 | hostile evidence reaching an agent judge | steer the judge agent to change the evidence, reach out of its machine, or answer for another trial | its inputs are read-only and outside its working directory, its machine's network is `none`, its tools are narrowed to reading ones, one session judges one trial, and its answer is validated like a model judge's. An agent judge validates at apply and is never run | 006, 005 | Not built |
+| 26 | a check that lies, or agent code a check runs | report a value that is not true, or send the workspace somewhere | checks run in the check sandbox with network `none` (row 9), never in examend. The design also runs a `topos` trial's checks in its own machine after the turn's processes stop, which waits on Topos | 005, 006 | Not built |
+| 27 | a caller of another owner, through a share | read through a shared suite, baseline or experiment | every share grants reading alone; a shared baseline gives summaries and never evidence. No route makes a share | 004, 006 | Not built |
+| 28 | an annotator's bias, or one annotator outvoting others | label after seeing the candidate, or answer one item many times | an annotator never sees the candidate or another's answer; each counts once in a consensus. Annotation answers are not served | 006 | Not built |
+| 29 | a program given a credential | use the owner token it was given elsewhere or after its trial | the sandbox holds a placeholder that Cella's egress gateway swaps only on a request to the credential's `host`; the value is renewed in place and deleted at the rollout's end. Apply checks the credential's audience (row 23); no program is run with one | 004, 005, 003 | Not built |
+| 30 | an owner presenting a topos or cella session as another candidate's | import a session and claim it ran another agent or model | provenance is read from the core's records. An import of a `topos` or `cella` run answers `core_not_configured`; an `external` import is the harness's claim (row 11) | 005, 003 | Not built |
+| 31 | a task or a candidate that names a host | make examend call an internal address | examend makes no request to a host a task or a candidate names, and its egress names only its configured endpoints. No test records outbound requests | 005, 011 | Not built |
+| 32 | an external harness's output archive | send an archive that expands without bound, or holds a path out of the output directory | an archive is read as a stream with its digest checked and refused whole for a link or a path leaving the directory. Outputs are recorded unread in this release | 005 | Not built |
+| 33 | a Volume reused by name and changed at the core | run another image than the one a candidate or grader pins | a Volume named from an image digest is attached only after its source digest is read and found equal, at every attach | 005 | Not built |
+| 34 | a secret in what an owner publishes, a captured link, a reader without sign-in, a submitter flattering its entry, a published page that runs script | publish a credential, read what was not shared, probe for keys, enter a benchmark with self-reported values, or run script from a published file | publications, their secret scan, link tokens, public reads, benchmark submissions and the download-only requirement (spec 013). No route serves any of them | 013, 004, 011 | Not built |
 
 ### What is not defended
 
-- **A judge swayed within its schema.** Row 1 keeps hostile text from
+What `SECURITY.md` lists, and what the design leaves to the owner.
+
+- **Routes that take no token.** `/livez`, `/readyz` and `/version` at
+  the listener's root, `GET <base path>/version` and
+  `GET <base path>/openapi.yaml` answer anyone, and so does the `404` of
+  a path Examen does not serve and the `413` of a body above the bound.
+  The probes are not rate limited; the version and the contract below
+  the base path are held to `PUBLIC_REQUESTS_PER_MINUTE` from one client
+  address (row 6).
+- **A permission withdrawn moments ago,** except a repeated lease (row 4).
+- **What a deny says.** The authorizer's reason for a `403` is returned
+  to the caller in `details.reason`, and so is a key source's reason for
+  refusing a Key.
+- **Every audience listed.** A token for any audience in
+  `EXAMEN_OIDC_AUDIENCE` is accepted.
+- **Load beyond one replica's limits.** The request rates and the
+  stream count are counted per replica in memory, so each replica added
+  allows as much again. Behind a proxy `EXAMEN_TRUSTED_PROXIES` does not
+  list, every client has the proxy's address and shares its rate. The
+  server sets no write timeout, which would cut progress streams, so a
+  client that reads an answer slowly holds its connection. Postgres
+  grows without bound: Examen removes only idempotency keys and a
+  provisional comparison's list of inputs.
+- **A judge swayed within its schema.** Row 12 keeps hostile text from
   changing the shape of a judgment or reaching anything, not from
-  moving a value inside the allowed range. Calibration against people
-  is how such drift is seen, after the fact.
+  moving a value inside the allowed range. A transcript holds the task's
+  instruction and every tool's output. Calibration against people is how
+  such drift is seen, after the fact.
 - **A check written to trust what the agent controls,** such as one that
   passes the output of the agent's own tests through as its result.
   The contract makes a crude forgery `malformed`; it cannot make a
@@ -199,40 +245,40 @@ Six boundaries carry the defenses:
   and an index that runs out of retries is reported per cell as lost
   and never read as a success (spec 008); the bias that selective
   wrecking introduces is visible, not prevented.
-- **A benchmark's answers from those who run it.** A benchmark is
-  open, not held out: whoever runs it receives its references and
-  checks in its own experiment, and its entries are trusted only as far
-  as their runner, who could tune a candidate to them. Held-out grading,
-  where the benchmark's owner or the installation runs the references
-  and checks and never copies them to the runner, is a later feature
-  (spec 013).
 - **A provider that breaks its stated terms.** The owner chooses the
   model; what its provider does inside or against its terms is the
   provider's.
 - **A secret the agent read from its workspace and printed.** It is in
   the evidence the owner's own run produced.
-- **The operator, a compromised core, or a compromised host.** Topos,
-  Cella, Lux, Arca, the authorizer, the minter and the key endpoint are
-  trusted as named; a core that reports false records is believed.
-- **An external harness's honesty.** Its outputs are graded and its
-  provenance is marked declared, but they may not be what its system
-  produced, and a model call it did not report is not counted. That is
-  its owner's own experiment.
-- **References against the owner.** References live in the owner's
-  Arca space, so an external harness acting with the owner's identity
-  can read them there. Examen hands it none.
-- **A link passed on.** Whoever holds a link token reads what it
-  reaches; the owner replaces the token or makes the publication
-  private to stop it, and a copy already downloaded stays downloaded.
-- **What a withdrawn version's readers kept.** Withdrawal stops new
-  reads and revokes the links; it cannot recall a file already read.
-- **A secret the scanner's rules do not know.** The scan finds what its
-  pinned rules match; the owner chooses the evidence level, and
-  `aggregates` publishes no trial content.
-- **An attribution an owner writes for itself** under the owner policy,
-  or under an authorizer that gives none. An installation that knows
-  its people answers `attribution` in its allow, which replaces it.
-- **Denial of service beyond rows 10 and 21.**
+- **The services Examen is configured with, and the operator.** Topos,
+  Cella, Lux, Arca, the minter, the key endpoint, the authorizer and the
+  issuers are believed. Examen checks a session log against the digest
+  it recorded when the trial ended, not against Topos's own record.
+  Cella, not Examen, holds a check sandbox without network.
+- **An authorizer that answers wrongly,** or an issuer that signs a
+  token for the wrong subject. Examen refuses when no decision arrives
+  and follows the one that does. It asks the probe question once, at
+  start, and starts when the authorizer does not answer it; requests
+  then fail closed until it does.
+- **An external harness's honesty.** Its outputs are recorded unread,
+  and checks and model judges grade `topos` trials only. It holds the
+  experiment's model Key and can spend the Budget on any model that Key
+  allows. What it reports about itself is marked `self_reported` and
+  declared, not checked.
+- **The database's owner.** The triggers refuse statements, not the
+  role that owns the tables, which is the role `examend migrate` ran as.
+  A role that can drop a trigger can rewrite measurements, and Examen
+  does not notice. A role that can delete an experiment's or a trial's
+  row removes its measurements with it.
+- **What telemetry carries.** With `OTEL_EXPORTER_OTLP_ENDPOINT` set,
+  server spans hold the request path with object ids and names, the user
+  agent and the client address. Client spans hold each outbound URL's
+  scheme, host and path, never its query.
+- **Error text from libraries.** A log line's error has its URL queries
+  and user info cut, but one a library wrote can still name the host and
+  path of an issuer, the authorizer or a service. A handler that panics
+  logs the peer's address and a stack.
+- **Denial of service beyond rows 6 and 24.**
 
 ### Reporting
 
@@ -240,19 +286,21 @@ Six boundaries carry the defenses:
 issue be opened for one, and says when a reporter hears back. It lists
 what the project commits to, each commitment one row of the table above
 in a reader's words, and what is not defended, as the list above. A
-commitment whose test is not written is not listed. A test reads both
-files and holds each commitment to a row.
+commitment whose test is not written is not listed.
+`examen.TestNamedTestsExist` reads both files and holds every test they
+name to one that exists; that each commitment has a row is not tested.
 
 ### Limits
 
 The constants of spec 002 this spec names: `MAX_REQUEST_BYTES`,
-`API_REQUESTS_PER_MINUTE`, `MAX_ACTIVE_EXPERIMENTS_PER_OWNER`,
+`API_REQUESTS_PER_MINUTE`, `ADDRESS_REQUESTS_PER_MINUTE`,
+`PUBLIC_REQUESTS_PER_MINUTE`, `READ_HEADER_TIMEOUT`, `READ_TIMEOUT`,
+`IDLE_TIMEOUT`, `MAX_STREAMS_PER_SUBJECT`,
+`MAX_ACTIVE_EXPERIMENTS_PER_OWNER`, `OWNER_TOKEN_MAX_LIFETIME`,
 `MAX_TRIALS_PER_CELL`, `MAX_CELLS_PER_EXPERIMENT`,
-`MAX_CANDIDATES_PER_EXPERIMENT`, `MAX_PARALLELISM`,
-`MAX_TRIAL_TIMEOUT`, `JUDGE_MAX_INPUT_BYTES`,
-`JUDGE_MAX_OUTPUT_TOKENS`, `JUDGE_MAX_ATTEMPTS`,
-`COST_ESTIMATE_MARGIN`, `OWNER_TOKEN_MAX_LIFETIME`,
-`PUBLIC_REQUESTS_PER_MINUTE`, `MAX_OUTPUT_FILES`, `MAX_OUTPUT_BYTES`,
+`MAX_CANDIDATES_PER_EXPERIMENT`, `MAX_PARALLELISM`, `MAX_TRIAL_TIMEOUT`,
+`JUDGE_MAX_INPUT_BYTES`, `JUDGE_MAX_OUTPUT_TOKENS`, `JUDGE_MAX_ATTEMPTS`,
+`COST_ESTIMATE_MARGIN`, `MAX_OUTPUT_FILES`, `MAX_OUTPUT_BYTES`,
 `OUTPUT_FILE_KEEP_MAX_BYTES` and `INPUT_LINK_TTL`.
 
 ## Not in this spec
@@ -270,69 +318,62 @@ Topos, Cella, Lux and Arca are their own threat models.
 
 | Criterion | Test that proves it |
 |---|---|
-| Every test the table of threats names is one `go test -list` finds in the module, or is on an exact list of tests not yet written, which only shrinks | `TestThreatModelTestsExist`, reading this file |
-| Every commitment of `SECURITY.md` is a row of the table, and the file names a private channel | `TestSecurityPolicyMatchesTheModel`, reading both files |
-| A canary planted in a task's instruction, and another in the agent's final message and a transcript tool result, appear in no system position of any judge request, as the request body reached the stub Lux, and only inside an evidence block of the user turn | `TestCanaryNeverInSystemContent` |
-| Agent output that holds a forged end marker, a fake `record_judgment` call as text, or an instruction to add a metric leaves the request's blocks intact; a stub judge that obeys the injection and answers an extra metric or a value out of range yields `malformed` and no measurement | `TestAnObedientJudgeCannotChangeTheSchema` |
-| An agent judge session holds no network, no connection and no writing tool, and cannot change its inputs | `TestAnAgentJudgeCannotReachOut` |
-| A check stdout of two JSON objects, the agent's forged one first, is `malformed` | `TestAForgedSecondObjectIsMalformed` |
-| A process the agent leaves running cannot write the check results, and a check's files cannot be changed by the sandbox's user, on both executors | `TestALeftoverProcessCannotTouchResults`, `TestCheckFilesAreReadOnly` |
-| No package of `examend` starts a process or runs check code | `TestExamendExecutesNothing`, a dependency check over `cmd/examend` |
-| Every Key the `lux` key source creates names the experiment's Budget and allows no unpriced model; every Key request Examen sends to a key endpoint or a core names the experiment, its models and its labels; with the `endpoint` source no request to Lux creates a Key or a Budget | `TestEveryKeyDrawsOnTheBudget` |
-| An owner's seventeenth active experiment is refused naming `MAX_ACTIVE_EXPERIMENTS_PER_OWNER` | `TestActiveExperimentsAreBounded` |
-| With another owner's token, a read, a run, a cancel, a re-grade, an annotation answer and an evidence read each answer as a missing object, and nothing changes | `TestAnotherOwnersTokenReachesNothing` |
-| A reader of a shared baseline receives its summaries and no trial's evidence reference | `TestASharedBaselineExposesNoEvidence` |
-| No suite applies without its judges' models named by the owner, and no default judge model exists | `TestNoDefaultJudgeModel` |
-| A canary Lux Key value appears in no evidence object, measurement, log line, error or report | `TestNoKeyValueInEvidence` |
-| An `UPDATE` or `DELETE` of a measurement row from examend's database role is refused by the database | `TestMeasurementsAreAppendOnly` |
-| A digest is the SHA-256 of the canonical JSON, and two encodings of one object give one digest | `TestDigestsAreCanonical` |
-| An expired token, one of a foreign audience and one of an unlisted issuer are each refused | `TestStaleOrForeignTokenRefused` |
-| examend's router serves no route a core calls back | `TestNoInboundExecutorRoute` |
-| A create sent twice with one key appends once | `TestReplayedWriteAppendsOnce` |
-| A body past `MAX_REQUEST_BYTES` is refused before it is read whole, and a subject past `API_REQUESTS_PER_MINUTE` is rate limited | `TestBodyBound`, `TestRateLimit` |
-| A label under `examen.` supplied by a client is refused | `TestReservedLabelsRefused` |
-| A canary credential value given to a program appears in no replica's environment or files, response, log line, span, event, error or database row | `TestNoCredentialValueAnywhere` |
-| With a task whose inputs, references and HTTP runner config name hosts, examend's outbound requests reach only its configured endpoints | `TestExamendCallsNoNamedHost` |
-| A renewal or submit by a subject other than the lease's is `409 lease_not_held` | `external.TestForeignLease` |
-| A client address past `PUBLIC_REQUESTS_PER_MINUTE` public reads of one replica is `429 rate_limited` with `Retry-After`, and `X-Forwarded-For` is believed only from a proxy `EXAMEN_TRUSTED_PROXIES` names | `TestPublicRateLimit` |
+| Every test that `SECURITY.md` and this spec name is declared by a `_test.go` file of the package it names | `examen.TestNamedTestsExist` |
+| Every request to a route that takes a token is refused without a valid bearer | `httpapi.TestRoutesNeedABearer`, `access.TestWhatTheVerifierRefuses` |
+| With another owner's token, every route that names a stored object answers as it would for an object that does not exist, and nothing changes | `httpapi.TestAnotherOwnersTokenReachesNothing` (container) |
+| A request the authorizer gives no decision on is `503 authorizer_unavailable` and makes nothing | `access.TestNoDecisionFailsClosed`, `httpapi.TestARouteAsks` (container) |
+| A repeated lease asks the authorizer again before it answers the model Key | `httpapi.TestARepeatedLeaseAsksAgain` |
+| A body above `MAX_REQUEST_BYTES` is refused, and a client address or a subject past its rate is `429 rate_limited` | `httpapi.TestRequestTooLarge`, `httpapi.TestAddressRateLimit`, `httpapi.TestRateLimit` |
+| The server bounds the time it waits for headers, for the whole request and for an idle connection | `examend.TestTheServerBoundsItsReads` |
+| An experiment's model Key is in no read, log line or kept answer | `httpapi.TestTheExperimentKey` (container), `httpapi.TestARepeatedLeaseKeepsNoKey` (container) |
+| Evidence stays in a judge's user turn, and an answer that is not one valid call is `malformed` | `grade.TestEvidenceStaysInTheUserTurn`, `grade.FuzzBoundary`, `grade.TestMalformedAnswers` |
+| An `UPDATE` of a measurement or a version, and a `DELETE` of a measurement, is refused by the database | `postgres.TestMeasurementsAreAppendOnly` (container) |
+| A kept file that changed after its trial ended is not graded | `work.TestEvidenceThatChanged` (container) |
+| A renewal or a submit by a subject other than the lease's is `lease_not_held` | `postgres.TestStateRefusals` (container) |
+| A value an external harness reports about itself has no verdict and is outside the corrected family | `analysis.TestSelfReported`, `httpapi.TestAnalyzedImport` (container) |
+| A task's references reach its checks, and only its checks | `work.TestChecksReceiveTheTasksReferences`, `work.TestAReferenceThatCannotBeDeliveredEndsTheChecks`, `work.TestASessionIsSentNoReference`, `httpapi.TestALeaseCarriesNoReference`, `httpapi.TestAnOrigoReferenceNeedsOrigoToReachItsChecks` |
+| A final comparison recomputed from its recorded inputs is byte-identical on every architecture | `analysis.TestGoldenAcrossArchitectures`, `analysis.TestRecomputeFromRecordedInputs` |
+| A metadata key under `examen.` supplied by a client is refused | `objects.TestNamesAndRefs`, `httpapi.TestCreateRefusals` |
+| A program credential for an audience Examen acts through is refused at apply | `objects.TestCandidateRules`, `httpapi.TestApplyPreconditionsAndRefusals` |
 
 ## Outcome
 
-In progress. v0.1.0 builds the boundary between callers and examend:
-bearer verification of issuer, audience and validity times, one
-question to the authorizer or the owner policy on every route with a
-deny answered as a missing object, the body bound and the rate limit
-per subject, idempotent creates, the bound on active experiments,
-measurements kept append-only by the database, canonical digests, the
-reserved `examen.` metadata prefix and the lease holder's check. v0.3.0
-adds the owner policy's rule that a share opens reads alone. v0.4.1
-answers another owner's caller byte for byte as if the object did not
-exist, on every route served.
-`SECURITY.md` names the private channel. Nothing that rests on judges,
-checks, executors, Keys, program credentials, shares or public reads
-is built.
+In progress. The boundary between callers and examend, the grading
+path and the measurements are built; publishing, shares, annotations,
+agent judges, program credentials and the import of Topos and Cella
+runs are not. What runs, with `SECURITY.md` as the statement of it:
 
-Every row below shipped in v0.1.0 unless it names another release. Of
-the tests the table of threats names, few exist under the cited name;
-the table below names the tests that hold the same behavior.
+- **Callers.** Bearer verification of issuer, audience and validity
+  times with a 30 second skew; one question to the authorizer, or the
+  owner policy, on every route, with a deny answered as a missing object
+  and no decision answered `503`; a repeated lease asks again; the
+  client address is trusted only through `EXAMEN_TRUSTED_PROXIES`.
+- **Limits.** The body bound, the rate per client address (before the
+  token is read) and per subject, the header, read and idle timeouts,
+  the stream bound and the bound on active experiments.
+- **Secrets.** Tokens, Keys, secret files and the `sign_in` handle
+  stay out of answers, logs and rows; a log line's error has its URL
+  cut.
+- **Acting as the owner.** Owner tokens minted for the experiment's
+  owner and one audience, used 15 minutes at most; Keys leased from the
+  `endpoint` key source and released; checks and model judges of
+  `topos` trials, with checks in a check sandbox with no network.
+- **Evidence and measurements.** A kept file checked against the digest
+  recorded at the trial's end; measurements and versions refused an
+  update by the database; declared comparisons, exploratory ones and
+  the bit-exact analysis.
+
+Rows 1 to 24 are built. Rows 25 to 34 are not
+built: an agent judge validates at apply and is never run (25); a
+`topos` trial's checks run in the check sandbox, not in its own machine
+(26); shares, annotation answers, program credential delivery, the
+import of Topos and Cella runs, archives of an external harness's
+outputs, Volumes and publications (27 to 34) have no route or executor.
 
 | # | Verdict | Held by |
 |---|---|---|
-| 2 | Partly met: `SECURITY.md` names a private channel; no test reads both files, and two of its commitments have no row in the table of threats | no test yet |
-| 8 | Partly met: no file of `examend` imports `os/exec` or starts a process; no test asserts it | no test yet |
-| 10 | Met | `httpapi.TestCreateLimits` |
-| 11 | Met for every route served (v0.4.1): each read, run, cancel, close, retry, import, lease and submit with another owner's token, naming the object by id, name, digest or reference, answers byte for byte as the same request against a store that holds nothing, and nothing of the owner's changes; re-grade, annotation answers and evidence reads are not built | `httpapi.TestAnotherOwnersTokenReachesNothing` |
-| 13 | Partly met: a model judge without a model is `400 missing_field`, and a suite pins only applied graders; no test shows that no default judge model exists | `objects.TestGraderRules` |
-| 15 | Met; the store, its tests and the migrations use one role, the one that owns the tables | `postgres.TestMeasurementsAreAppendOnly` |
-| 16 | Met | `id.TestCanonicalGolden`, `id.TestDigestIgnoresOrderAndSpace` |
-| 17 | Met | `access.TestWhatTheVerifierRefuses`, `httpapi.TestRoutesNeedABearer` |
-| 18 | Partly met: every route needs a bearer, and the routes served equal the contract, which holds no callback; no test asserts the absence | `httpapi.TestRoutes`, `api.TestDocumentMatchesTheRoutes` |
-| 19 | Met | `httpapi.TestIdempotency`, `httpapi.TestExperimentReads` |
-| 20 | Met | `httpapi.TestRequestTooLarge`, `httpapi.TestRateLimit` |
-| 21 | Met, on the `metadata` keys a client supplies | `objects.TestNamesAndRefs`, `httpapi.TestCreateRefusals` |
-| 23 | Partly met: examend calls the issuers and the authorizer alone; no test records its outbound requests | no test yet |
-| 24 | Partly met: the store answers `lease_not_held` to a renewal or submit by another subject; no HTTP test sends one from a second subject of the same owner | `postgres.TestStateRefusals` |
-
-Not built: 1, the test that holds the table's test names to the
-module; 3 to 7, judges, agent judges and checks; 9 and 14, key sources
-and Keys; 12, shares; 22, program credentials; 25, public reads.
+| 1 to 13, 15 to 22 | Met | the tests of each row |
+| 14 | Met: text, Arca and Origo references reach the check sandbox alone, all of them or none, within `REFERENCE_MAX_BYTES` together; a Topos session and a lease carry none | `work.TestChecksReceiveTheTasksReferences`, `work.TestAReferenceThatCannotBeDeliveredEndsTheChecks`, `work.TestASessionIsSentNoReference`, `httpapi.TestALeaseCarriesNoReference`, `httpapi.TestAnOrigoReferenceNeedsOrigoToReachItsChecks` |
+| 23 | Partly met: apply refuses a reserved audience and a model judge without a model; the authorizer is told the models and audiences; no test shows the authorizer's list being enforced beyond that question | `objects.TestCandidateRules`, `httpapi.TestApplyPreconditionsAndRefusals`, `access.TestTheLimitsOfAnAllow`, `objects.TestGraderRules` |
+| 24 | Partly met: the limits of spec 002 are enforced and a spend refusal parks the cell; no test shows a Key drawing on the experiment's Budget by construction | `httpapi.TestCreateLimits` (container), `httpapi.TestOverBudgetParksAndRetryReopens`, `keys.TestTheEndpointsBudgetReleaseAndUsage` |
+| 25 to 34 | Not met: not built | none |

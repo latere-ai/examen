@@ -12,7 +12,10 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -58,6 +61,81 @@ func sources(t *testing.T) []source {
 		t.Fatalf("read %d files; the walk is wrong", len(out))
 	}
 	return out
+}
+
+// namedTest matches a reference to a test as SECURITY.md and the security
+// spec write it: a backticked package, a dot and the test's name. The
+// package is the directory's base name, or a slash path ending in it; the
+// repository's root is `examen`.
+var namedTest = regexp.MustCompile("`([a-z][a-z0-9_]*(?:/[a-z][a-z0-9_]*)*)\\.((?:Test|Fuzz)[A-Za-z0-9_]*)`")
+
+// TestNamedTestsExist holds every test that SECURITY.md and the security
+// spec name to one that a _test.go file of the named package declares, so
+// a rename or a removal fails here rather than leaving a commitment that
+// no test holds.
+func TestNamedTestsExist(t *testing.T) {
+	declared := map[string]map[string]bool{} // directory -> declared test functions
+	dirs := map[string]bool{}
+	for _, s := range sources(t) {
+		dir := path.Dir(s.rel)
+		dirs[dir] = true
+		if !s.test {
+			continue
+		}
+		if declared[dir] == nil {
+			declared[dir] = map[string]bool{}
+		}
+		for _, d := range s.file.Decls {
+			if fn, ok := d.(*ast.FuncDecl); ok && fn.Recv == nil {
+				declared[dir][fn.Name.Name] = true
+			}
+		}
+	}
+	// dirsOf is the directories a package name stands for.
+	dirsOf := func(pkg string) []string {
+		if pkg == "examen" {
+			return []string{"."}
+		}
+		var out []string
+		for dir := range dirs {
+			if dir == pkg || strings.HasSuffix(dir, "/"+pkg) {
+				out = append(out, dir)
+			}
+		}
+		sort.Strings(out)
+		return out
+	}
+	for _, file := range []string{"SECURITY.md", "specs/012-security-and-threat-model.md"} {
+		text, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		found := 0
+		seen := map[string]bool{}
+		for _, m := range namedTest.FindAllStringSubmatch(string(text), -1) {
+			ref := m[1] + "." + m[2]
+			if seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			found++
+			where := dirsOf(m[1])
+			if len(where) == 0 {
+				t.Errorf("%s names %s, but no directory of the module is %q", file, ref, m[1])
+				continue
+			}
+			ok := false
+			for _, dir := range where {
+				ok = ok || declared[dir][m[2]]
+			}
+			if !ok {
+				t.Errorf("%s names %s, but no _test.go file in %s declares func %s(", file, ref, strings.Join(where, " or "), m[2])
+			}
+		}
+		if found == 0 {
+			t.Errorf("%s names no test; the pattern or the file is wrong", file)
+		}
+	}
 }
 
 // imported is the name a file imports a path under, or "".
