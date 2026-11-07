@@ -196,12 +196,31 @@ func (s *Server) handler(served []route) http.Handler {
 	if b != "" {
 		mux.Handle("/", notFound)
 	}
-	return otel.Handler(identified(s.located(s.bounded(mux))), "examend",
+	return s.forwarded(otel.Handler(identified(s.located(s.bounded(mux))), "examend",
 		otel.WithRouteTemplate(func(r *http.Request) string { return r.Pattern }),
 		otel.WithSkip(func(r *http.Request) bool {
 			return isProbe(r.URL.Path) || (b != "" && r.URL.Path == b+"/version")
-		}))
+		})))
 }
+
+// forwarded leaves X-Forwarded-For holding the client address the
+// installation trusts before the request's span reads its first entry:
+// the address a trusted proxy named, or no header when the peer is the
+// client. A client cannot then put an address of its choosing on a span.
+func (s *Server) forwarded(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := r.Header[xForwardedFor]; ok {
+			if addr := clientip.Address(r, s.TrustedProxies); addr != clientip.Peer(r) {
+				r.Header.Set(xForwardedFor, addr)
+			} else {
+				r.Header.Del(xForwardedFor)
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+const xForwardedFor = "X-Forwarded-For"
 
 // versionAt serves the answer of the probes' /version at the path it is
 // mounted on, so the build identity below the base path is the very body

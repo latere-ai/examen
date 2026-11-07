@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -284,6 +285,45 @@ func TestRoutes(t *testing.T) {
 	}
 	if (&Server{Store: &fakeStore{}}).Handler() == nil {
 		t.Fatal("no handler")
+	}
+}
+
+// The request's span reads the client address from the first entry of
+// X-Forwarded-For, so the header the handlers below the span see holds
+// the address the authorizer is told and nothing a client wrote.
+func TestTheSpanSeesTheTrustedClientAddress(t *testing.T) {
+	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	for _, tc := range []struct {
+		name, peer, forwarded string
+		want                  []string
+	}{
+		{"an untrusted peer's header is dropped", "192.0.2.1:4242", "203.0.113.9", nil},
+		{"a client's own entry before a trusted proxy's is dropped", "10.1.2.3:4242", "198.51.100.7, 203.0.113.9", []string{"203.0.113.9"}},
+		{"entries across headers count as one list", "10.1.2.3:4242", "198.51.100.7|203.0.113.9, 10.9.9.9", []string{"203.0.113.9"}},
+		{"a chain of trusted proxies only names the peer", "10.1.2.3:4242", "10.4.5.6", nil},
+		{"no header stays none", "10.1.2.3:4242", "", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			seen := make(chan []string, 1)
+			asking := route{method: http.MethodGet, path: "/asks", handle: func(_ *Server, w http.ResponseWriter, r *http.Request, _ access.Caller) error {
+				seen <- r.Header.Values("X-Forwarded-For")
+				w.WriteHeader(http.StatusNoContent)
+				return nil
+			}}
+			h := newHarness(t, &fakeStore{}, []route{asking}, func(s *Server) { s.TrustedProxies = trusted })
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/asks", nil)
+			r.RemoteAddr = tc.peer
+			r.Header.Set("Authorization", "Bearer t-alice")
+			if tc.forwarded != "" {
+				for v := range strings.SplitSeq(tc.forwarded, "|") {
+					r.Header.Add("X-Forwarded-For", v)
+				}
+			}
+			h.h.ServeHTTP(httptest.NewRecorder(), r)
+			if got := <-seen; !slices.Equal(got, tc.want) {
+				t.Fatalf("X-Forwarded-For %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
