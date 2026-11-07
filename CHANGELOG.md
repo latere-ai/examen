@@ -6,6 +6,27 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Changed
+
+- **The documentation is split by reader.** [Installing examend](docs/install.md)
+  covers the image, its signatures, the database, probes, upgrades and
+  what production must have; [Using the API](docs/api.md) walks every
+  flow with the errors and bounds a client meets; and
+  [Security](docs/security.md) says what Examen sends to each service,
+  keeps and logs. The README opens with a Quickstart that runs from a
+  fresh clone.
+- **A deny's reason is documented as what it is.** [Writing an authorizer](docs/authorizer.md)
+  said it was logged; it is returned to the caller in `details.reason`
+  of a `403`, and never logged.
+
+### Security
+
+- **SECURITY.md names the tests that hold each commitment,** marks the
+  ones that need a container, and lists what is not defended, including
+  the routes that take no token, an `http` issuer, cached allows and
+  idempotent replays, and what telemetry carries. Reports go through
+  GitHub's private vulnerability reporting or security@latere.ai.
+
 ## v0.8.6 - 2026-11-05
 
 ### Changed
@@ -67,9 +88,9 @@ here is refused before it is pushed.
   stays counted under its state, so `progress.trials.done` could exceed
   the runs the experiment declares; `done` less `retried` counts each
   finished run once.
-- The API document describes an experiment's `metadata`, a trial's
+- **The API document describes an experiment's `metadata`, a trial's
   `retry_of`, the grid's `trials.retried` and an experiment's
-  `progress`.
+  `progress`.**
 - **Documentation for running Examen yourself.**
   [Running it locally](docs/local.md) walks through an experiment run by
   a stand-in harness against a local `examend`, and
@@ -127,35 +148,34 @@ here is refused before it is pushed.
 
 ### Added
 
-- A `topos` trial records the machines its session ran on in its
+- **A `topos` trial records the machines its session ran on in its
   `observed` layer, as `machines: [{kind, id}]`, each once, in the order
   its log attached them: a Cella sandbox's `sbx_` id for a hosted
-  session, and another where the session's machine was replaced.
-- Each check that ran keeps its standard output and standard error in
+  session, and another where the session's machine was replaced.**
+- **Each check that ran keeps its standard output and standard error in
   the experiment owner's files store, at
   `files/evals/experiments/<id>/cells/<cell>/trials/<trial>/checks/<grader hex>/stdout.txt`
   and `stderr.txt`, written once with `If-None-Match: *`, and its record
-  names them as `outputs`, evidence references of kind `check_output`.
+  names them as `outputs`, evidence references of kind `check_output`.**
   A store that refuses the write, is not reached or holds the path
   already leaves the check as it ended, with no reference.
-- A check's record names the check sandbox it ran in as `sandbox`, its
-  Cella id.
+- **A check's record names the check sandbox it ran in as `sandbox`, its
+  Cella id.**
 
 ### Changed
 
-- A `topos` trial's session is titled with its run counted from 1, as
+- **A `topos` trial's session is titled with its run counted from 1, as
   `<candidate> on <task>, run 1` for the trial of index 0, the way a
-  person reads runs; its `examen.index` metadata keeps the index.
-- `GET /candidates?agent=` takes an agent's name, and keeps the
+  person reads runs; its `examen.index` metadata keeps the index.**
+
+- **`GET /candidates?agent=` takes an agent's name, and keeps the
   candidates that name that agent at any version, or one version,
   `sha256:...` or `name@sha256:...`, and keeps the candidates of that
   version whether they name it with the agent's name or by its digest
-  alone. It matched the stored reference exactly before.
+  alone.** It matched the stored reference exactly before.
 
-### Changed
-
-- A `topos` run's session no longer receives the experiment owner's
-  accounts or context. With Topos v0.51.1 and an installation's
+- **A `topos` run's session no longer receives the experiment owner's
+  accounts or context.** With Topos v0.51.1 and an installation's
   authorizer that holds the same rule, a run gets no connection to the
   owner's other services, none of their profile or instructions, and no
   repository or file of theirs but its task's workspace, read only; its
@@ -165,7 +185,7 @@ here is refused before it is pushed.
 
 ### Fixed
 
-- Grading a run holds none of its kept files whole. A run's checks get
+- **Grading a run holds none of its kept files whole.** A run's checks get
   its files as one tar stream, written into the check sandbox's upload as
   each file is read from the files store, its size and digest checked as
   it passes; a judge reads a file of the workspace only when its input
@@ -174,18 +194,18 @@ here is refused before it is pushed.
   reading them. Grading a run of 225 files and 43 MB held up to 124 MB of
   live heap in v0.7.1, which ran a replica of 256 MiB out of memory; it
   now holds about 2 MB, and two such runs at once about 6 MB.
-- A file whose kept copy grew past the size the log recorded is evidence
-  that changed, as one whose bytes differ is.
+- **A file whose kept copy grew past the size the log recorded is evidence
+  that changed, as one whose bytes differ is.**
 
 ## v0.7.1 - 2026-10-21
 
 ### Fixed
 
-- A comparison reads the values of a task's own graders, such as a model
-  judge a task names beside its checks, as it reads the suite's. In
+- **A comparison reads the values of a task's own graders, such as a model
+  judge a task names beside its checks, as it reads the suite's.** In
   v0.7.0 it resolved a task's checks alone, so a comparison of a metric
   that only a task's judge produced read no trials and gave no verdict.
-- An experiment's declared analysis is computed with no transaction held.
+- **An experiment's declared analysis is computed with no transaction held.**
   It was computed under the experiment's row lock while the analysis read
   cells and values through the pool, so behind a pooler in transaction
   mode with one server connection per replica, two replicas recomputing
@@ -194,9 +214,9 @@ here is refused before it is pushed.
   its analysis only when the declared comparisons it read are still the
   newest and no other one stored meanwhile, and otherwise leaves the
   experiment marked for the next tick.
-- The API document describes what a create runs: candidates of kind
+- **The API document describes what a create runs: candidates of kind
   `external` and `topos`, with the checks and judges that grade a `topos`
-  experiment's trials. It said a `topos` candidate was refused
+  experiment's trials.** It said a `topos` candidate was refused
   `executor_unavailable`, which it has not been since `topos` trials ran.
   A comparison is documented with every member the server answers: its
   `correction`, `windows`, `verdict_counts`, `unpaired_tasks`,
@@ -211,7 +231,7 @@ here is refused before it is pushed.
 
 ### Added
 
-- Examen grades a `topos` trial's run itself. Once its session ends, the
+- **Examen grades a `topos` trial's run itself.** Once its session ends, the
   trial is `done` with one grading per check of its task and per model
   judge of its task and suite, and its cell is `grading` until every one
   ended; a cell with a main rollout to come waits for its smoke trials'
@@ -219,64 +239,64 @@ here is refused before it is pushed.
   is not `ok`. Each value a grading gives is appended under the grader's
   digest as its next generation, so results read it as Examen's own
   measurement, never self-reported.
-- Checks run in a check sandbox (spec 005): a Cella sandbox created as
+- **Checks run in a check sandbox (spec 005): a Cella sandbox created as
   the owner with egress `none`, from the environment
   `EXAMEN_CELLA_ENVIRONMENT` and its default image, holding the run's
   kept working directory under `examen/outputs/workspace/` with its
   output manifest, the session's log and final message, and each
   check's files, an Arca folder pinned by its content digest; every
   file read from Arca is checked against the digest its log or its pin
-  records. The checks run in the task's order through Cella's exec with
+  records.** The checks run in the task's order through Cella's exec with
   spec 006's `EXAMEN_` variables, `EXAMEN_WORKSPACE` and a check's
   working directory being the run's kept working directory, under one
   `CHECK_TIMEOUT`, and the sandbox is deleted after. A trial's `checks` hold each run's record.
-- Model judges call their model through Lux's native door at
+- **Model judges call their model through Lux's native door at
   `EXAMEN_LUX_URL`, one structured call with the one tool
   `record_judgment` required, on a Key the key source leases with the
   purpose `judge` for that judge alone and labeled with the trial, and
   validated whatever the provider enforced; a malformed answer is tried
-  again up to `JUDGE_MAX_ATTEMPTS`. A judge reads the run's final
+  again up to `JUDGE_MAX_ATTEMPTS`.** A judge reads the run's final
   message, its kept files (the output `workspace/`), its transcript and,
   with the new input `checks`, the values its checks recorded. A trial's
   `judgments` hold each judgment's record with its Lux request ids,
   tokens and cost, and the judge Keys are released when the experiment
   ends. Examen's judge preamble is pinned on every model judge at apply
   as `model_judge.preamble`.
-- A task names `graders`: judges and annotation queues applied to that
+- **A task names `graders`: judges and annotation queues applied to that
   task's trials alone, beside the suite's, such as a judge whose prompt
-  speaks of the task's seed project.
-- The minter's answer may carry `labels`, which Examen writes on a check
-  sandbox it creates as the owner, as an installation's tenancy needs.
+  speaks of the task's seed project.**
+- **The minter's answer may carry `labels`, which Examen writes on a check
+  sandbox it creates as the owner, as an installation's tenancy needs.**
 
 ### Changed
 
-- Built with Go 1.27.3, which fixes the reachable crypto/x509
-  vulnerability GO-2026-6809.
-- An experiment of `topos` candidates whose tasks have checks, or whose
+- **Built with Go 1.27.3, which fixes the reachable crypto/x509
+  vulnerability GO-2026-6809.**
+- **An experiment of `topos` candidates whose tasks have checks, or whose
   suite or tasks have model judges, is created where Cella, Arca, Lux
   and the key source are configured, and refused `422
   core_not_configured` elsewhere; checks and judges of an experiment of
   `external` candidates, a canonicalizer, a configured decline judge and
-  a judge of level `candidate` are still refused.
+  a judge of level `candidate` are still refused.**
 
 ## v0.6.4 - 2026-10-21
 
 ### Added
 
-- With `OTEL_EXPORTER_OTLP_ENDPOINT` set, the server also exports the Go
+- **With `OTEL_EXPORTER_OTLP_ENDPOINT` set, the server also exports the Go
   runtime's metrics: memory, goroutines, GOGC, GOMAXPROCS and scheduling
   latency, as `go.memory.*`, `go.goroutine.count`, `go.config.gogc`,
   `go.processor.limit` and `go.schedule.duration`, through
-  `latere.ai/x/pkg` v0.106.0.
+  `latere.ai/x/pkg` v0.106.0.**
 
 ## v0.6.3 - 2026-10-20
 
 ### Fixed
 
-- A run that found no machine free to work on, `machine_unavailable`,
+- **A run that found no machine free to work on, `machine_unavailable`,
   is retried after a wait and spends none of `MAX_INFRA_RETRIES`, since
   its owner's other sessions and sandboxes share the plan's ceiling and
-  free a machine as they end. The retry holds its place in the
+  free a machine as they end.** The retry holds its place in the
   parallelism with no session for `MACHINE_WAIT` (30 seconds) after the
   run it retries ended, the wait doubling with each such retry up to
   `MACHINE_WAIT_MAX` (5 minutes), for `MAX_MACHINE_WAITS` (8) retries of
@@ -287,10 +307,10 @@ here is refused before it is pushed.
 
 ### Fixed
 
-- A topos trial whose session met `machine_unavailable`, or another
+- **A topos trial whose session met `machine_unavailable`, or another
   error spec 005 counts as the infrastructure's, is `infra_failed` and
   retried, though the agent went on without a machine and the session
-  ended `completed`. A session that got a new, empty machine in place of
+  ended `completed`.** A session that got a new, empty machine in place of
   a lost one is `infra_failed` with `replaced`. A full sandbox ceiling no
   longer records a run with no machine as the agent's own outcome.
 
@@ -298,8 +318,8 @@ here is refused before it is pushed.
 
 ### Fixed
 
-- A topos trial whose session two replicas created at once runs as the
-  session the first create made. The second create, which Topos answers
+- **A topos trial whose session two replicas created at once runs as the
+  session the first create made.** The second create, which Topos answers
   `409 conflict` while the first under the trial's key is still being
   answered, no longer parks the trial's cell `blocked` with
   `topos_refused: conflict`.
@@ -308,8 +328,8 @@ here is refused before it is pushed.
 
 ### Added
 
-- An experiment run by your own setup can call models with a key of its
-  own. With a key source configured (`EXAMEN_KEYS_URL`), creating an
+- **An experiment run by your own setup can call models with a key of its
+  own.** With a key source configured (`EXAMEN_KEYS_URL`), creating an
   experiment of `external` candidates asks the key source for the
   experiment's key, and every lease and renewal of its trials answers it
   as `model_key`, with `Cache-Control: no-store`. The key draws on the
@@ -319,17 +339,17 @@ here is refused before it is pushed.
   is released when the experiment completes or is canceled. No read of
   the experiment and no log line carries it. Your setup may keep using a
   key of its own; its runs' cost then reads unknown, as before.
-- Each leased trial carries `lux_labels`, `examen.trial=<trial id>`: send
-  it as the `Lux-Labels` header on each of the trial's model calls.
-- A trial whose calls went through the experiment's key gets its cost and
+- **Each leased trial carries `lux_labels`, `examen.trial=<trial id>`: send
+  it as the `Lux-Labels` header on each of the trial's model calls.**
+- **A trial whose calls went through the experiment's key gets its cost and
   what it sent and was served from Lux's records of them, about two
   minutes after it is submitted: `observed.cost_state` and `cost_usd`,
   `observed.served` and the token counts, a new `sent` member with each
   model the calls named, and the built-in metrics `cost_usd`,
-  `input_tokens`, `output_tokens` and `reasoning_tokens`. A call with no
+  `input_tokens`, `output_tokens` and `reasoning_tokens`.** A call with no
   label that names none of your trials counts toward the experiment and no
   trial.
-- Candidates of kind `topos` run. With Topos's address
+- **Candidates of kind `topos` run.** With Topos's address
   (`EXAMEN_TOPOS_URL`) and the minter (`EXAMEN_MINTER_URL`), each trial
   of a `topos` candidate is one unattended session of the candidate's
   agent version, on its model and reasoning level, created at Topos as
@@ -347,29 +367,29 @@ here is refused before it is pushed.
   what a session cannot carry yet: a candidate's `tools`, a task's
   `environment` or `arca` workspace, a task with no `instruction`, and an
   `origo` workspace with no Origo address.
-- `GET /experiments/{id}` carries the budget's `cap_usd_micro`,
+- **`GET /experiments/{id}` carries the budget's `cap_usd_micro`,
   `spent_usd_micro` and `remaining_usd_micro` when the key source answers
   them, and `usage`: the calls made with the experiment's key, their cost,
-  and those no trial claims as `unattributed`.
+  and those no trial claims as `unattributed`.**
 
 ### Changed
 
-- Run `examend migrate` before you roll `serve`: this release adds the
+- **Run `examend migrate` before you roll `serve`: this release adds the
   tables that keep an experiment's key, the records of its calls and
-  each trial's sent layer.
-- A lease is refused `403 forbidden`, `422 budget_refused` or `503
+  each trial's sent layer.**
+- **A lease is refused `403 forbidden`, `422 budget_refused` or `503
   owner_tokens_unavailable` when the key source refuses the experiment's
-  key, has no money left on it, or does not answer, and takes no trial.
-- A `topos` candidate on an installation that does not start Topos
+  key, has no money left on it, or does not answer, and takes no trial.**
+- **A `topos` candidate on an installation that does not start Topos
   sessions is refused `422 core_not_configured` naming `topos`, in place
-  of `executor_unavailable`. `examend migrate` adds the column that marks
+  of `executor_unavailable`.** `examend migrate` adds the column that marks
   a session to stop after its trial was canceled.
 
 ## v0.5.0 - 2026-10-19
 
 ### Added
 
-- Label metrics are tested. A comparison's label result on a task now
+- **Label metrics are tested.** A comparison's label result on a task now
   carries Fisher, Freeman and Halton's exact test of its two label
   distributions, or a permutation of Pearson's chi-square when the
   tables are too many to enumerate, and at suite level the stratified
@@ -377,15 +397,15 @@ here is refused before it is pushed.
   each. A significant difference is `changed`, and the per-label
   differences keep their intervals. A comparison that was final before
   this release keeps its label results descriptive.
-- Place a task in a design with `factors`, such as
+- **Place a task in a design with `factors`, such as
   `{"object": "build", "volition": "want"}`: names and levels of 1 to 63
   characters of `[a-z0-9._-]`, at most `MAX_TASK_FACTORS` (16), none
-  named `candidate`, `task`, `model`, `reasoning` or `batch`. A task
+  named `candidate`, `task`, `model`, `reasoning` or `batch`.** A task
   without factors keeps its digest.
-- Declare a comparison over any cell variable: `{"variable": "object",
+- **Declare a comparison over any cell variable: `{"variable": "object",
   "levels": ["build", "do"], "where": {"candidate": "sha256:…"}, "by":
   ["volition"]}` compares the cells at the first level with those at the
-  second, within the cells `where` keeps and stratified by `by`. A cell
+  second, within the cells `where` keeps and stratified by `by`.** A cell
   carries `candidate`, `task`, its `model` and `reasoning`, and its
   task's factors. With `by`, each stratum is a task-level result named
   by its levels, such as `volition=want`, or by its task for `by:
@@ -401,77 +421,77 @@ here is refused before it is pushed.
   also differ in a factor it neither holds nor names, is refused at
   create, naming the member. The pair and task-pair forms are
   unchanged.
-- Any declared comparison takes a `metric`, by name or digest and
+- **Any declared comparison takes a `metric`, by name or digest and
   answered by digest, whose result is its primary result in place of
-  the suite's primary metric. A pair that names one is a comparison of
+  the suite's primary metric.** A pair that names one is a comparison of
   its own beside the automatic comparison.
-- Declare a test of independence with `independence` on `POST
+- **Declare a test of independence with `independence` on `POST
   /experiments`: `{"metric": "kind"}` tests whether a trial-level label
   metric depends on the candidate, stratified by task, over every cell;
   `variable`, `by` and `where` test it against any cell variable,
   stratified by others, over the cells you keep, by candidate unless you
-  name the strata when the variable is the task or a factor. It is one
+  name the strata when the variable is the task or a factor.** It is one
   planned test, tested alone at 5%: `GET /experiments/{id}/declared`
   answers it under `independence` with its levels, their summaries, its
   strata and `p`, and the experiment answers its declaration. Over
   values your harness reported itself it answers `p` without a verdict,
   as every result on such values does.
-- A result read from a model or agent judge's labels carries
+- **A result read from a model or agent judge's labels carries
   `uncalibrated`, naming the judge, until the judge agrees with people
   on enough of your trials (Krippendorff's alpha of at least 0.67 over
   at least 30); no annotation route is served yet, so every judge reads
-  uncalibrated. A value your harness reports itself is never
+  uncalibrated.** A value your harness reports itself is never
   calibrated.
-- Candidate-level values reach the comparisons that read their
-  metric.
+- **Candidate-level values reach the comparisons that read their
+  metric.**
 
 ### Changed
 
-- Run `examend migrate` before you roll `serve`: this release adds an
+- **Run `examend migrate` before you roll `serve`: this release adds an
   experiment's `independence` and the mark that recomputes it, and a
   comparison's `declaration`, all empty for what exists, so the release
-  before it serves the migrated schema with a warning. Do not roll back
+  before it serves the migrated schema with a warning.** Do not roll back
   once an experiment declares a comparison of the general form: the
   release before reads it as a pair with no candidate.
-- A comparison still computing is computed with label tests from its
+- **A comparison still computing is computed with label tests from its
   next computation, so its `inputs_digest` and seed change, and a
   Monte Carlo `p` of any of its metrics may move within its sampling
-  error with no new trial.
-- One comparison declared twice is refused across forms too: a pair of
+  error with no new trial.**
+- **One comparison declared twice is refused across forms too: a pair of
   candidates and the general form of the same pair, two orders of one
-  `by`, or one metric named by name and by digest.
+  `by`, or one metric named by name and by digest.**
 
 ## v0.4.1 - 2026-10-19
 
 ### Security
 
-- A request about an object you may not see is answered exactly as a
+- **A request about an object you may not see is answered exactly as a
   request about one that does not exist, status, headers and body, on
   every route that names a stored object by id, name, digest or
-  reference, in its path, its query or its body. The developer detail of
+  reference, in its path, its query or its body.** The developer detail of
   these `404` answers is reworded: it names the object as your request
   named it.
-- `POST /trials/{id}/submit`, `POST /experiments/{id}/work/lease` and
+- **`POST /trials/{id}/submit`, `POST /experiments/{id}/work/lease` and
   `GET /suites/{suite}/taxonomies/{metric}/history` check the body, the
   `candidate` reference and the page before they read the object the
   path names, so a malformed request is refused `400` or `422` before
-  any `404`. A page link into a taxonomy's history is now issued for the
+  any `404`.** A page link into a taxonomy's history is now issued for the
   metric as the path names it, by name or by digest; one issued before
   this release to a request that named the metric by name is refused
   `400 invalid_cursor`, so start again from the first page.
-- `PUT /suites/{suite}/taxonomies/{metric}` asks `taxonomy.apply` before
+- **`PUT /suites/{suite}/taxonomies/{metric}` asks `taxonomy.apply` before
   it answers that the suite or its metric does not exist, with `owner`
   and `name` alone: a caller the authorizer denies is answered `403
-  forbidden`, and one it allows `404 taxonomy_not_found`.
+  forbidden`, and one it allows `404 taxonomy_not_found`.**
 
 ## v0.4.0 - 2026-10-18
 
 ### Added
 
-- Pass your installation's handle for a create to its authorizer:
+- **Pass your installation's handle for a create to its authorizer:
   `sign_in` on `POST /experiments` is an opaque value of 1 to 255 bytes
   of visible ASCII (`SIGN_IN_MAX_BYTES`) that reaches the authorizer as
-  the field `sign_in` of `experiment.create` and nowhere else. Examen
+  the field `sign_in` of `experiment.create` and nowhere else.** Examen
   does not store it, answer it, log it or write it to an event, so an
   installation that keeps a sign-in for each experiment its people start
   can tie a create to the one its client obtained. A value that is empty,
@@ -481,10 +501,10 @@ here is refused before it is pushed.
 
 ### Added
 
-- Declare the comparisons an experiment will make when you create it:
+- **Declare the comparisons an experiment will make when you create it:
   `comparisons` on `POST /experiments` takes pairs of its candidates,
   each with an optional `variable`, and pairs of tasks for one
-  candidate, at most 128. Each is computed as the automatic comparison
+  candidate, at most 128.** Each is computed as the automatic comparison
   is, from the first finished trial to its final form, and is never
   exploratory. Their primary results are corrected together, by
   Benjamini and Hochberg over every comparison you declared, in the
@@ -496,38 +516,32 @@ here is refused before it is pushed.
   `GET /experiments/{id}/comparisons?declared=true` lists them. The
   list is fixed at create, so declare what you mean to test before any
   trial runs.
-- `scheduling: interleaved` on `POST /experiments` deals the
+- **`scheduling: interleaved` on `POST /experiments` deals the
   experiment's trials round robin across every cell of every task, so
   trial `i` of every cell runs in one time window and two tasks
-  compared with each other do not compare two times. `task_by_task`,
+  compared with each other do not compare two times.** `task_by_task`,
   the order every experiment ran in so far, stays the default.
-- `POST /experiments/{id}/work/lease` without a `candidate` takes the
+- **`POST /experiments/{id}/work/lease` without a `candidate` takes the
   trials of every external candidate, in the order the experiment's
-  scheduling deals them. Every leased trial now names its `candidate`,
+  scheduling deals them.** Every leased trial now names its `candidate`,
   with the configuration your harness declared for it, so workers that
   lease without a candidate know what to run. Such a lease asks
   `trial.lease` with no `candidate` and no `harness`: an authorizer
   that allows one harness's leases alone refuses it.
 
-### Fixed
-
-- A lease never holds more trials at once than the experiment's
-  `parallelism`. A lease could take more when the trials of a later
-  task were held and an earlier task's rollout opened.
-
 ### Changed
 
-- Run `examend migrate` before you roll `serve`: this release adds an
+- **Run `examend migrate` before you roll `serve`: this release adds an
   experiment's `scheduling`, its declared comparisons and its declared
   analysis, and a comparison's `declared`, with defaults, so the
-  release before it serves the migrated schema with a warning.
-- Every share is a grant of reading. A suite or a baseline shared with
+  release before it serves the migrated schema with a warning.**
+- **Every share is a grant of reading.** A suite or a baseline shared with
   you is read and never run on: the owner policy refuses an
   `experiment.create` or `experiment.update` whose `suite_owner` or
   `baseline_owner` names another owner, shared or not, and the specs
   no longer let `suite.use` or `baseline.use` rest on a share. An
   authorizer of your own should refuse the same questions.
-- The specs keep every subject out of the public reads. A publication
+- **The specs keep every subject out of the public reads.** A publication
   version's `published_by` is answered by the signed-in reads alone,
   `GET /publications/{id}` and `GET /publications/{id}/versions/{n}`,
   and never under `/public/`; a snapshot leaves out a released
@@ -536,29 +550,24 @@ here is refused before it is pushed.
   shows `attribution: null` instead of the owner's subject. A page that
   names who signed off reads the version signed in and shows the name it
   resolves, never the subject.
-- The specs define the stratified label test, the summed chi-square of
+- **The specs define the stratified label test, the summed chi-square of
   a label metric permuted within each task, as a label result's
   suite-level test and as an experiment's declared test of independence
   over all its candidates, both served with label tests; and a model
   judge that reads a directory output's UTF-8 files in path order,
-  served with judges.
-
-## v0.2.0 - 2026-10-18
+  served with judges.**
 
 ### Fixed
 
-- `POST /experiments` that names no `owner` now resolves its suite and
-  candidates in the owner context your authorizer names. It asks
-  `experiment.list` first and resolves in the owner that allow's `owner`
-  limit names, so a member creating in an organization's context reaches
-  the organization's suite instead of being refused
-  `reference_not_found`. An authorizer whose list allows name no owner
-  sees no change. Roll the authorizer that answers `experiment.list` with
-  an `owner` limit before this release.
+- **A lease never holds more trials at once than the experiment's
+  `parallelism`.** A lease could take more when the trials of a later
+  task were held and an earlier task's rollout opened.
+
+## v0.2.0 - 2026-10-18
 
 ### Changed
 
-- The specs state who creates, who runs and who signs off: a person
+- **The specs state who creates, who runs and who signs off: a person
   creates under an owner, a person or an organization they belong to, so
   an experiment's `owner` and `created_by` can differ and both are
   answered; only the creator, the owner and the owner's members run an
@@ -566,7 +575,18 @@ here is refused before it is pushed.
   read it; a published benchmark runs on its owner's side alone and
   takes submissions from it alone; a publication version answers
   `published_by`, the person who signed off on publishing it, on every
-  read.
+  read.**
+
+### Fixed
+
+- **`POST /experiments` that names no `owner` now resolves its suite and
+  candidates in the owner context your authorizer names.** It asks
+  `experiment.list` first and resolves in the owner that allow's `owner`
+  limit names, so a member creating in an organization's context reaches
+  the organization's suite instead of being refused
+  `reference_not_found`. An authorizer whose list allows name no owner
+  sees no change. Roll the authorizer that answers `experiment.list` with
+  an `owner` limit before this release.
 
 ## v0.1.0 - 2026-10-18
 
@@ -577,115 +597,7 @@ by Examen's analysis. It calls no core and mints no owner token. Agents
 and programs as candidates, checks and judges, publishing and the console
 are not part of it.
 
-### Added
-
-- `examend serve`, `examend migrate` and `examend version`, configured by
-  the `EXAMEN_*` variables of the distribution spec. `serve` checks every
-  variable before it opens anything and stops with one line naming the
-  variable, never its value, when one is missing or does not parse, when a
-  bearer file is missing or empty, or when an endpoint that carries a
-  bearer is plain HTTP to a host that is not loopback.
-- Run `examend migrate` against `EXAMEN_DATABASE_URL`, the direct
-  connection, before you start or roll `serve`. `serve` never migrates: it
-  refuses a schema that lacks a migration it carries, a dirty schema and a
-  schema of another major, and serves a newer schema of its own major with
-  a warning, so a rollback within a major needs no restore.
-  `EXAMEN_DATABASE_POOL_URL` may name a pooler in transaction mode.
-- The probes `GET /livez`, `GET /readyz` (naming `draining` or `database`
-  when it fails) and `GET /version`, outside the base path and with no
-  token, and the contract at `GET /v1/openapi.yaml`.
-- Every request carries an `X-Request-Id`, yours or one the server makes;
-  a body over 4 MiB is `413 request_too_large`; a caller over 600 requests
-  a minute on one replica is `429 rate_limited` with `Retry-After`.
-- Bearer tokens are verified against `EXAMEN_OIDC_ISSUERS` for an audience
-  `EXAMEN_OIDC_AUDIENCE` lists. Decisions come from your authorizer at
-  `EXAMEN_AUTHORIZER_URL`, or from the built-in owner policy when none is
-  set; a decision that does not arrive is a refusal. An authorizer that
-  allows the start-up probe stops the start.
-- The public package `authorizer` publishes the actions this release asks
-  your authorizer: `metric.*`, `grader.*`, `task.*` and `candidate.*`
-  `apply`, `read` and `list`; `suite.apply`, `suite.read`, `suite.list`,
-  `taxonomy.apply` and `taxonomy.read`; `experiment.create`, `read`,
-  `list`, `update`, `cancel` and `import`; `cell.retry`; `trial.lease`
-  and `trial.submit`; `experiment.run`, which Examen asks as the
-  experiment's creator, with no claims, before each rollout it submits
-  and before it hands out a cell's external trials; and `baseline.pin`,
-  `read` and `list`, with the fields each sends and the limits an allow
-  may carry. The allow of a `.list` question may name the owner a name
-  sent without `owner` is resolved in, so a member reads by name what it
-  applied in an organization's context. The owner policy allows
-  `experiment.run` when the experiment's owner and creator are the
-  subject, and reads a shared baseline.
-- Metrics, graders, tasks, suites and candidates: `PUT /{kind}/{name}`
-  applies a version, idempotent by its digest, with `If-Match` and
-  `If-None-Match`; `GET /{kind}/{ref}` reads one by name, `name@digest`,
-  digest or id; `GET /{kind}/{name}/versions` lists a name's versions;
-  `GET /{kind}` lists current versions with the filters of the API spec.
-  A suite is held to what it pins: no two tasks of one name, one
-  producer per metric and task, a cell-level metric's `of` listed. A
-  program credential naming an audience Examen acts through is `422
-  credential_audience_reserved`.
-- Experiments: create in mode `execute` or `import`, list, read with
-  progress, cancel, close an import's intake, the candidate × task grid,
-  cells, trials with their current values and `metric`/`value` filters,
-  measurements by generation, the event log as JSON and as server-sent
-  events (`GET /experiments/{id}/stream`, with `Last-Event-ID` replay and
-  keepalives), and `POST /cells/{id}/retry` for a cell parked `blocked`
-  or `over_budget`; a retry of a complete experiment's cell reopens it.
-- External harnesses: `POST /experiments/{id}/work/lease` leases a
-  candidate's pending trials within each cell's share of the
-  experiment's parallelism, smoke trials first and main trials once a
-  cell's smoke passes, for 10 minutes, renewable; a lapsed lease returns
-  its trials to pending. `POST /trials/{id}/submit` records the outcome,
-  the times, the declared harness version and image, the Lux request
-  ids as given, the outputs as Arca paths with their digests, and values
-  the harness computed itself under `self:<harness>`, marked
-  `self_reported`. An `infra_failed` trial is retried up to twice with
-  `retry_of` lineage; a smoke trial that keeps failing parks its cell
-  `blocked`; an `over_budget` trial parks its cell. The built-in
-  metrics `completed` and `duration` are filled at done, and `declined`
-  by the built-in decline judge when the suite lists it.
-- Past runs: `POST /experiments/{id}/imports` with `executor: external`
-  imports a harness's past run, with its past times and declared harness
-  version, which must equal the candidate's version, into an experiment
-  in mode `import`.
-- Baselines: pin, read, history, list and by id. Taxonomies of an
-  open-vocabulary metric: append a version, read, history, the raw
-  labels the current version does not map, and by id.
-- Comparisons: one automatic comparison of every candidate against the
-  experiment's reference, made at create; `POST /comparisons` asks for
-  one, against another candidate, a baseline or, with `"variable":
-  "task"`, the candidate's cell of another task, exploratory; list, read
-  with suite-level results, and page task-level rows.
-- The analysis computes every comparison: per-task and suite-level
-  summaries with their intervals, the test each metric's type and
-  aggregate names, the Benjamini and Hochberg correction of a
-  comparison's family beside its primary metric tested alone, a verdict
-  and a plain reason for every result, and the confounds of the
-  provenance tuple, the declared images, the service versions, the
-  excluded trials and the time windows. An automatic comparison is
-  computed once its candidate's first trial finishes, recomputed in
-  place with `final` false as trials arrive, and computed a last time
-  with `final` true when the experiment completes; one on request is
-  computed once. Each records its `inputs_digest`, `seed`,
-  `analysis_version` and `parameters`, and the measurements it read, so
-  the same inputs give the same figures bit for bit on every machine. A
-  value an external harness reported for itself keeps its `p`, carries
-  the `self_reported` confound, and has no `q` and no verdict: it is
-  never a finding.
-- The candidate × task grid shows each cell's summary of the metric,
-  and the verdict and reason of its candidate's automatic comparison.
-- `experiment.create` sends your authorizer `grader_kinds`, the kinds of
-  every grader the suite pins, an empty list for a suite that pins none,
-  so it can tell work that needs no owner token.
-- A request with an `Idempotency-Key` is served for at most a minute;
-  a repeat while it is served is `409 request_in_progress` for up to
-  five minutes, after which a stopped replica's key lapses.
-- `422 executor_unavailable` refuses a candidate whose executor this
-  release does not run.
-- `GET /openapi.yaml` names the server's own base path in `servers`.
-
-### Not yet
+Not yet in this release:
 
 - Candidates of kind `topos` and `program` are stored and refused at an
   experiment's create, `422 executor_unavailable`, until their executors
@@ -716,3 +628,111 @@ are not part of it.
 - Bars, shares, dataset exports, annotations, re-grading, changing and
   deleting experiments, reports and publishing.
 - The console, a client of this API that ships apart.
+
+### Added
+
+- **`examend serve`, `examend migrate` and `examend version`, configured by
+  the `EXAMEN_*` variables of the distribution spec.** `serve` checks every
+  variable before it opens anything and stops with one line naming the
+  variable, never its value, when one is missing or does not parse, when a
+  bearer file is missing or empty, or when an endpoint that carries a
+  bearer is plain HTTP to a host that is not loopback.
+- **Run `examend migrate` against `EXAMEN_DATABASE_URL`, the direct
+  connection, before you start or roll `serve`.** `serve` never migrates: it
+  refuses a schema that lacks a migration it carries, a dirty schema and a
+  schema of another major, and serves a newer schema of its own major with
+  a warning, so a rollback within a major needs no restore.
+  `EXAMEN_DATABASE_POOL_URL` may name a pooler in transaction mode.
+- **The probes `GET /livez`, `GET /readyz` (naming `draining` or `database`
+  when it fails) and `GET /version`, outside the base path and with no
+  token, and the contract at `GET /v1/openapi.yaml`.**
+- **Every request carries an `X-Request-Id`, yours or one the server makes;
+  a body over 4 MiB is `413 request_too_large`; a caller over 600 requests
+  a minute on one replica is `429 rate_limited` with `Retry-After`.**
+- **Bearer tokens are verified against `EXAMEN_OIDC_ISSUERS` for an audience
+  `EXAMEN_OIDC_AUDIENCE` lists.** Decisions come from your authorizer at
+  `EXAMEN_AUTHORIZER_URL`, or from the built-in owner policy when none is
+  set; a decision that does not arrive is a refusal. An authorizer that
+  allows the start-up probe stops the start.
+- **The public package `authorizer` publishes the actions this release asks
+  your authorizer: `metric.*`, `grader.*`, `task.*` and `candidate.*`
+  `apply`, `read` and `list`; `suite.apply`, `suite.read`, `suite.list`,
+  `taxonomy.apply` and `taxonomy.read`; `experiment.create`, `read`,
+  `list`, `update`, `cancel` and `import`; `cell.retry`; `trial.lease`
+  and `trial.submit`; `experiment.run`, which Examen asks as the
+  experiment's creator, with no claims, before each rollout it submits
+  and before it hands out a cell's external trials; and `baseline.pin`,
+  `read` and `list`, with the fields each sends and the limits an allow
+  may carry.** The allow of a `.list` question may name the owner a name
+  sent without `owner` is resolved in, so a member reads by name what it
+  applied in an organization's context. The owner policy allows
+  `experiment.run` when the experiment's owner and creator are the
+  subject, and reads a shared baseline.
+- **Metrics, graders, tasks, suites and candidates: `PUT /{kind}/{name}`
+  applies a version, idempotent by its digest, with `If-Match` and
+  `If-None-Match`; `GET /{kind}/{ref}` reads one by name, `name@digest`,
+  digest or id; `GET /{kind}/{name}/versions` lists a name's versions;
+  `GET /{kind}` lists current versions with the filters of the API spec.**
+  A suite is held to what it pins: no two tasks of one name, one
+  producer per metric and task, a cell-level metric's `of` listed. A
+  program credential naming an audience Examen acts through is `422
+  credential_audience_reserved`.
+- **Experiments: create in mode `execute` or `import`, list, read with
+  progress, cancel, close an import's intake, the candidate × task grid,
+  cells, trials with their current values and `metric`/`value` filters,
+  measurements by generation, the event log as JSON and as server-sent
+  events (`GET /experiments/{id}/stream`, with `Last-Event-ID` replay and
+  keepalives), and `POST /cells/{id}/retry` for a cell parked `blocked`
+  or `over_budget`; a retry of a complete experiment's cell reopens it.**
+- **External harnesses: `POST /experiments/{id}/work/lease` leases a
+  candidate's pending trials within each cell's share of the
+  experiment's parallelism, smoke trials first and main trials once a
+  cell's smoke passes, for 10 minutes, renewable; a lapsed lease returns
+  its trials to pending.** `POST /trials/{id}/submit` records the outcome,
+  the times, the declared harness version and image, the Lux request
+  ids as given, the outputs as Arca paths with their digests, and values
+  the harness computed itself under `self:<harness>`, marked
+  `self_reported`. An `infra_failed` trial is retried up to twice with
+  `retry_of` lineage; a smoke trial that keeps failing parks its cell
+  `blocked`; an `over_budget` trial parks its cell. The built-in
+  metrics `completed` and `duration` are filled at done, and `declined`
+  by the built-in decline judge when the suite lists it.
+- **Past runs: `POST /experiments/{id}/imports` with `executor: external`
+  imports a harness's past run, with its past times and declared harness
+  version, which must equal the candidate's version, into an experiment
+  in mode `import`.**
+- **Baselines: pin, read, history, list and by id.** Taxonomies of an
+  open-vocabulary metric: append a version, read, history, the raw
+  labels the current version does not map, and by id.
+- **Comparisons: one automatic comparison of every candidate against the
+  experiment's reference, made at create; `POST /comparisons` asks for
+  one, against another candidate, a baseline or, with `"variable":
+  "task"`, the candidate's cell of another task, exploratory; list, read
+  with suite-level results, and page task-level rows.**
+- **The analysis computes every comparison: per-task and suite-level
+  summaries with their intervals, the test each metric's type and
+  aggregate names, the Benjamini and Hochberg correction of a
+  comparison's family beside its primary metric tested alone, a verdict
+  and a plain reason for every result, and the confounds of the
+  provenance tuple, the declared images, the service versions, the
+  excluded trials and the time windows.** An automatic comparison is
+  computed once its candidate's first trial finishes, recomputed in
+  place with `final` false as trials arrive, and computed a last time
+  with `final` true when the experiment completes; one on request is
+  computed once. Each records its `inputs_digest`, `seed`,
+  `analysis_version` and `parameters`, and the measurements it read, so
+  the same inputs give the same figures bit for bit on every machine. A
+  value an external harness reported for itself keeps its `p`, carries
+  the `self_reported` confound, and has no `q` and no verdict: it is
+  never a finding.
+- **The candidate × task grid shows each cell's summary of the metric,
+  and the verdict and reason of its candidate's automatic comparison.**
+- **`experiment.create` sends your authorizer `grader_kinds`, the kinds of
+  every grader the suite pins, an empty list for a suite that pins none,
+  so it can tell work that needs no owner token.**
+- **A request with an `Idempotency-Key` is served for at most a minute;
+  a repeat while it is served is `409 request_in_progress` for up to
+  five minutes, after which a stopped replica's key lapses.**
+- **`422 executor_unavailable` refuses a candidate whose executor this
+  release does not run.**
+- **`GET /openapi.yaml` names the server's own base path in `servers`.**
