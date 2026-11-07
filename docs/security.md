@@ -101,8 +101,9 @@ and how decisions are made; an error logs its route's pattern, never
 its path, with URL queries and user info cut; background work logs ids
 of experiments, cells, trials, sessions, sandboxes and Keys, never a
 Key's value, and why a judge's answer was malformed, which can name
-what the model wrote. Some errors are logged as their library wrote them and can
-name the host and path of an issuer, the authorizer or a service.
+what the model wrote. Every error a line carries has its URL queries and
+user info cut; one a library wrote can still name the host and path of
+an issuer, the authorizer or a service.
 
 With `OTEL_EXPORTER_OTLP_ENDPOINT` set, request spans carry the path
 with object ids and names, the user agent, and the client address the

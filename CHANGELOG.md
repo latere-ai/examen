@@ -44,6 +44,9 @@ here is refused before it is pushed.
   backend. The bump also brings v0.114.0's option for the authorizer
   client's default allow `ttl`, which examend leaves unset: an allow
   that names no `ttl` is still reused for 60 seconds.
+- **Every error a log line carries has its URL queries and user info
+  cut.** Twelve lines, among them an issuer or the authorizer that did
+  not answer at start, logged a library's error text whole.
 - **A path outside the working directory is no file of a trial.** A
   session log that names a kept file by an absolute path, or by one with
   an empty, `.` or `..` part, no longer puts it in the copy checks and

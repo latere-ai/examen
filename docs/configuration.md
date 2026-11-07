@@ -35,7 +35,7 @@ is harmless, and a value that does not parse still stops the start.
 | `EXAMEN_TRUSTED_PROXIES` | none | Comma-separated address ranges in CIDR form from which `X-Forwarded-For` names the client address the authorizer is told. A header from any other peer is ignored. |
 | `EXAMEN_DATABASE_URL` | required | The direct `postgres://` URL of the database. `migrate` always uses it, and `serve` uses it unless `EXAMEN_DATABASE_POOL_URL` is set. Pool size and statement settings are the URL's own parameters. |
 | `EXAMEN_DATABASE_POOL_URL` | none | A pooled endpoint, such as PgBouncer in transaction mode, that `serve` opens instead of the direct URL. |
-| `EXAMEN_OIDC_ISSUERS` | required | Comma-separated OpenID Connect issuers whose tokens are accepted. `examend` reads each issuer's discovery document and keys. |
+| `EXAMEN_OIDC_ISSUERS` | required | Comma-separated OpenID Connect issuers whose tokens are accepted. `examend` reads each issuer's discovery document and keys. Each is `https`, or `http` to a loopback host. |
 | `EXAMEN_OIDC_AUDIENCE` | `examen` | Comma-separated audiences a token may be addressed to, the first the primary one. |
 | `EXAMEN_AUTHORIZER_URL` | none: the owner policy | The endpoint asked whether a caller may perform each action. See [Writing an authorizer](authorizer.md). |
 | `EXAMEN_AUTHORIZER_TOKEN_FILE` | none; required with `EXAMEN_AUTHORIZER_URL` | A file holding the bearer the authorizer requires. |
