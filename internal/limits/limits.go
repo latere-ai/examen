@@ -71,6 +71,10 @@ const (
 	MaxStreamsPerSubject          = 10
 	APIRequestsPerMinute          = 600
 	PublicRequestsPerMinute       = 120
+	AddressRequestsPerMinute      = 6000
+	ReadHeaderTimeout             = 10 * time.Second
+	ReadTimeout                   = time.Minute
+	IdleTimeout                   = 2 * time.Minute
 	DefaultPageSize               = 50
 	MaxPageSize                   = 200
 	MaxRequestBytes               = 4 << 20

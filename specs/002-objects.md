@@ -221,6 +221,10 @@ else. The last column names the spec that explains its use.
 | `MAX_PAGE_SIZE` | 200 | the largest `limit` | 003 |
 | `MAX_REQUEST_BYTES` | 4 MiB | the longest request body examend reads | 003 |
 | `API_REQUESTS_PER_MINUTE` | 600 | requests one subject may make to one replica in a minute | 012 |
+| `ADDRESS_REQUESTS_PER_MINUTE` | 6,000 | requests one client address may make to the routes that take a token on one replica in a minute, counted before the token is read | 012 |
+| `READ_HEADER_TIMEOUT` | 10 seconds | how long examend waits for a request's headers to arrive | 012 |
+| `READ_TIMEOUT` | 1 minute | how long examend waits for a whole request, its headers and its body, to arrive | 012 |
+| `IDLE_TIMEOUT` | 2 minutes | how long examend keeps a connection open with no request on it | 012 |
 | `IDEMPOTENCY_WINDOW` | 24 hours | how long an `Idempotency-Key` answers its first response | 003 |
 | `IDEMPOTENCY_KEY_MAX_BYTES` | 255 | the longest `Idempotency-Key` | 003 |
 | `SIGN_IN_MAX_BYTES` | 255 | the longest `sign_in` an experiment's create carries | 003 |
@@ -242,7 +246,7 @@ else. The last column names the spec that explains its use.
 | `MAX_LABELS_OPEN_VOCABULARY` | 4096 | the canonical labels of one taxonomy version of an open-vocabulary metric, which grows with every topic its judges meet | 006 |
 | `MAX_TAXONOMY_RAW_LABELS` | 10,000 | the raw labels one taxonomy version maps | 006 |
 | `BUDGET_STATUS_TTL` | 15 seconds | how long an experiment's budget figures, read through the key source, are reused for its answers | 004 |
-| `PUBLIC_REQUESTS_PER_MINUTE` | 120 | requests one client address may make to the public routes of one replica in a minute | 013 |
+| `PUBLIC_REQUESTS_PER_MINUTE` | 120 | requests one client address may make to the public routes of one replica in a minute: the build identity and the contract below the base path, and the public reads of spec 013 | 013 |
 | `PUBLICATION_LINE_MAX_BYTES` | 200 | a publication's title, and the attribution a version shows | 013 |
 | `PUBLICATION_TEXT_MAX_BYTES` | 16 KiB | a publication's description, and a dataset's citation as canonical JSON | 013 |
 | `PUBLICATION_EVIDENCE_MAX_BYTES` | 10 GiB | the evidence and files one publication version copies into its folder | 013 |

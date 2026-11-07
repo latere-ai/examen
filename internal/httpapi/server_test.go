@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -226,6 +227,90 @@ func TestRateLimit(t *testing.T) {
 	if a := h.do(http.MethodGet, "/v1/things", "t-bob", nil); a.status != http.StatusOK {
 		t.Fatalf("another subject: %d", a.status)
 	}
+}
+
+// A client address past ADDRESS_REQUESTS_PER_MINUTE on one replica is
+// rate_limited before its token is read, so requests with no valid token
+// are held too; another address is not. Behind a trusted proxy each client
+// it names has a rate of its own, and a peer the installation does not
+// trust is held by its own address whatever X-Forwarded-For says. The
+// routes that take no token are held to PUBLIC_REQUESTS_PER_MINUTE from
+// one address, and the probes to nothing.
+func TestAddressRateLimit(t *testing.T) {
+	clock := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	auth := &countedAuth{inner: tokens{}}
+	h := newHarness(t, &fakeStore{}, []route{listing(1)}, func(s *Server) {
+		s.Now, s.Auth = func() time.Time { return clock }, auth
+		s.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}
+	})
+	send := func(path, peer, forwarded string) answer {
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, path, nil)
+		r.RemoteAddr = peer
+		r.Header.Set("Authorization", "Bearer t-expired")
+		if forwarded != "" {
+			r.Header.Set("X-Forwarded-For", forwarded)
+		}
+		w := httptest.NewRecorder()
+		h.h.ServeHTTP(w, r)
+		return answer{status: w.Code, header: w.Header(), body: w.Body.Bytes()}
+	}
+	limited := func(a answer) bool {
+		code, _ := a.envelope(t)
+		return a.status == http.StatusTooManyRequests && code == apierr.CodeRateLimited && a.header.Get("Retry-After") != ""
+	}
+	for i := range limits.AddressRequestsPerMinute {
+		if a := send("/v1/things", "192.0.2.1:1234", fmt.Sprintf("203.0.113.%d", i%200)); a.status != http.StatusUnauthorized {
+			t.Fatalf("request %d from an untrusted peer: %d %s", i+1, a.status, a.body)
+		}
+	}
+	read := auth.n
+	if a := send("/v1/things", "192.0.2.1:1234", "203.0.113.250"); !limited(a) || auth.n != read {
+		t.Fatalf("past the rate, naming a new address: %d %s, the token read %d times more", a.status, a.body, auth.n-read)
+	}
+	if a := send("/v1/things", "192.0.2.2:1234", ""); a.status != http.StatusUnauthorized {
+		t.Fatalf("another peer: %d %s", a.status, a.body)
+	}
+	for i := range limits.AddressRequestsPerMinute {
+		if a := send("/v1/things", "10.0.0.1:1234", "203.0.113.7"); a.status != http.StatusUnauthorized {
+			t.Fatalf("request %d of a client behind the proxy: %d %s", i+1, a.status, a.body)
+		}
+	}
+	if a := send("/v1/things", "10.0.0.1:1234", "203.0.113.7"); !limited(a) {
+		t.Fatalf("a client behind the proxy past the rate: %d %s", a.status, a.body)
+	}
+	if a := send("/v1/things", "10.0.0.1:1234", "203.0.113.8"); a.status != http.StatusUnauthorized {
+		t.Fatalf("another client behind the proxy: %d %s", a.status, a.body)
+	}
+	for _, path := range []string{"/v1/version", "/v1/openapi.yaml"} {
+		peer := "198.51.100.1:1234"
+		if path == "/v1/openapi.yaml" {
+			peer = "198.51.100.2:1234"
+		}
+		for i := range limits.PublicRequestsPerMinute {
+			if a := send(path, peer, ""); a.status != http.StatusOK {
+				t.Fatalf("%s request %d: %d %s", path, i+1, a.status, a.body)
+			}
+		}
+		if a := send(path, peer, ""); !limited(a) {
+			t.Fatalf("%s past the public rate: %d %s", path, a.status, a.body)
+		}
+	}
+	for i := range limits.PublicRequestsPerMinute + 1 {
+		if a := send("/livez", "198.51.100.1:1234", ""); a.status != http.StatusOK {
+			t.Fatalf("probe %d: %d %s", i+1, a.status, a.body)
+		}
+	}
+}
+
+// countedAuth counts the requests whose token it reads.
+type countedAuth struct {
+	inner access.Authenticator
+	n     int
+}
+
+func (c *countedAuth) Authenticate(r *http.Request) (access.Caller, error) {
+	c.n++
+	return c.inner.Authenticate(r)
 }
 
 // A body past MAX_REQUEST_BYTES is request_too_large: refused before it is

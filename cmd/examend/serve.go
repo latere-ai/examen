@@ -42,9 +42,6 @@ const (
 	// warmTimeout bounds reading the issuers' keys and asking the probe
 	// at start.
 	warmTimeout = 10 * time.Second
-	// readHeaderTimeout bounds how long a client takes to send its
-	// request's headers.
-	readHeaderTimeout = 10 * time.Second
 	// sweepEvery is how often a replica deletes expired idempotency keys.
 	sweepEvery = 10 * time.Minute
 	// sweepBatch is how many keys one delete takes.
@@ -172,7 +169,7 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	if g := engine.Grading; g != nil {
 		log.InfoContext(ctx, "grading", "checks", g.Checks(), "model_judges", g.Judges() && engine.Keys != nil)
 	}
-	httpSrv := &http.Server{Handler: api.Handler(), ReadHeaderTimeout: readHeaderTimeout, ErrorLog: slog.NewLogLogger(log.Handler(), slog.LevelWarn)}
+	httpSrv := newHTTPServer(api.Handler(), log)
 	failed := make(chan error, 1)
 	go func() { failed <- httpSrv.Serve(ln) }()
 	log.InfoContext(ctx, "listening", "address", ln.Addr().String())
@@ -346,4 +343,20 @@ func migrate(ctx context.Context, getenv func(string) string, out, logs io.Write
 	}
 	_, err = fmt.Fprintf(out, "examend: the schema is at version %d\n", got.To)
 	return err
+}
+
+// newHTTPServer is the server of the API, holding every client to
+// READ_HEADER_TIMEOUT for its headers and READ_TIMEOUT for its whole
+// request, so a client that sends slowly holds a connection no longer. A
+// stream's answer is not bounded: no write timeout is set, and the read
+// deadline of a request already read does not end its context. An idle
+// connection is closed after IDLE_TIMEOUT.
+func newHTTPServer(h http.Handler, log *slog.Logger) *http.Server {
+	return &http.Server{
+		Handler:           h,
+		ReadHeaderTimeout: limits.ReadHeaderTimeout,
+		ReadTimeout:       limits.ReadTimeout,
+		IdleTimeout:       limits.IdleTimeout,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelWarn),
+	}
 }

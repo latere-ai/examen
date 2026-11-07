@@ -165,7 +165,11 @@ func (s *Server) handler(served []route) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
-	limiter := ratelimit.New(ratelimit.Config{PerMinute: limits.APIRequestsPerMinute, Now: now})
+	q := quotas{
+		subjects:  ratelimit.New(ratelimit.Config{PerMinute: limits.APIRequestsPerMinute, Now: now}),
+		addresses: ratelimit.New(ratelimit.Config{PerMinute: limits.AddressRequestsPerMinute, Now: now}),
+		public:    ratelimit.New(ratelimit.Config{PerMinute: limits.PublicRequestsPerMinute, Now: now}),
+	}
 	mux := http.NewServeMux()
 	probes := s.probes()
 	for _, p := range Probes {
@@ -176,18 +180,18 @@ func (s *Server) handler(served []route) http.Handler {
 		// The build identity is also public below the base path, the one
 		// prefix the ingress forwards, so a release check reads it from
 		// outside. It takes no token and is the body /version serves.
-		mux.Handle("GET "+b+"/version", versionAt(probes))
+		mux.Handle("GET "+b+"/version", s.public(q, versionAt(probes)))
 	}
 	for _, rt := range served {
-		mux.Handle(rt.method+" "+b+rt.path, s.serve(rt, limiter))
+		mux.Handle(rt.method+" "+b+rt.path, s.serve(rt, q))
 	}
 	document := api.Served(b)
-	mux.HandleFunc("GET "+b+"/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET "+b+"/openapi.yaml", s.public(q, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
 		if _, err := w.Write(document); err != nil {
 			s.log().WarnContext(r.Context(), "the contract was not written whole", "error", apierr.LogText(err))
 		}
-	})
+	})))
 	// No route at a path is the contract's 404 in its envelope, for every
 	// method, below the base path and beside it.
 	notFound := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -238,19 +242,48 @@ func isProbe(path string) bool {
 	return slices.Contains(Probes, path)
 }
 
-// serve runs one route: the caller verified, its request rate held, the
-// key of an idempotent route kept, and the handler's error answered.
-func (s *Server) serve(rt route, limiter *ratelimit.Buckets) http.Handler {
+// quotas are a replica's request rates: per subject, per client address
+// on the routes that take a token, and per client address on the routes
+// that take none. The probes have none.
+type quotas struct{ subjects, addresses, public *ratelimit.Buckets }
+
+// within holds one request to a rate, keyed by key: false, with the
+// request answered rate_limited, once the key is past it.
+func (s *Server) within(w http.ResponseWriter, r *http.Request, b *ratelimit.Buckets, key, from string) bool {
+	a := b.Allow(key)
+	if !a.OK {
+		e := apierr.Newf(apierr.CodeRateLimited, "%d requests a minute from one %s to one replica", a.PerMinute, from)
+		e.RetryAfter = a.Retry
+		s.answer(w, r, e)
+	}
+	return a.OK
+}
+
+// public holds a route that takes no token to PUBLIC_REQUESTS_PER_MINUTE
+// from one client address.
+func (s *Server) public(q quotas, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if s.within(w, r, q.public, access.RequestInfo(r).IP, "client address") {
+			next.ServeHTTP(w, r)
+		}
+	})
+}
+
+// serve runs one route: the client address's request rate held before
+// the token is read, so requests with no valid token are bounded too, the
+// caller verified, its request rate held, the key of an idempotent route
+// kept, and the handler's error answered.
+func (s *Server) serve(rt route, q quotas) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.within(w, r, q.addresses, access.RequestInfo(r).IP, "client address") {
+			return
+		}
 		c, err := s.Auth.Authenticate(r)
 		if err != nil {
 			s.answer(w, r, tokenError(err))
 			return
 		}
-		if a := limiter.Allow(c.Subject); !a.OK {
-			e := apierr.Newf(apierr.CodeRateLimited, "%d requests a minute from one subject to one replica", a.PerMinute)
-			e.RetryAfter = a.Retry
-			s.answer(w, r, e)
+		if !s.within(w, r, q.subjects, c.Subject, "subject") {
 			return
 		}
 		if rt.idempotent && r.Header.Get(idempotencyHeader) != "" {
