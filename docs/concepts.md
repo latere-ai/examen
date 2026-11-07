@@ -29,7 +29,7 @@ The rest are **records** of running them:
 | **Experiment** | One execution of a suite against candidates, each combination run `trials` times, with a Budget, a reference candidate, and optionally comparisons declared before any trial runs. |
 | **Cell** | One task and one candidate of an experiment. It deals one smoke trial first and the rest only once that passes, so a broken setup costs one trial. A cell whose smoke keeps failing, or whose Budget runs out, parks until its owner retries it. |
 | **Trial** | One run of a cell, with its outcome (`completed`, `declined`, `timed_out`, `turn_limit`, `over_budget`, `infra_failed` or `canceled`), its times, and what was recorded about it. A trial that failed for the infrastructure's reasons is retried; the one it replaced is kept and marked retried. |
-| **Measurement** | One value of one metric for one trial, from one grader, with its provenance. Measurements are appended and never overwritten: grading a trial again adds a new generation. |
+| **Measurement** | One value of one metric for one trial, from one grader, with its provenance. Measurements are appended and never changed: a grade once written is never overwritten. |
 | **Comparison** | The results of a candidate's cells against a reference, per task and across the suite, recomputed as trials arrive and final once its figures are (below). |
 | **Baseline** | A named, pinned reference for a suite, such as the candidate that is in production, that later experiments compare against. |
 | **Taxonomy** | A versioned mapping that groups the free-form labels a judge wrote into the labels a metric counts. |

@@ -61,7 +61,7 @@ and waits at most 5 seconds. A create of an experiment, abridged:
 | Member | Meaning |
 |---|---|
 | `allow` | Required. A body without it is no answer, and the request fails closed. |
-| `reason` | Optional. Logged; a refused caller sees a fixed message. |
+| `reason` | Optional. Returned to the caller in `details.reason` of a `403`, so write what the caller may read. A deny about a stored object answers that object's `404` and shows no reason. Examen does not log it. |
 | `ttl` | Optional. Seconds Examen may reuse an allow for the same question, 60 by default and 600 at most. A deny is reused for 5 seconds. |
 | `limits` | Optional, on an allow. What the request is held to: the owner a created object belongs to, the highest parallelism, the most trials, the most active experiments, the executors and judge models allowed, and the Budget the experiment is metered against. An allow can narrow Examen's own limits and never widen them. A limits object Examen cannot read counts as no answer. |
 | `filter` | Optional, on a list. `{"owners": [...], "labels": {...}}` narrows the list to those owners and labels. |

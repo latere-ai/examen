@@ -3,8 +3,9 @@
 `examend` has three commands, `serve`, `migrate` and `version`, takes
 no flags, and reads its whole configuration from `EXAMEN_*` environment
 variables once, at start. This page lists every variable, says what each
-one does in the current release, and covers what an installation needs
-around the binary: the database, the image, the probes and telemetry.
+one does in the current release, what each service adds, what refuses a
+start and the telemetry. The image, the database, the probes and
+upgrading are on [Installing examend](install.md).
 
 Two variables are always required: `EXAMEN_DATABASE_URL` and
 `EXAMEN_OIDC_ISSUERS`. Everything else has a default, and an unset
@@ -12,9 +13,10 @@ service address means that service is not used: the work that needs it
 is refused with `422 core_not_configured`, naming the service, instead
 of being accepted and left to wait.
 
-A bearer or a secret is never a variable. Each one is a file, named by a
-`*_TOKEN_FILE` or `*_SECRET_FILE` variable and read at start, so a
-mounted secret carries it. A value that does not parse stops the start
+Each bearer and signing secret is a file, named by a `*_TOKEN_FILE` or
+`*_SECRET_FILE` variable and read at start, so a mounted secret carries
+it. The database URLs carry their password in the variable, so keep
+them in a secret too. A value that does not parse stops the start
 with a line that names the variable and never its value.
 
 ## Every variable
@@ -104,53 +106,6 @@ variable or the condition, when:
 An issuer that does not answer at start, or an authorizer that does not
 answer the probe, is logged and the server starts. Every request then
 fails closed until it answers.
-
-## The database
-
-Examen keeps everything in Postgres, 16 or newer. `examend migrate`
-applies the schema over `EXAMEN_DATABASE_URL` under a session lock, so
-two migrations never run at once, and prints the version it reached.
-`serve` never migrates: run `migrate` before you start or roll `serve`.
-At start, `serve` checks the schema. A schema behind the binary stops
-the start; a newer one of the same major version is logged and served,
-which is what a rollback within a major version looks like.
-
-Behind a transaction-mode pooler, set `EXAMEN_DATABASE_POOL_URL` to the
-pooler for `serve` and keep `EXAMEN_DATABASE_URL` direct: the migration
-lock is held across statements, which a transaction-mode pooler loses
-between two.
-
-## The image
-
-Every release publishes `ghcr.io/latere-ai/examend:<tag>` for
-linux/amd64 and linux/arm64. The image holds the binary and no shell,
-runs as a user that is not root, and works with a read-only root file
-system and every capability dropped. Run `migrate` as a job before the
-new version's `serve`:
-
-```sh
-docker run --rm -e EXAMEN_DATABASE_URL ghcr.io/latere-ai/examend:v0.8.2 migrate
-docker run -d -p 8080:8080 --read-only --cap-drop ALL \
-  -e EXAMEN_DATABASE_URL -e EXAMEN_OIDC_ISSUERS \
-  ghcr.io/latere-ai/examend:v0.8.2 serve
-```
-
-[`SECURITY.md`](../SECURITY.md#supply-chain) shows how to check a
-release's signatures before you run it.
-
-## Probes
-
-The probes sit at the root of the listener, outside the base path, and
-take no token:
-
-| Probe | Answers |
-|---|---|
-| `GET /livez` | `200` while the process runs |
-| `GET /readyz` | `200` while the database answers; otherwise `503`, naming what is not ready, and also while the server drains |
-| `GET /version` | the build's `version`, `commit` and `build_time` as JSON |
-
-On `SIGTERM` the server fails readiness at once, stops taking
-connections, and gives open requests 25 seconds to finish.
 
 ## Telemetry
 
