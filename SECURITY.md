@@ -112,9 +112,9 @@ code; [Fixed bounds](docs/api.md#fixed-bounds) lists them all.
   the password.
 - **What telemetry carries.** With `OTEL_EXPORTER_OTLP_ENDPOINT` set,
   server spans hold the request path with object ids and names, the user
-  agent and the client address. Client spans
-  hold each outbound URL with its query, such as an owner's file path at
-  Arca.
+  agent and the client address. Client spans hold each outbound URL's
+  scheme, host and path, such as an owner's file path at Arca, and never
+  its query.
 - **Error text from libraries.** Some log lines carry an error as the
   library wrote it, which can name the host and path of an issuer, the
   authorizer or a service. A handler that panics logs the peer's address

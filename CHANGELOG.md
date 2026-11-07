@@ -37,6 +37,13 @@ here is refused before it is pushed.
 - **A request's span records the client address the authorizer is
   told.** It took the first `X-Forwarded-For` entry as the client wrote
   it, whatever `EXAMEN_TRUSTED_PROXIES` said.
+- **Spans of outbound calls keep no query.** examend takes
+  `latere.ai/x/pkg` v0.115.0, whose `otel.Transport` records the scheme,
+  host and path of each call and drops its query and fragment, so a
+  cursor or a file path's listing options no longer reach the telemetry
+  backend. The bump also brings v0.114.0's option for the authorizer
+  client's default allow `ttl`, which examend leaves unset: an allow
+  that names no `ttl` is still reused for 60 seconds.
 - **A path outside the working directory is no file of a trial.** A
   session log that names a kept file by an absolute path, or by one with
   an empty, `.` or `..` part, no longer puts it in the copy checks and

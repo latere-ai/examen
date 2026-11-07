@@ -106,9 +106,9 @@ name the host and path of an issuer, the authorizer or a service.
 
 With `OTEL_EXPORTER_OTLP_ENDPOINT` set, request spans carry the path
 with object ids and names, the user agent, and the client address the
-authorizer is told. Spans of outbound calls carry each URL
-with its query, such as an owner's file path at Arca. The probes are
-not traced.
+authorizer is told. Spans of outbound calls carry each URL's scheme,
+host and path, such as an owner's file path at Arca, and never its
+query. The probes are not traced.
 
 ## For a builder
 
