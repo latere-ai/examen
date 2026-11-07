@@ -112,7 +112,7 @@ func (s *Server) budgetFigures(ctx context.Context, e *objects.Experiment, subje
 		b, err := s.Keys.Budget(ctx, keysrc.Request{Owner: e.Owner, Subject: subject, Experiment: e.ID, Budget: e.Budget.Name})
 		if err != nil {
 			if !errors.Is(err, keysrc.ErrNoKey) {
-				s.log().WarnContext(ctx, "the key source gave no budget figures; the answer carries none", "experiment", e.ID, "error", err.Error())
+				s.log().WarnContext(ctx, "the key source gave no budget figures; the answer carries none", "experiment", e.ID, "error", apierr.LogText(err))
 			}
 			return
 		}

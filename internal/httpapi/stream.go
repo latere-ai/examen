@@ -185,12 +185,12 @@ func (s *Server) streamError(w http.ResponseWriter, r *http.Request, err error) 
 	if mErr != nil {
 		// The stream is already answered; what is left is to say why it
 		// ends without its error frame.
-		s.log().ErrorContext(r.Context(), "an error frame could not be rendered", "error", mErr.Error())
+		s.log().ErrorContext(r.Context(), "an error frame could not be rendered", "error", apierr.LogText(mErr))
 		return nil
 	}
 	if frame(w, 0, "error", data) == nil {
 		if ferr := http.NewResponseController(w).Flush(); ferr != nil {
-			s.log().DebugContext(r.Context(), "an error frame was not flushed", "error", ferr.Error())
+			s.log().DebugContext(r.Context(), "an error frame was not flushed", "error", apierr.LogText(ferr))
 		}
 	}
 	return nil

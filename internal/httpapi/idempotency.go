@@ -85,7 +85,7 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 		w.Header().Set(replayedHeader, "true")
 		w.WriteHeader(held.Status)
 		if _, err := w.Write(replay); err != nil {
-			s.log().WarnContext(ctx, "a replayed answer was not written whole", "route", r.Pattern, "error", err.Error())
+			s.log().WarnContext(ctx, "a replayed answer was not written whole", "route", r.Pattern, "error", apierr.LogText(err))
 		}
 		return
 	}
@@ -107,7 +107,7 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 		// A credential in the answer is never kept with the key.
 		kept, err := withMember(k.Body, rt.secret, nil)
 		if err != nil {
-			s.log().ErrorContext(ctx, "an answer that carries a credential is not kept; a repeat runs the request again", "route", r.Pattern, "error", err.Error())
+			s.log().ErrorContext(ctx, "an answer that carries a credential is not kept; a repeat runs the request again", "route", r.Pattern, "error", apierr.LogText(err))
 			if err := s.Store.Idempotency().Abandon(ctx, k.Subject, k.Key); err != nil {
 				s.log().ErrorContext(ctx, "an idempotency key was not abandoned; a repeat waits for its reservation to lapse", "route", r.Pattern, "error", apierr.LogText(err))
 			}

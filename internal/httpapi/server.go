@@ -185,7 +185,7 @@ func (s *Server) handler(served []route) http.Handler {
 	mux.HandleFunc("GET "+b+"/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/yaml")
 		if _, err := w.Write(document); err != nil {
-			s.log().WarnContext(r.Context(), "the contract was not written whole", "error", err.Error())
+			s.log().WarnContext(r.Context(), "the contract was not written whole", "error", apierr.LogText(err))
 		}
 	})
 	// No route at a path is the contract's 404 in its envelope, for every

@@ -23,6 +23,7 @@ type source struct {
 	rel  string // the slash path from the module root
 	test bool
 	file *ast.File
+	fset *token.FileSet
 }
 
 // sources parses every Go file of the module.
@@ -47,7 +48,7 @@ func sources(t *testing.T) []source {
 		if err != nil {
 			return err
 		}
-		out = append(out, source{rel: filepath.ToSlash(path), test: strings.HasSuffix(path, "_test.go"), file: f})
+		out = append(out, source{rel: filepath.ToSlash(path), test: strings.HasSuffix(path, "_test.go"), file: f, fset: fset})
 		return nil
 	})
 	if err != nil {
@@ -140,5 +141,40 @@ func TestOnlyConfigReadsTheEnvironment(t *testing.T) {
 				return true
 			})
 		}
+	}
+}
+
+// An error a log line carries goes through apierr.LogText, which cuts URL
+// queries and user info, so a token in a query a library quoted never
+// reaches the log. A log call that passes an error's own text fails here.
+func TestLoggedErrorsAreCut(t *testing.T) {
+	logs := map[string]bool{
+		"Debug": true, "Info": true, "Warn": true, "Error": true,
+		"DebugContext": true, "InfoContext": true, "WarnContext": true, "ErrorContext": true, "Log": true,
+	}
+	for _, s := range sources(t) {
+		if s.test {
+			continue
+		}
+		ast.Inspect(s.file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || !logs[sel.Sel.Name] {
+				return true
+			}
+			for _, arg := range call.Args {
+				inner, ok := arg.(*ast.CallExpr)
+				if !ok || len(inner.Args) != 0 {
+					continue
+				}
+				if m, ok := inner.Fun.(*ast.SelectorExpr); ok && m.Sel.Name == "Error" {
+					t.Errorf("%s:%d logs an error's text uncut; pass apierr.LogText(err)", s.rel, s.fset.Position(arg.Pos()).Line)
+				}
+			}
+			return true
+		})
 	}
 }

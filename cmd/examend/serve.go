@@ -20,6 +20,7 @@ import (
 	"latere.ai/x/pkg/otel"
 
 	"latere.ai/x/examen/internal/access"
+	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/arca"
 	"latere.ai/x/examen/internal/cella"
 	"latere.ai/x/examen/internal/compare"
@@ -112,11 +113,11 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	})
 	if err != nil {
 		// The logger works either way; the error is the export path's.
-		log.WarnContext(ctx, "telemetry export is not set up", "error", err.Error())
+		log.WarnContext(ctx, "telemetry export is not set up", "error", apierr.LogText(err))
 	}
 	defer func() {
 		if err := shutdown(context.WithoutCancel(ctx)); err != nil {
-			log.WarnContext(ctx, "telemetry did not flush", "error", err.Error())
+			log.WarnContext(ctx, "telemetry did not flush", "error", apierr.LogText(err))
 		}
 	}()
 
@@ -126,7 +127,7 @@ func serve(ctx context.Context, getenv func(string) string, logs io.Writer, hook
 	}
 	defer func() {
 		if err := st.Close(); err != nil {
-			log.WarnContext(ctx, "the store did not close", "error", err.Error())
+			log.WarnContext(ctx, "the store did not close", "error", apierr.LogText(err))
 		}
 	}()
 	who, err := identity(ctx, s, log)
@@ -258,14 +259,14 @@ func identity(ctx context.Context, s config.Settings, log *slog.Logger) (*access
 	ctx, cancel := context.WithTimeout(ctx, warmTimeout)
 	defer cancel()
 	if err := who.Warm(ctx); err != nil {
-		log.WarnContext(ctx, "an issuer did not answer; its keys are read when its first token arrives", "error", err.Error())
+		log.WarnContext(ctx, "an issuer did not answer; its keys are read when its first token arrives", "error", apierr.LogText(err))
 	}
 	err = who.Check(ctx)
 	switch {
 	case errors.Is(err, authz.ErrProbeAllowed):
 		return nil, errors.New("EXAMEN_AUTHORIZER_URL: the authorizer allowed the probe, so it does not read the request")
 	case err != nil:
-		log.WarnContext(ctx, "the authorizer did not answer the probe; every request fails closed until it does", "error", err.Error())
+		log.WarnContext(ctx, "the authorizer did not answer the probe; every request fails closed until it does", "error", apierr.LogText(err))
 	}
 	return who, nil
 }
@@ -301,7 +302,7 @@ func sweep(ctx context.Context, keys pruner, every time.Duration, log *slog.Logg
 		case <-tick.C:
 			n, err := prune(ctx, keys)
 			if err != nil && ctx.Err() == nil {
-				log.WarnContext(ctx, "a sweep of the idempotency keys failed; the next tick tries again", "error", err.Error())
+				log.WarnContext(ctx, "a sweep of the idempotency keys failed; the next tick tries again", "error", apierr.LogText(err))
 				continue
 			}
 			if n > 0 {
