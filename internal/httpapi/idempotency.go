@@ -67,7 +67,9 @@ func (s *Server) idempotent(w http.ResponseWriter, r *http.Request, c access.Cal
 		replay := held.Body
 		if rt.secret != "" && held.Status == http.StatusOK {
 			// The kept answer left the credential out; the repeat is
-			// answered it afresh, and no cache keeps it.
+			// answered it afresh, and no cache keeps it. The refill reads
+			// the request's body again to ask what the first asked.
+			r.Body = io.NopCloser(bytes.NewReader(body))
 			v, err := rt.refill(s, r, c)
 			if err != nil {
 				s.answer(w, r, err)

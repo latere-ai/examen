@@ -4,12 +4,15 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json/v2"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"latere.ai/x/examen/authorizer"
+	"latere.ai/x/examen/internal/access"
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/compare"
 	keysrc "latere.ai/x/examen/internal/keys"
@@ -55,6 +58,51 @@ func newKeyedAPIAt(t *testing.T, pooled bool) (*client, *clock, *keysrc.Memory, 
 		s.Engine, s.Keys = engine, src
 	})
 	return &client{harness: h, st: st}, clk, src, engine
+}
+
+// TestARepeatedLeaseAsksAgain: the repeat of a lease asks trial.lease
+// again before it answers the Key, so a caller whose permission was
+// withdrawn after the first lease gets the refusal a first lease gets, and
+// no Key.
+func TestARepeatedLeaseAsksAgain(t *testing.T) {
+	x, _, src, _ := newKeyedAPI(t)
+	f := x.fixture()
+	eid := x.must(http.StatusCreated, http.MethodPost, "/v1/experiments", "t-alice", map[string]any{
+		"suite": f.suite, "candidates": []string{f.high}, "trials": 2, "budget": map[string]any{"name": "study"},
+	})["id"].(string)
+	key, _ := src.KeyOf(eid)
+	body := map[string]any{"candidate": f.high, "max": 1}
+	lease := "/v1/experiments/" + eid + "/work/lease"
+	if first := x.do(http.MethodPost, lease, "t-alice", body, "Idempotency-Key", "lease-1"); first.status != http.StatusOK || first.json(t)["model_key"] != key.Value {
+		t.Fatalf("the first lease: %d %s", first.status, first.body)
+	}
+	withdrawn := &withdrawnLease{inner: x.srv.Authz}
+	x.srv.Authz = withdrawn
+	fresh := x.do(http.MethodPost, lease, "t-alice", body, "Idempotency-Key", "lease-2")
+	again := x.do(http.MethodPost, lease, "t-alice", body, "Idempotency-Key", "lease-1")
+	againCode, _ := again.envelope(t)
+	freshCode, _ := fresh.envelope(t)
+	if again.status != fresh.status || again.status == http.StatusOK || againCode != freshCode ||
+		again.header.Get("Idempotent-Replayed") != "" || strings.Contains(string(again.body), key.Value) {
+		t.Fatalf("the repeat after a withdrawal: %d %v %s; a first lease: %d %s", again.status, again.header, again.body, fresh.status, fresh.body)
+	}
+	if withdrawn.asked != 2 {
+		t.Fatalf("trial.lease was asked %d times after the withdrawal, want 2", withdrawn.asked)
+	}
+}
+
+// withdrawnLease denies trial.lease and passes every other question on.
+type withdrawnLease struct {
+	inner access.Authorizer
+	asked int
+}
+
+func (w *withdrawnLease) Authorize(ctx context.Context, c access.Caller, q access.Question) (access.Decision, error) {
+	if q.Action == authorizer.ActionTrialLease {
+		w.asked++
+		return access.Decision{}, nil
+	}
+	return w.inner.Authorize(ctx, c, q)
 }
 
 // record is one of Lux's records of a call made with an experiment's Key.

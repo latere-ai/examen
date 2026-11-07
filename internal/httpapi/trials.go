@@ -711,42 +711,56 @@ func duration(d time.Duration) string {
 	return s
 }
 
-func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) error {
+// leaseAsk is a lease request read and allowed: what it asks for, the
+// experiment, and its candidates' bodies by digest.
+type leaseAsk struct {
+	max       *int
+	renew     string
+	candidate string
+	exp       objects.Experiment
+	bodies    map[string]objects.Candidate
+}
+
+// askLease reads a lease request and asks the authorizer trial.lease of
+// it. A lease and the repeat of one that answers its Key again both ask,
+// so a permission withdrawn since the first is refused alike.
+func (s *Server) askLease(r *http.Request, c access.Caller) (leaseAsk, error) {
 	var in struct {
 		Candidate string `json:"candidate"`
 		Max       *int   `json:"max"`
 		Renew     string `json:"renew"`
 	}
 	if err := decode(r, &in); err != nil {
-		return err
+		return leaseAsk{}, err
 	}
 	eid := r.PathValue("id")
 	switch {
 	case in.Renew != "" && (in.Candidate != "" || in.Max != nil):
-		return apierr.OnField(apierr.CodeInvalidField, "renew", "a renewal names its lease in place of candidate and max")
+		return leaseAsk{}, apierr.OnField(apierr.CodeInvalidField, "renew", "a renewal names its lease in place of candidate and max")
 	case in.Max != nil && *in.Max < 1:
-		return apierr.OnField(apierr.CodeInvalidField, "max", "max is 1 or more")
+		return leaseAsk{}, apierr.OnField(apierr.CodeInvalidField, "max", "max is 1 or more")
 	}
 	// The candidate is parsed before the experiment is read, so a
 	// reference that does not parse is refused alike whether the
 	// experiment exists.
-	candidate := ""
+	a := leaseAsk{max: in.Max, renew: in.Renew}
 	if in.Candidate != "" {
 		var err error
-		if _, candidate, err = objects.ParseRef("candidate", in.Candidate); err != nil {
-			return err
+		if _, a.candidate, err = objects.ParseRef("candidate", in.Candidate); err != nil {
+			return leaseAsk{}, err
 		}
 	}
 	miss := missing{apierr.CodeExperimentNotFound, eid}
 	e, err := s.Store.Experiments().Get(r.Context(), eid)
 	if err != nil {
-		return storeError(err, miss)
+		return leaseAsk{}, storeError(err, miss)
 	}
 	bodies, err := s.experimentCandidates(r, e)
 	if err != nil {
-		return err
+		return leaseAsk{}, err
 	}
-	cand := bodies[candidate]
+	a.exp, a.bodies = e, bodies
+	cand := bodies[a.candidate]
 	harness := ""
 	if cand.External != nil {
 		harness = cand.External.Harness
@@ -755,14 +769,25 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	// harness: it may take the trials of every external candidate.
 	members := experimentMembers(e, c)
 	members[authorizer.FieldLease] = in.Renew
-	if candidate != "" {
-		members[authorizer.FieldCandidate], members[authorizer.FieldHarness] = candidate, harness
+	if a.candidate != "" {
+		members[authorizer.FieldCandidate], members[authorizer.FieldHarness] = a.candidate, harness
 	}
 	if _, err := s.allowed(r, c, authorizer.ActionTrialLease, e.ID, members, miss); err != nil {
+		return leaseAsk{}, err
+	}
+	return a, nil
+}
+
+func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) error {
+	a, err := s.askLease(r, c)
+	if err != nil {
 		return err
 	}
-	if in.Renew != "" {
-		held, err := s.Store.Experiments().Renew(r.Context(), e.ID, in.Renew, c.Subject)
+	e, bodies, candidate := a.exp, a.bodies, a.candidate
+	miss := missing{apierr.CodeExperimentNotFound, e.ID}
+	cand := bodies[candidate]
+	if a.renew != "" {
+		held, err := s.Store.Experiments().Renew(r.Context(), e.ID, a.renew, c.Subject)
 		if err != nil {
 			return storeError(err, miss)
 		}
@@ -807,8 +832,8 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 		}
 	}
 	req := store.LeaseRequest{Experiment: e.ID, Candidate: candidate, Subject: c.Subject, Cells: allowed}
-	if in.Max != nil {
-		req.Max = *in.Max
+	if a.max != nil {
+		req.Max = *a.max
 	}
 	held, err := s.Store.Experiments().Lease(r.Context(), req)
 	if err != nil {
@@ -822,17 +847,19 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 }
 
 // leaseKey answers the experiment's external Key again for a repeat of a
-// lease, whose kept answer leaves it out; nil with no key source, and for
-// an experiment no longer there.
+// lease, whose kept answer leaves it out; nil with no key source. The
+// repeat asks trial.lease again first, as a first request would, so a
+// caller whose permission was withdrawn since is answered the refusal a
+// first request gets, and no Key.
 func (s *Server) leaseKey(r *http.Request, c access.Caller) (any, error) {
 	if s.Keys == nil {
 		return nil, nil
 	}
-	e, err := s.Store.Experiments().Get(r.Context(), r.PathValue("id"))
+	a, err := s.askLease(r, c)
 	if err != nil {
-		return nil, storeError(err, missing{apierr.CodeExperimentNotFound, r.PathValue("id")})
+		return nil, err
 	}
-	k, err := s.modelKey(r, e, c)
+	k, err := s.modelKey(r, a.exp, c)
 	if err != nil || k == "" {
 		return nil, err
 	}
