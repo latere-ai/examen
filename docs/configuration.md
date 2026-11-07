@@ -96,6 +96,8 @@ variable or the condition, when:
 - The authorizer, minter, key endpoint, a service URL, the events URL or
   `EXAMEN_ARCA_PUBLIC_URL` is not `https` and its host is not loopback:
   each carries a bearer, a Key or an owner's data.
+- An issuer in `EXAMEN_OIDC_ISSUERS` is not `https` and its host is not
+  loopback: its keys decide who a caller is.
 - `EXAMEN_EVENTS_URL` is set.
 - The database does not answer, or its schema lacks a migration the
   binary carries, was left dirty by a failed migration, or belongs to

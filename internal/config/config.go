@@ -356,6 +356,14 @@ func (s Settings) refusals() []error {
 			errs = append(errs, fmt.Errorf("%s is not https and its host is not loopback: what it carries would be readable on the way", e.name))
 		}
 	}
+	// An issuer's discovery document and keys decide who a caller is; over
+	// plain HTTP anyone on the way could hand Examen keys of their own.
+	for _, iss := range s.OIDCIssuers {
+		if !secureOrLoopback(iss) {
+			errs = append(errs, errors.New("EXAMEN_OIDC_ISSUERS names an issuer that is not https and whose host is not loopback: anyone on the way could replace the keys that decide who a caller is"))
+			break
+		}
+	}
 	return errs
 }
 

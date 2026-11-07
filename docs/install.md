@@ -124,9 +124,9 @@ and trials started after the backup are then unknown to the database.
 ## What a production installation must have
 
 - **`https` issuers.** `examend` reads each issuer's discovery document
-  and keys over the address you give. It accepts an `http` issuer, so
-  the check is yours: an issuer reached over plain HTTP lets anyone on
-  the path substitute the keys that decide who a caller is.
+  and keys over the address you give, and refuses to start with an
+  `http` issuer whose host is not loopback: over plain HTTP anyone on the
+  path could substitute the keys that decide who a caller is.
 - **An authorizer, or the owner policy on purpose.** Without
   `EXAMEN_AUTHORIZER_URL`, the owner policy decides and organizations are
   not available. Decide that on purpose, and see

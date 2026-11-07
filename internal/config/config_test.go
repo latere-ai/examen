@@ -293,6 +293,10 @@ func TestRefusals(t *testing.T) {
 		{"an http key endpoint elsewhere", env{"EXAMEN_KEYS_URL": "http://k.example.com", "EXAMEN_KEYS_TOKEN_FILE": token}, "EXAMEN_KEYS_URL is not https"},
 		{"an http core elsewhere", env{"EXAMEN_LUX_URL": "http://lux.example.com"}, "EXAMEN_LUX_URL is not https"},
 		{"an http arca elsewhere", env{"EXAMEN_ARCA_URL": "http://arca.example.com"}, "EXAMEN_ARCA_URL is not https"},
+		{"an http topos elsewhere", env{"EXAMEN_TOPOS_URL": "http://topos.example.com"}, "EXAMEN_TOPOS_URL is not https"},
+		{"an http cella elsewhere", env{"EXAMEN_CELLA_URL": "http://cella.example.com", "EXAMEN_CELLA_ENVIRONMENT": "e"}, "EXAMEN_CELLA_URL is not https"},
+		{"an http origo elsewhere", env{"EXAMEN_ORIGO_URL": "http://origo.example.com"}, "EXAMEN_ORIGO_URL is not https"},
+		{"an http issuer elsewhere", env{"EXAMEN_OIDC_ISSUERS": "https://a.example.com, http://issuer.example.com"}, "EXAMEN_OIDC_ISSUERS names an issuer that is not https"},
 		{"an http public arca elsewhere", env{"EXAMEN_ARCA_URL": "https://arca.example.com", "EXAMEN_ARCA_PUBLIC_URL": "http://files.example.com"}, "EXAMEN_ARCA_PUBLIC_URL is not https"},
 		{"an issuer twice", env{"EXAMEN_OIDC_ISSUERS": "https://a.example.com, https://a.example.com/"}, "EXAMEN_OIDC_ISSUERS"},
 	}
@@ -308,6 +312,17 @@ func TestRefusals(t *testing.T) {
 				t.Fatalf("the refusal repeats a file's content: %v", err)
 			}
 		})
+	}
+	// Plain HTTP to a loopback host, by name or address, is the one that
+	// stays on the machine.
+	local := minimal()
+	maps.Copy(local, env{
+		"EXAMEN_OIDC_ISSUERS": "http://127.0.0.1:5556/dex, http://localhost:9/issuer, http://[::1]:9",
+		"EXAMEN_TOPOS_URL":    "http://localhost:1", "EXAMEN_CELLA_URL": "http://127.0.0.1:2", "EXAMEN_CELLA_ENVIRONMENT": "e",
+		"EXAMEN_LUX_URL": "http://[::1]:3", "EXAMEN_ARCA_URL": "http://localhost:4", "EXAMEN_ORIGO_URL": "http://127.0.0.1:5",
+	})
+	if _, err := FromEnv(local.get); err != nil {
+		t.Errorf("plain HTTP to loopback hosts: %v", err)
 	}
 	// An insecure Arca is named once, under its own variable.
 	e := minimal()
