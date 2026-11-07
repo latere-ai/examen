@@ -50,7 +50,7 @@ code; [Fixed bounds](docs/api.md#fixed-bounds) lists them all.
 | a caller with no token, or a token Examen does not accept | a request to a route that takes a token is refused `401` when it carries no bearer, or one from an issuer not named in `EXAMEN_OIDC_ISSUERS`, for an audience not named in `EXAMEN_OIDC_AUDIENCE`, expired by more than 30 seconds, not valid until more than 30 seconds from now, or with a signature that does not check; the answer names the verifier's reason and never repeats the token; a progress stream closes when its bearer expires | `access.TestWhatTheVerifierRefuses`, `access.TestTheSkewOnExpAndNbf`, `access.TestVerifierConformance`, `httpapi.TestRoutesNeedABearer`, `httpapi.TestTheStreamCloses` (container) |
 | a caller with a token of another owner | under the owner policy, which decides when no authorizer is configured, every route that names a stored object answers a request with another owner's token exactly as it answers one for an object that does not exist, status, headers and body, and changes nothing; an owner acts on their own objects alone, and a create or an apply that names another owner is refused `403` | `httpapi.TestAnotherOwnersTokenReachesNothing` (container), `access.TestOwnerPolicy`, `httpapi.TestReadsAcrossOwnersAndOutages` (container), `httpapi.TestARouteAsks` (container) |
 | a caller when the authorizer cannot answer | a request for which the authorizer gives no well-formed decision, or an allow whose limits or filter Examen cannot read, is refused `503 authorizer_unavailable` and makes nothing; unattended work waits while the authorizer does not answer, and an experiment whose `experiment.run` is denied hands out no trial and stops; `examend` does not start when the configured authorizer allows the reserved probe question | `access.TestNoDecisionFailsClosed`, `access.TestTheLimitsOfAnAllow`, `access.TestFilters`, `access.TestNewAndTheProbe`, `httpapi.TestARouteAsks` (container), `httpapi.TestRunDeniedAndUnavailable` (container), `work.TestAdvanceDenied` (container), `examend.TestServeRefuses` (container) |
-| a caller that names the address the authorizer is told | the client address comes from `X-Forwarded-For` only when the peer is in `EXAMEN_TRUSTED_PROXIES`, and is the peer's address otherwise | `httpapi.TestAuthorizerIsToldTheClientAddress`, `access.TestAsk` |
+| a caller that names its own client address | the client address the authorizer is told, and the one a request's span records, comes from `X-Forwarded-For` only when the peer is in `EXAMEN_TRUSTED_PROXIES`, as the last entry no trusted proxy wrote, and is the peer's address otherwise | `httpapi.TestAuthorizerIsToldTheClientAddress`, `httpapi.TestTheSpanSeesTheTrustedClientAddress`, `access.TestAsk` |
 | a caller that tries to exhaust a replica | a request body above 4 MiB is refused `413` and nothing is made; a subject past 600 requests a minute to one replica is refused `429 rate_limited` with `Retry-After`, and another subject is not; an owner holds at most 16 active experiments, and a subject at most 10 progress streams on one replica | `httpapi.TestRequestTooLarge`, `httpapi.TestRateLimit`, `httpapi.TestCreateLimits` (container), `httpapi.TestTheStream` (container), `limits.TestEveryLimitIsTheSpecs` |
 | a reader of answers and logs | the verifier's refusal never repeats the token; neither a served request's token nor the authorizer's bearer is in the log; a refusal at start names the variable and never repeats a value that does not parse or a secret file's content, a secret prints as nothing, and a database URL's password is not in a start error; the minter's and the key endpoint's clients put neither their bearer nor a token in an error; an error nobody classified is answered `internal` with no detail and logged under its route's pattern, never its path, with URL queries and user info cut | `access.TestWhatTheVerifierRefuses`, `examend.TestServe` (container), `examend.TestServeAnnouncesWhatIsConfigured` (container), `config.TestErrorsNameTheVariableOnly`, `config.TestRefusals`, `config.TestSecretsDoNotPrint`, `examend.TestServeRefuses` (container), `owner.TestRefusalsAndOutages`, `keys.TestTheEndpointsRefusals`, `apierr.TestInternal`, `httpapi.TestRoutesNeedABearer` |
 | a reader of an experiment, its log or its kept answers, after a model Key | an experiment's model Key is in no read of the experiment, no log line and no kept answer of a repeated lease, and a leased Key prints without its value; the `sign_in` handle a create carries goes to the authorizer alone and is in no answer, read of the experiment, event or log line | `httpapi.TestTheExperimentKey` (container), `httpapi.TestARepeatedLeaseKeepsNoKey` (container), `keys.TestTheEndpointLeasesAKey`, `httpapi.TestCreatePassesSignInToTheAuthorizerAlone` (container) |
@@ -58,11 +58,12 @@ code; [Fixed bounds](docs/api.md#fixed-bounds) lists them all.
 | an external harness that holds a lease | a lease belongs to the subject that took it, and a renewal or a submit by another subject is refused with `lease_not_held` | `postgres.TestStateRefusals` (container) |
 | a harness that reports on itself | a value an external harness reports about its own trials is marked `self_reported`, keeps its p-value, gets no q-value and no verdict, and stays out of the family of comparisons corrected together | `analysis.TestSelfReported`, `httpapi.TestAnalyzedImport` (container) |
 | text written to sway a model judge | a judge reads the evidence in its user turn only, inside a boundary that no input contains; its answer counts only as one call of its one tool with exactly the metrics, ranges and labels it produces, and anything else is `malformed` and yields no value; a check's output is read as strictly | `grade.TestEvidenceStaysInTheUserTurn`, `grade.FuzzBoundary`, `grade.TestMalformedAnswers`, `grade.TestMalformedYieldsNothing` |
+| a session that names a path outside its working directory | a file a session's log names by an absolute path, or by one with an empty, `.` or `..` part, is left out of the trial's kept copy | `topos.TestAPathOutsideTheWorkingDirectoryIsNoFile` |
 | evidence that changed after its trial ended | a kept file whose bytes are not the ones recorded when the trial ended is not graded: no check runs on it and no judge is asked; a session log that is gone runs no check | `work.TestEvidenceThatChanged` (container) |
 | a grade or a definition rewritten after the fact | Postgres refuses an `UPDATE` of a measurement or of a version of a metric, grader, task, suite or candidate, and a `DELETE` of a measurement while its trial and experiment exist, so a grade once written is never overwritten; each grading ends once | `postgres.TestMeasurementsAreAppendOnly` (container), `postgres.TestGradingsRunInOrderAndEndOnce` (container) |
 | a comparison chosen after the results | comparisons declared at create, before any trial runs, are corrected together as one family; a comparison asked for afterwards is marked exploratory and has no result tested alone, since its primary metric is corrected with the rest; a comparison is final only once computed after the experiment ends | `analysis.TestPrimaryStandsAlone`, `analysis.TestExploratory`, `analysis.TestDeclaredComparison`, `httpapi.TestComparisons` (container), `httpapi.TestDeclaredComparisonsRefused` (container), `httpapi.TestAComparisonIsFinalOnceComputedAfterTheEnd` (container) |
 | a result that differs on another machine | one golden comparison has a fixed SHA-256 digest; the analysis uses only operations IEEE 754 defines exactly and its own vendored functions, with no product the compiler could fuse with an add; a final comparison recomputed from its recorded inputs is byte-identical | `analysis.TestGoldenAcrossArchitectures`, `analysis.TestUsesVendoredMath`, `analysis.TestNoFusedMultiplyAdd`, `analysis.TestRecomputeFromRecordedInputs` |
-| the network between Examen and the services it calls | the authorizer, the minter, the key endpoint, Lux and Arca named over plain `http` on another host stop the start | `config.TestRefusals` |
+| the network between Examen and the services it calls | an issuer, the authorizer, the minter, the key endpoint, Topos, Cella, Lux, Arca or Origo named over plain `http` stops the start unless its host is `localhost` or a loopback address | `config.TestRefusals` |
 
 ## What is not defended
 
@@ -81,9 +82,8 @@ code; [Fixed bounds](docs/api.md#fixed-bounds) lists them all.
 - **What a deny says.** The authorizer's reason for a `403` is returned
   to the caller in `details.reason`, and so is a key source's reason for
   refusing a Key. An authorizer writes reasons its callers may read.
-- **An issuer over plain `http`.** `EXAMEN_OIDC_ISSUERS` takes an
-  `http` address on any host, and an attacker on that path can serve
-  another key set. Every audience in `EXAMEN_OIDC_AUDIENCE` is accepted.
+- **Every audience listed.** A token for any audience in
+  `EXAMEN_OIDC_AUDIENCE` is accepted.
 - **Load beyond one replica's limits.** The request rate and the stream
   count are counted per replica in memory, after authentication, so a
   request with no token or a bad one is not counted. The server sets no
@@ -102,9 +102,8 @@ code; [Fixed bounds](docs/api.md#fixed-bounds) lists them all.
 - **The services Examen is configured with.** Topos, Cella, Lux, Arca,
   the minter, the key endpoint, the authorizer and the issuers are
   believed. Examen checks a session log against the digest it recorded
-  when the trial ended, not against Topos's own record, and takes the
-  paths of a session's kept files as Topos gives them, `..` included.
-  Cella, not Examen, holds a check sandbox without network.
+  when the trial ended, not against Topos's own record. Cella, not
+  Examen, holds a check sandbox without network.
 - **The database's owner.** The triggers refuse statements, not the
   role that owns the tables, which is the role `examend migrate` ran as.
   A role that can drop a trigger can rewrite measurements, and Examen
@@ -113,8 +112,7 @@ code; [Fixed bounds](docs/api.md#fixed-bounds) lists them all.
   the password.
 - **What telemetry carries.** With `OTEL_EXPORTER_OTLP_ENDPOINT` set,
   server spans hold the request path with object ids and names, the user
-  agent and a client address taken from the first `X-Forwarded-For`
-  entry as sent, whatever `EXAMEN_TRUSTED_PROXIES` says. Client spans
+  agent and the client address. Client spans
   hold each outbound URL with its query, such as an owner's file path at
   Arca.
 - **Error text from libraries.** Some log lines carry an error as the

@@ -19,8 +19,28 @@ here is refused before it is pushed.
   said it was logged; it is returned to the caller in `details.reason`
   of a `403`, and never logged.
 
+### Fixed
+
+- **The start log names no source that is not built.** It printed
+  `key source: lux` with no key endpoint and `token source: token files`
+  with `EXAMEN_SOLE_OWNER` set, though neither source exists in this
+  release; both lines now say `none` there.
+- **`GET <base path>/version` is in the contract.** It was served with
+  no token and documented nowhere.
+
 ### Security
 
+- **An issuer over plain `http` stops the start** unless its host is
+  `localhost` or a loopback address, as every service URL already did.
+  An installation that names an `http` issuer elsewhere no longer
+  starts: name it over `https`.
+- **A request's span records the client address the authorizer is
+  told.** It took the first `X-Forwarded-For` entry as the client wrote
+  it, whatever `EXAMEN_TRUSTED_PROXIES` said.
+- **A path outside the working directory is no file of a trial.** A
+  session log that names a kept file by an absolute path, or by one with
+  an empty, `.` or `..` part, no longer puts it in the copy checks and
+  judges are given.
 - **SECURITY.md names the tests that hold each commitment,** marks the
   ones that need a container, and lists what is not defended, including
   the routes that take no token, an `http` issuer, cached allows and

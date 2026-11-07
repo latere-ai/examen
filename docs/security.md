@@ -105,9 +105,8 @@ what the model wrote. Some errors are logged as their library wrote them and can
 name the host and path of an issuer, the authorizer or a service.
 
 With `OTEL_EXPORTER_OTLP_ENDPOINT` set, request spans carry the path
-with object ids and names, the user agent, and a client address taken
-from the first `X-Forwarded-For` entry as sent, whatever
-`EXAMEN_TRUSTED_PROXIES` says. Spans of outbound calls carry each URL
+with object ids and names, the user agent, and the client address the
+authorizer is told. Spans of outbound calls carry each URL
 with its query, such as an owner's file path at Arca. The probes are
 not traced.
 
@@ -136,9 +135,6 @@ not traced.
 [SECURITY.md](../SECURITY.md#what-is-not-defended) is the full list.
 The limits an operator plans around:
 
-- **An issuer over plain `http`.** Unlike the services Examen calls,
-  `EXAMEN_OIDC_ISSUERS` is not held to `https` or loopback. Name issuers
-  over `https`.
 - **A permission withdrawn moments ago.** An allow is reused for its
   `ttl`, and a repeated idempotent request within 24 hours replays its
   answer, a lease's Key included, without a new question.
@@ -169,8 +165,8 @@ and the telemetry headers are variables, so keep them in a secret too.
 
 Beside the secrets:
 
-- Name every issuer over `https`, and keep `EXAMEN_OIDC_AUDIENCE` to the
-  audiences you mean: a token for any of them is accepted.
+- Keep `EXAMEN_OIDC_AUDIENCE` to the audiences you mean: a token for any
+  of them is accepted.
 - Keep `EXAMEN_TRUSTED_PROXIES` to the proxies in front of `examend`;
   any peer in it can name the address the authorizer is told.
 - Without `EXAMEN_AUTHORIZER_URL` the owner policy decides: owners act
