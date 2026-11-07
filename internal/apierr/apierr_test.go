@@ -8,6 +8,10 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -66,7 +70,7 @@ func specTable(t *testing.T) []specRow {
 // sentence, in the spec's order.
 func TestTableIsTheSpecs(t *testing.T) {
 	rows := specTable(t)
-	if len(rows) < 70 {
+	if len(rows) < 40 {
 		t.Fatalf("read %d rows of the table; the reader is wrong", len(rows))
 	}
 	var codes []string
@@ -221,5 +225,81 @@ func TestDenied(t *testing.T) {
 		if e.Code != c.code || e.Reason != c.reason || !strings.Contains(e.Detail, "experiment.create") {
 			t.Errorf("Denied(%q) = %+v, want %s", c.reason, e, c.code)
 		}
+	}
+}
+
+// Every code of the table is one the server can answer: some non-test
+// source of the module, outside the table itself, names its constant. A
+// code only a request to a route not built yet could get is spec 003's
+// alone, in its second table. A 403 an authorizer's deny reason names
+// reaches Denied as a string, so a code of that status counts when a
+// source holds its word.
+func TestEveryCodeIsAnswered(t *testing.T) {
+	root := filepath.Join("..", "..")
+	byName := map[string]string{}
+	named := map[string]bool{}
+	words := map[string]bool{}
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if n := d.Name(); n != "." && n != ".." && (strings.HasPrefix(n, ".") || n == "node_modules") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		isTable := filepath.Base(path) == "table.go" && filepath.Base(filepath.Dir(path)) == "apierr"
+		ast.Inspect(f, func(n ast.Node) bool {
+			switch n := n.(type) {
+			case *ast.ValueSpec:
+				if !isTable {
+					return true
+				}
+				for i, id := range n.Names {
+					if lit, ok := n.Values[i].(*ast.BasicLit); ok && strings.HasPrefix(id.Name, "Code") {
+						if v, err := strconv.Unquote(lit.Value); err == nil {
+							byName[id.Name] = v
+						}
+					}
+				}
+				return false
+			case *ast.Ident:
+				if !isTable && strings.HasPrefix(n.Name, "Code") {
+					named[n.Name] = true
+				}
+			case *ast.BasicLit:
+				if v, err := strconv.Unquote(n.Value); err == nil && !isTable {
+					words[v] = true
+				}
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byName) != len(Codes()) {
+		t.Fatalf("read %d constants of the table, which holds %d codes", len(byName), len(Codes()))
+	}
+	var dead []string
+	for name, code := range byName {
+		if named[name] || (Status(code) == http.StatusForbidden && words[code]) {
+			continue
+		}
+		dead = append(dead, code)
+	}
+	slices.Sort(dead)
+	if len(dead) > 0 {
+		t.Errorf("no source answers %d codes of the table; move them to the spec's table of routes not built yet: %v", len(dead), dead)
 	}
 }
