@@ -107,6 +107,7 @@ var constants = map[string]any{
 	"OWNER_TOKEN_RENEWAL":              OwnerTokenRenewal,
 	"METADATA_MAX_PAIRS":               MetadataMaxPairs,
 	"MAX_INLINE_INPUT_BYTES":           MaxInlineInputBytes,
+	"REFERENCE_MAX_BYTES":              ReferenceMaxBytes,
 	"MAX_OUTPUT_FILES":                 MaxOutputFiles,
 	"MAX_OUTPUT_BYTES":                 MaxOutputBytes,
 	"OUTPUT_FILE_KEEP_MAX_BYTES":       OutputFileKeepMaxBytes,

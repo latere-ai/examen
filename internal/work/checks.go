@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"latere.ai/x/examen/internal/id"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
+	"latere.ai/x/examen/internal/origo"
 	tokens "latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/topos"
@@ -136,6 +138,25 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		}
 		checks[i].files, checks[i].notRun = files, why
 	}
+	refs, refWhy, err := e.references(ctx, r)
+	if reason, ended := signInEnded(err); ended {
+		return endAll(objects.CheckNotRun, reason, checks)
+	}
+	switch {
+	case outage(err):
+		return wait(err)
+	case err != nil:
+		return err
+	}
+	if refWhy != "" {
+		// A reference that cannot be delivered whole ends every check of
+		// the task: each would otherwise read a directory that lacks it.
+		for i := range checks {
+			if checks[i].notRun == "" {
+				checks[i].notRun = refWhy
+			}
+		}
+	}
 	g := e.Grading
 	ask := tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: g.CellaAudience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial}
 	token, err := g.Tokens.Token(ctx, ask)
@@ -203,11 +224,11 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	pr, pw := io.Pipe()
 	written := make(chan error, 1)
 	go func() {
-		err := e.writeArchive(ctx, pw, workToken, r, checks)
+		err := e.writeArchive(ctx, pw, workToken, r, checks, refs)
 		pw.CloseWithError(err)
 		written <- err
 	}()
-	putErr := g.Cella.PutTar(ctx, current(ctx), sb.ID, paths.root, pr, archiveSize(r, checks))
+	putErr := g.Cella.PutTar(ctx, current(ctx), sb.ID, paths.root, pr, archiveSize(r, checks, refs))
 	pr.CloseWithError(errUploadEnded)
 	writeErr := <-written
 	if errors.Is(writeErr, errUploadEnded) || errors.Is(writeErr, io.ErrClosedPipe) {
@@ -410,9 +431,10 @@ var errUploadEnded = errors.New("work: the check archive's upload ended")
 // writeArchive writes the tar stream below the check sandbox's workspace
 // to w: the kept working directory under examen/outputs/workspace/, each
 // file copied from the files store as it is read, the output manifest,
-// the log and the final message, each check's files, and the empty
-// directories of the inputs and the references.
-func (e *Engine) writeArchive(ctx context.Context, w io.Writer, token string, r gradedRun, checks []checkGrader) error {
+// the log and the final message, each check's files, each of the task's
+// references read-only at examen/reference/<name>, and the empty
+// directory of the inputs.
+func (e *Engine) writeArchive(ctx context.Context, w io.Writer, token string, r gradedRun, checks []checkGrader, refs []reference) error {
 	a := &archive{tw: tar.NewWriter(w), dirs: map[string]bool{}}
 	for _, d := range []string{"examen/inputs", "examen/reference", "examen/outputs/workspace"} {
 		a.dir(d)
@@ -442,6 +464,9 @@ func (e *Engine) writeArchive(ctx context.Context, w io.Writer, token string, r 
 	a.file("examen/outputs.manifest.json", 0o644, raw)
 	a.file("examen/transcript.jsonl", 0o644, r.ev.Log)
 	a.file("examen/final_message.txt", 0o644, []byte(r.ev.FinalMessage))
+	for _, f := range refs {
+		a.file("examen/reference/"+f.name, int64(0o444)&^0o222, f.data)
+	}
 	for _, c := range checks {
 		base := "examen/check-files/" + graderDir(c.row.Grader)
 		if c.grader.Check.Files != nil {
@@ -461,8 +486,9 @@ func (e *Engine) writeArchive(ctx context.Context, w io.Writer, token string, r 
 }
 
 // archiveSize is about how many bytes a check archive carries: the kept
-// files, the log and the check files, which bound its upload's time.
-func archiveSize(r gradedRun, checks []checkGrader) int64 {
+// files, the log, the check files and the references, which bound its
+// upload's time.
+func archiveSize(r gradedRun, checks []checkGrader, refs []reference) int64 {
 	n := int64(len(r.ev.Log))
 	for i, kept := range keptWork(r.ev.Work) {
 		if kept {
@@ -473,6 +499,9 @@ func archiveSize(r gradedRun, checks []checkGrader) int64 {
 		for _, f := range c.files {
 			n += int64(len(f.Data))
 		}
+	}
+	for _, f := range refs {
+		n += int64(len(f.data))
 	}
 	return n
 }
@@ -542,6 +571,103 @@ func (e *Engine) checkFiles(ctx context.Context, r gradedRun, g objects.Grader) 
 		return nil, "files_changed: the check's files hold the digest " + got + ", and the grader pins " + ref.Digest, nil
 	}
 	return out, "", nil
+}
+
+// reference is one reference of a task, read whole and ready to be written
+// into the check sandbox.
+type reference struct {
+	name string
+	data []byte
+}
+
+// references reads a task's references for its checks
+// (specs/005-execution.md, "Task inputs, references and outputs"): text as
+// it stands, an Arca path from the owner's space with its SHA-256 checked
+// against the pinned digest, and an Origo path at its commit with Origo's
+// own object id checked. All of them together are at most
+// limits.ReferenceMaxBytes, the rest of it the limit of each read. A
+// reference that is too large, whose digest is not the pinned one, or that
+// its store refuses is a check that does not run, with why, which names the
+// reference and never its bytes; a store that does not answer is an error
+// the grading waits out. Nothing is delivered partly: either every
+// reference is read or none is.
+func (e *Engine) references(ctx context.Context, r gradedRun) ([]reference, string, error) {
+	if len(r.task.Reference) == 0 || len(r.task.Checks) == 0 {
+		return nil, "", nil
+	}
+	g := e.Grading
+	token := func(audience string) (string, error) {
+		return g.Tokens.Token(ctx, tokens.Request{Owner: r.exp.Owner, Subject: r.exp.CreatedBy, Audience: audience, Experiment: r.exp.ID, Purpose: tokens.PurposeTrial})
+	}
+	// limit is what is left of REFERENCE_MAX_BYTES, which bounds all of a
+	// task's references together.
+	limit := int64(limits.ReferenceMaxBytes)
+	var out []reference
+	for _, f := range r.task.Reference {
+		name := strconv.Quote(f.Name)
+		var data []byte
+		switch {
+		case f.Text != nil:
+			data = []byte(*f.Text)
+			if int64(len(data)) > limit {
+				return nil, overLimit(name), nil
+			}
+		case f.Arca != nil:
+			tok, err := token(g.ArcaAudience)
+			if err != nil {
+				return nil, "", err
+			}
+			data, err = g.Arca.Read(ctx, tok, r.exp.Owner, strings.Trim(f.Arca.Path, "/"), limit)
+			var refused *arca.RefusedError
+			var big *arca.TooLargeError
+			switch {
+			case errors.As(err, &big):
+				return nil, overLimit(name), nil
+			case errors.As(err, &refused):
+				return nil, "reference_unreadable: the reference " + name + " is not readable in the files store: " + refused.Error(), nil
+			case err != nil:
+				return nil, "", err
+			}
+			if got := "sha256:" + hexSHA(data); got != f.Arca.Digest {
+				return nil, "reference_changed: the reference " + name + " holds the digest " + got + ", and the task pins " + f.Arca.Digest, nil
+			}
+		case f.Origo != nil:
+			if !g.References() {
+				return nil, "reference_unreadable: the reference " + name + " is an Origo path, and this installation reaches no Origo", nil
+			}
+			tok, err := token(g.OrigoAudience)
+			if err != nil {
+				return nil, "", err
+			}
+			data, err = g.Origo.Read(ctx, tok, f.Origo.Repository, f.Origo.Commit, strings.Trim(f.Origo.Path, "/"), limit)
+			var refused *origo.RefusedError
+			var big *origo.TooLargeError
+			var changed *origo.ChangedError
+			switch {
+			case errors.As(err, &big):
+				return nil, overLimit(name), nil
+			case errors.As(err, &refused):
+				return nil, "reference_unreadable: the reference " + name + " is not readable in Origo: " + refused.Error(), nil
+			case errors.As(err, &changed):
+				return nil, "reference_changed: the reference " + name + " does not hash to the object id its commit names", nil
+			case err != nil:
+				return nil, "", err
+			}
+		default:
+			return nil, "reference_unreadable: the reference " + name + " names no source", nil
+		}
+		if limit -= int64(len(data)); limit < 0 {
+			return nil, overLimit(name), nil
+		}
+		out = append(out, reference{name: f.Name, data: data})
+	}
+	return out, "", nil
+}
+
+// overLimit is why a check does not run when a reference takes the task's
+// references past REFERENCE_MAX_BYTES.
+func overLimit(quotedName string) string {
+	return "reference_over_limit: the reference " + quotedName + " passes the " + strconv.Itoa(limits.ReferenceMaxBytes) + " bytes (REFERENCE_MAX_BYTES) the task's references may hold together"
 }
 
 // isScript reports whether a file starts with a shebang, so a check's

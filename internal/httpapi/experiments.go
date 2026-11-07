@@ -585,8 +585,9 @@ func createMembers(r *http.Request, in createBody, suiteDigest string, candDiges
 }
 
 // cores are what this server runs: topos trials, an origo workspace's
-// clone for them, and their checks and model judges.
-type cores struct{ topos, origo, checks, judges bool }
+// clone for them, their checks and model judges, and the reading of an
+// origo reference for a check.
+type cores struct{ topos, origo, checks, judges, references bool }
 
 // unbuilt refuses what this release cannot run (CHANGELOG): a candidate
 // whose executor is not built or not configured, what a topos candidate's
@@ -647,6 +648,15 @@ func unbuilt(in createBody, p plan, budgetAssigned bool, on cores) error {
 			return apierr.OnField(apierr.CodeExecutorUnavailable, f+".checks", "a check grades an Agent candidate's run alone in this release: an external or imported trial's outputs are recorded unread")
 		case len(t.Inputs) > 0 && in.Mode != objects.ModeImport:
 			return core("arca", f+".inputs", "the task's inputs reach an external harness through Arca links, which this release does not mint")
+		}
+		// A reference reaches the task's checks alone, in their sandbox. One
+		// of Origo is read there with an owner token, so a task with checks
+		// and no Origo to read it from would carry a reference that never
+		// arrives.
+		for j, ref := range t.Reference {
+			if ref.Origo != nil && len(t.Checks) > 0 && !on.references {
+				return core("origo", f+".reference["+itoa(j)+"]", "an origo reference is read from the installation's Origo into the check sandbox of the task's checks, which it names no address for")
+			}
 		}
 		for j, d := range t.Graders {
 			if err := judged(p, d, f+".graders["+itoa(j)+"]", on, gradedHere); err != nil {
@@ -825,6 +835,7 @@ func (s *Server) createExperiment(w http.ResponseWriter, r *http.Request, c acce
 	on := cores{topos: toposOn, origo: toposOn && s.Engine.Topos.OrigoURL != ""}
 	if toposOn && s.Engine.Grading != nil {
 		on.checks, on.judges = s.Engine.Grading.Checks(), s.Engine.Grading.Judges() && s.Engine.Keys != nil
+		on.references = s.Engine.Grading.References()
 	}
 	if err := unbuilt(in, p, l.Budget != "", on); err != nil {
 		return err

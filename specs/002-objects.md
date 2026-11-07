@@ -238,6 +238,7 @@ else. The last column names the spec that explains its use.
 | `METADATA_MAX_PAIRS` | 16 | pairs in the `metadata` of any object, and in an external candidate's `flags` | 002 |
 | `MAX_TASK_FACTORS` | 16 | factors one task declares | 002 |
 | `MAX_INLINE_INPUT_BYTES` | 64 KiB | the text of one inline input or reference of a task | 002 |
+| `REFERENCE_MAX_BYTES` | 16 MiB | the bytes of all of one task's references together that are delivered to its checks; more ends the trial's checks `not_run` without running them | 006 |
 | `MAX_OUTPUT_FILES` | 10,000 | files one trial's outputs may hold, every file of a directory output counted | 005 |
 | `MAX_OUTPUT_BYTES` | 1 GiB | bytes of the output files one trial keeps | 005 |
 | `OUTPUT_FILE_KEEP_MAX_BYTES` | 16 MiB | the largest output file kept; a larger one is kept by its digest and size alone, listed in the trial's output manifest | 005 |

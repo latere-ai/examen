@@ -37,6 +37,7 @@ const (
 	MaxOutputBytes                = 1 << 30
 	OutputFileKeepMaxBytes        = 16 << 20
 	MaxInlineInputBytes           = 64 << 10
+	ReferenceMaxBytes             = 16 << 20
 	MetadataMaxPairs              = 16
 	MaxTaskFactors                = 16
 	LabelMaxBytes                 = 128

@@ -52,12 +52,18 @@ func newBench(t *testing.T, st store.Store) *bench {
 // newBenchOf is a bench whose session's run is the one given.
 func newBenchOf(t *testing.T, st store.Store, run func(stub *topostest.Stub, fs *files, sid string)) *bench {
 	t.Helper()
+	return newBenchRefs(t, st, run, nil)
+}
+
+// newBenchRefs is a bench whose task holds the references.
+func newBenchRefs(t *testing.T, st store.Store, run func(stub *topostest.Stub, fs *files, sid string), refs []objects.FileSource) *bench {
+	t.Helper()
 	b := &bench{st: st, stub: topostest.New(t), fs: &files{objects: map[string][]byte{}},
 		cl: &sandboxes{archives: map[string][]byte{}, answers: map[string]cella.Result{}},
 		lx: &gateway{answers: []string{`{"kind":{"value":"game","rationale":"r"},"idea":{"value":"snake","rationale":"r"}}`}}, m: &minter{}}
 	b.stub.Agent("helper", topostest.Version{Version: 3, Digest: agentDigest})
 	ctx := t.Context()
-	b.g = seedGraded(ctx, t, st, b.fs, 1)
+	b.g = seedGradedRefs(ctx, t, st, b.fs, 1, refs)
 	b.e = gradingEngine(t, st, b.stub, b.m, b.fs, b.cl, b.lx)
 	if err := b.e.Tick(ctx); err != nil {
 		t.Fatal(err)

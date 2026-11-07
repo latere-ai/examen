@@ -64,6 +64,12 @@ func (g *toposGate) Authorize(_ context.Context, c access.Caller, q access.Quest
 // its id and its cell's id.
 func seedTopos(ctx context.Context, t *testing.T, st store.Store, n int) (string, string) {
 	t.Helper()
+	return seedToposRefs(ctx, t, st, n, nil)
+}
+
+// seedToposRefs is seedTopos for a task that holds the references.
+func seedToposRefs(ctx context.Context, t *testing.T, st store.Store, n int, refs []objects.FileSource) (string, string) {
+	t.Helper()
 	put := func(kind, name string, v any) objects.Version {
 		raw, err := json.Marshal(v)
 		if err != nil {
@@ -81,7 +87,7 @@ func seedTopos(ctx context.Context, t *testing.T, st store.Store, n int) (string
 	}
 	commit := strings.Repeat("c", 40)
 	task := put(objects.KindTask, "seeded", objects.Task{Name: "seeded", Instruction: "Do something you want.", Timeout: "20m",
-		Workspace: &objects.Workspace{Kind: objects.WorkspaceOrigo, Repository: "acme/seed", Commit: commit}})
+		Workspace: &objects.Workspace{Kind: objects.WorkspaceOrigo, Repository: "acme/seed", Commit: commit}, Reference: refs})
 	suite := put(objects.KindSuite, "s", objects.Suite{Name: "s", Tasks: []string{task.Digest}, Metrics: []string{"builtin:completed"}, PrimaryMetric: "builtin:completed"})
 	cand := put(objects.KindCandidate, "helper-low", objects.Candidate{Name: "helper-low", Kind: objects.CandidateTopos,
 		Topos: &objects.Topos{Agent: "helper@" + agentDigest, Model: "anthropic/claude-haiku-5.5", Reasoning: "low"}})

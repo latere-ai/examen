@@ -321,6 +321,12 @@ type graded struct {
 // judge reading the workspace, the final message and the check values.
 func seedGraded(ctx context.Context, t *testing.T, st store.Store, fs *files, n int) graded {
 	t.Helper()
+	return seedGradedRefs(ctx, t, st, fs, n, nil)
+}
+
+// seedGradedRefs is seedGraded for a task that holds the references.
+func seedGradedRefs(ctx context.Context, t *testing.T, st store.Store, fs *files, n int, refs []objects.FileSource) graded {
+	t.Helper()
 	g := graded{metrics: map[string]string{}}
 	put := func(kind, name string, v any) objects.Version {
 		raw, err := json.Marshal(v)
@@ -363,7 +369,7 @@ func seedGraded(ctx context.Context, t *testing.T, st store.Store, fs *files, n 
 		ModelJudge: &objects.ModelJudge{Model: "anthropic/claude-haiku-5.5", Prompt: "Label what the run made.", Temperature: &zero, Preamble: objects.JudgePreamble,
 			Inputs: objects.JudgeInputs{FinalMessage: true, Outputs: []string{"workspace/"}, Checks: true}}})
 	g.judge, g.judgeID = jv.Digest, jv.ID
-	task := put(objects.KindTask, "build", objects.Task{Name: "build", Instruction: "Build something.", Timeout: "20m", Checks: []string{g.inventory, g.runner}})
+	task := put(objects.KindTask, "build", objects.Task{Name: "build", Instruction: "Build something.", Timeout: "20m", Checks: []string{g.inventory, g.runner}, Reference: refs})
 	metrics := []string{"builtin:completed", g.metrics["entry_found"], g.metrics["size"], g.metrics["runs"], g.metrics["kind"], g.metrics["idea"]}
 	suite := put(objects.KindSuite, "s", objects.Suite{Name: "s", Tasks: []string{task.Digest}, Metrics: metrics, PrimaryMetric: "builtin:completed", Graders: []string{g.judge}})
 	cand := put(objects.KindCandidate, "helper-low", objects.Candidate{Name: "helper-low", Kind: objects.CandidateTopos,

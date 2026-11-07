@@ -24,6 +24,7 @@ import (
 	"latere.ai/x/examen/internal/grade"
 	"latere.ai/x/examen/internal/limits"
 	"latere.ai/x/examen/internal/objects"
+	"latere.ai/x/examen/internal/origo"
 	tokens "latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store"
 	"latere.ai/x/examen/internal/topos"
@@ -39,6 +40,10 @@ type Grading struct {
 	// Arca reads a run's kept files and a check's files, as the owner.
 	Arca         *arca.Client
 	ArcaAudience string
+	// Origo reads the files an origo reference of a task names, as the
+	// owner; nil when the installation names no Origo.
+	Origo         *origo.Client
+	OrigoAudience string
 	// Cella runs check sandboxes in Environment, its default when empty,
 	// from Image, the installation's default image when empty.
 	Cella         *cella.Client
@@ -56,6 +61,12 @@ type Grading struct {
 // Checks reports whether checks run: Cella and Arca are reached.
 func (g *Grading) Checks() bool {
 	return g != nil && g.Cella != nil && g.Arca != nil && g.Tokens != nil
+}
+
+// References reports whether a task's origo references reach its checks:
+// Origo is reached.
+func (g *Grading) References() bool {
+	return g != nil && g.Origo != nil && g.Tokens != nil
 }
 
 // Judges reports whether model judges run: Lux and Arca are reached. The
@@ -469,7 +480,8 @@ func signInEnded(err error) (string, bool) {
 // waits out.
 func outage(err error) bool {
 	return errors.Is(err, arca.ErrUnavailable) || errors.Is(err, cella.ErrUnavailable) || errors.Is(err, topos.ErrUnavailable) ||
-		errors.Is(err, tokens.ErrUnavailable)
+		errors.Is(err, tokens.ErrUnavailable) ||
+		errors.Is(err, origo.ErrUnavailable)
 }
 
 // produced are a grader's metrics the suite lists, in its order.

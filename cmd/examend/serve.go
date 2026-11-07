@@ -28,6 +28,7 @@ import (
 	"latere.ai/x/examen/internal/httpapi"
 	"latere.ai/x/examen/internal/keys"
 	"latere.ai/x/examen/internal/limits"
+	"latere.ai/x/examen/internal/origo"
 	"latere.ai/x/examen/internal/owner"
 	"latere.ai/x/examen/internal/store/postgres"
 	"latere.ai/x/examen/internal/topos"
@@ -82,6 +83,11 @@ func grading(s config.Settings, minter owner.Source) *work.Grading {
 	}
 	if s.CellaURL != "" {
 		g.Cella = cella.New(s.CellaURL, &http.Client{Transport: otel.Transport(nil)})
+	}
+	// Origo reads the files an origo reference of a task names, for its
+	// checks; without it such a task is refused at the create.
+	if s.OrigoURL != "" {
+		g.Origo, g.OrigoAudience = origo.New(s.OrigoURL, &http.Client{Transport: otel.Transport(nil)}), s.OrigoAudience
 	}
 	if !g.Checks() && !g.Judges() {
 		return nil
