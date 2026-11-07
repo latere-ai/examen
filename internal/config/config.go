@@ -40,18 +40,20 @@ const (
 	DefaultWorkers       = 20
 )
 
-// The token sources of specs/004-identity-and-authorization.md, as the
-// start log names them.
+// The owner token sources of specs/004-identity-and-authorization.md that
+// are built, as the start log names them. The sole owner's token files are
+// not built, so EXAMEN_SOLE_OWNER alone is no source.
 const (
 	TokenSourceMinter = "minter"
-	TokenSourceFiles  = "token files"
 	TokenSourceNone   = "none"
 )
 
-// The key sources of specs/004-identity-and-authorization.md.
+// The key sources of specs/004-identity-and-authorization.md that are
+// built, as the start log names them. The lux source, Keys Examen creates
+// at Lux itself, is not built, so with no key endpoint there is no source.
 const (
-	KeySourceLux      = "lux"
 	KeySourceEndpoint = "endpoint"
+	KeySourceNone     = "none"
 )
 
 // Settings are the settings of the process.
@@ -147,25 +149,21 @@ func (s Settings) ServingURL() string {
 	return s.DatabaseURL
 }
 
-// TokenSource names where owner tokens come from: the minter, the token
-// files of the sole owner, or nowhere.
+// TokenSource names where owner tokens come from: the minter, or nowhere.
 func (s Settings) TokenSource() string {
-	switch {
-	case s.MinterURL != "":
+	if s.MinterURL != "" {
 		return TokenSourceMinter
-	case s.SoleOwner != "":
-		return TokenSourceFiles
 	}
 	return TokenSourceNone
 }
 
 // KeySource names where Lux Keys come from: the installation's key
-// endpoint, or Lux itself.
+// endpoint, or nowhere.
 func (s Settings) KeySource() string {
 	if s.KeysURL != "" {
 		return KeySourceEndpoint
 	}
-	return KeySourceLux
+	return KeySourceNone
 }
 
 // Cores lists the cores this installation has an address for, in the

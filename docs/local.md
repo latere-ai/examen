@@ -107,7 +107,7 @@ jq -r .msg local/examend.log
 
 ```text
 token source: none
-key source: lux
+key source: none
 decides: owner policy
 cores: none
 listening
@@ -116,9 +116,8 @@ listening
 With no authorizer configured, the owner policy decides: each caller
 reaches the objects it owns and nothing else. With no other service
 configured, Examen runs experiments whose trials an external harness
-runs, which is what the rest of this page does. (The `key source: lux`
-line names the default; the `lux` key source is not built, so no model
-Key is issued here.)
+runs, which is what the rest of this page does. With no key endpoint,
+`key source: none`, no model Key is issued here.
 
 `make run` builds, starts the database, migrates and serves in one
 step, and reads `EXAMEN_OIDC_ISSUERS` and every other variable from

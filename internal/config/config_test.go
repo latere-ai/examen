@@ -161,7 +161,7 @@ func TestDefaults(t *testing.T) {
 	if fmt.Sprintf("%#v", s) != fmt.Sprintf("%#v", want) {
 		t.Fatalf("defaults\n got %#v\nwant %#v", s, want)
 	}
-	if s.ServingURL() != s.DatabaseURL || s.TokenSource() != TokenSourceNone || s.KeySource() != KeySourceLux || len(s.Cores()) != 0 {
+	if s.ServingURL() != s.DatabaseURL || s.TokenSource() != TokenSourceNone || s.KeySource() != KeySourceNone || len(s.Cores()) != 0 {
 		t.Errorf("derived: %q %q %q %v", s.ServingURL(), s.TokenSource(), s.KeySource(), s.Cores())
 	}
 }
@@ -243,7 +243,7 @@ func TestEveryVariableIsRead(t *testing.T) {
 	if s, err = FromEnv(owner.get); err != nil {
 		t.Fatal(err)
 	}
-	if s.TokenSource() != TokenSourceFiles || s.ArcaPublicURL != "https://arca.example.com" || s.BasePath != "" || s.LogLevel != slog.LevelWarn || s.FileStoreDownloadOnly {
+	if s.TokenSource() != TokenSourceNone || s.ArcaPublicURL != "https://arca.example.com" || s.BasePath != "" || s.LogLevel != slog.LevelWarn || s.FileStoreDownloadOnly {
 		t.Errorf("sole owner: %q %q %q %v", s.TokenSource(), s.ArcaPublicURL, s.BasePath, s.LogLevel)
 	}
 	owner["EXAMEN_LOG_LEVEL"] = "error"

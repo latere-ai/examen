@@ -246,7 +246,7 @@ func (s *server) get(t *testing.T, path, bearer string) (int, []byte) {
 // signal exits 0.
 func TestServe(t *testing.T) {
 	s := start(t, env{"EXAMEN_LOG_LEVEL": "debug"})
-	for _, line := range []string{"token source: none", "key source: lux", "decides: owner policy", "cores: none", "listening"} {
+	for _, line := range []string{"token source: none", "key source: none", "decides: owner policy", "cores: none", "listening"} {
 		if !strings.Contains(s.logs.String(), line) {
 			t.Errorf("the start log lacks %q", line)
 		}
@@ -306,7 +306,7 @@ func TestServeAnnouncesWhatIsConfigured(t *testing.T) {
 		"EXAMEN_SOLE_OWNER": "https://issuer.example.com|alice", "EXAMEN_OWNER_TOKEN_DIR": dir,
 		"EXAMEN_LUX_URL": "http://127.0.0.1:2", "EXAMEN_ARCA_URL": "http://localhost:3",
 	})
-	for _, line := range []string{"token source: token files", "key source: endpoint", "decides: authorizer", "cores: lux, arca"} {
+	for _, line := range []string{"token source: none", "key source: endpoint", "decides: authorizer", "cores: lux, arca"} {
 		if !strings.Contains(s.logs.String(), line) {
 			t.Errorf("the start log lacks %q: %s", line, s.logs.String())
 		}
