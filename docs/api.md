@@ -18,7 +18,9 @@ Responses are abridged to the members a client reads.
 **Base path.** Every route sits under `/v1`, or under
 [`EXAMEN_BASE_PATH`](configuration.md#every-variable) when the
 installation sets another. The probes `/livez`, `/readyz` and `/version`
-stay at the root of the listener and take no token. A running server
+stay at the root of the listener and take no token, and
+`<base path>/version` answers the same build identity below the base
+path. A running server
 serves its own contract, the OpenAPI document of the release it runs,
 without a token:
 

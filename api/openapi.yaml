@@ -7,8 +7,8 @@ info:
     A client applies tasks, suites, candidates and the metrics and graders
     they are measured by, runs experiments over them, and reads cells,
     trials, measurements and comparisons that come back already computed.
-    Every route but this document takes a bearer token of an issuer the
-    server trusts, and every route asks the server's authorizer before it
+    Every route but this document and `GET /version` takes a bearer token
+    of an issuer the server trusts, and every route asks the server's authorizer before it
     acts. An object the caller may not see reads as a missing one.
 
     This document describes the routes the running release serves; a route
@@ -36,7 +36,7 @@ security:
   - bearer: []
 tags:
   - name: contract
-    description: This document.
+    description: This document and the build identity of the release that serves it.
   - name: metrics
   - name: graders
   - name: tasks
@@ -48,6 +48,30 @@ tags:
   - name: trials
   - name: comparisons
 paths:
+  /version:
+    get:
+      tags: [contract]
+      operationId: getVersion
+      summary: Read the build identity
+      description: |
+        The release, commit and build time of the server: the body the probe
+        `GET /version` at the root of the listener serves, also served below
+        the base path so a client that reaches only the base path reads it.
+        It takes no token and asks the authorizer nothing.
+      security: []
+      responses:
+        "200":
+          description: The build identity.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version, commit, build_time]
+                additionalProperties: false
+                properties:
+                  version: {type: string, description: The release's tag.}
+                  commit: {type: string, description: The commit it was built from.}
+                  build_time: {type: string, description: When it was built.}
   /openapi.yaml:
     get:
       tags: [contract]

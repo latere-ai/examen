@@ -130,8 +130,9 @@ func served() []route {
 type Route struct{ Method, Path string }
 
 // public are the routes below the base path that take no token: the
-// contract.
+// build identity, the body the probes' /version serves, and the contract.
 var public = []Route{
+	{http.MethodGet, "/version"},
 	{http.MethodGet, "/openapi.yaml"},
 }
 

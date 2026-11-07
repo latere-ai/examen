@@ -93,6 +93,9 @@ take no token:
 | `GET /readyz` | `200` while the database answers; otherwise `503`, naming what is not ready, and also while the server drains |
 | `GET /version` | the build's `version`, `commit` and `build_time` as JSON |
 
+`GET <base path>/version` answers the same body below the base path,
+with no token, for a client that reaches only the base path.
+
 On `SIGTERM` the server fails readiness at once, stops taking
 connections, and gives open requests 25 seconds to finish. Give the
 container a termination grace period longer than that.
