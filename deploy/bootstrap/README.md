@@ -13,8 +13,8 @@ migrator's lock, so there is no migration Job to run before a release. The
 Secrets the Deployment reads (`examen-db`, `examen-authorizer`,
 `examen-keys`, `examen-minter` and `platformd-internal-ca`) are created
 outside this tree and keep their names; `examen-db` and the pool it names
-come from the terraform repository, and a Pod whose Secret is missing does
-not start.
+are provisioned with the database itself, and a Pod whose Secret is missing
+does not start.
 
 | File | Applied by | When |
 |---|---|---|
