@@ -1,8 +1,8 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/latere-ai/examen/blob/main/SECURITY.md
-    about: Report it privately to security@latere.ai, never as an issue.
+    url: https://github.com/latere-ai/examen/security/advisories/new
+    about: Report it privately, as SECURITY.md describes, never as an issue.
   - name: Running examend, defining experiments, reading results
     url: https://github.com/latere-ai/examen/blob/main/docs/README.md
-    about: Running it locally, configuration, concepts, the analysis, and writing an authorizer.
+    about: Running it locally, installing it, configuration, the API, concepts, security, and writing an authorizer.
