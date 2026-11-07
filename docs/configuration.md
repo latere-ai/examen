@@ -52,7 +52,7 @@ is harmless, and a value that does not parse still stops the start.
 | `EXAMEN_ARCA_URL` | none | The root of [Arca](https://github.com/latere-ai/arca), the file store. A `topos` trial's kept files are read from it for grading, and each check's standard output and error are written to it. |
 | `EXAMEN_ARCA_PUBLIC_URL` | `EXAMEN_ARCA_URL` | Where readers reach Arca, for links in published evidence. **No effect yet.** |
 | `EXAMEN_FILESTORE_DOWNLOAD_ONLY` | `false` | The operator's declaration that the file store serves every link read as a download no browser renders, which publications that carry files will require. **No effect yet.** |
-| `EXAMEN_ORIGO_URL` | none | The root repositories are cloned from, as `<root>/<repository>.git`. With it, tasks may start from an `origo` workspace, which a `topos` trial's session is given. |
+| `EXAMEN_ORIGO_URL` | none | The root repositories are cloned from, as `<root>/<repository>.git`, and read from through its API. With it, tasks may start from an `origo` workspace, which a `topos` trial's session is given, and a task with checks may carry an `origo` reference, which its checks are given. |
 | `EXAMEN_TOPOS_AUDIENCE` | `topos` | The audience of the owner token asked for to call Topos. |
 | `EXAMEN_CELLA_AUDIENCE` | `cella` | The audience of the owner token asked for to call Cella. |
 | `EXAMEN_LUX_AUDIENCE` | `lux` | The audience of the owner token asked for to call Lux. |

@@ -147,7 +147,9 @@ and trials started after the backup are then unknown to the database.
 - **TLS in front.** `examend` listens for plain HTTP and has no TLS
   settings. Put a TLS-terminating proxy or load balancer in front, and
   set `EXAMEN_TRUSTED_PROXIES` to its address range so the authorizer is
-  told the caller's address and not the proxy's.
+  told the caller's address and not the proxy's, and each caller's
+  requests are counted by its own address. Without it, every caller
+  shares the proxy's address and one rate.
 - **`https` service addresses.** The authorizer, minter, key endpoint,
   each service URL and the events URL must be `https` unless the host is
   loopback; `serve` refuses to start otherwise.

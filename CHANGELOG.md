@@ -19,8 +19,39 @@ here is refused before it is pushed.
   said it was logged; it is returned to the caller in `details.reason`
   of a `403`, and never logged.
 
+### Removed
+
+- **The contract no longer lists 34 error codes nothing returns.**
+  `bar_not_found`, `evaluation_not_found`, `export_not_found`,
+  `share_not_found`, `report_not_found`, `publication_not_found`,
+  `submission_not_found`, `annotation_not_found`, `immutable_field`,
+  `experiment_canceled`, `experiment_not_finished`,
+  `experiment_is_baseline`, `experiment_adopted_from`,
+  `comparison_not_complete`, `narrative_has_findings`,
+  `source_not_finished`, `already_annotated`, `publication_exists`,
+  `version_not_published`, `publication_listed`, `submissions_closed`,
+  `report_not_shared`, `submission_decided`, `benchmark_full`,
+  `benchmark_not_reviewed`, `owner_has_entry`, `publication_withdrawn`,
+  `publication_paused`, `no_reference`, `metric_not_declared`,
+  `image_not_admitted`, `file_store_not_download_only`,
+  `instruction_required` and `core_timeout` belong to routes not built
+  yet and are gone from the `ErrorCode` enum of `api/openapi.yaml`. A
+  test now fails when the contract lists a code no source returns.
+
 ### Fixed
 
+- **A task's references reach its checks, and nothing else.** They were
+  stored and delivered to nobody. A check now finds each reference of
+  its task read-only at `examen/reference/<name>`: inline text, a file
+  of the owner's Arca space with its digest checked, or a file of an
+  Origo repository at its commit with its object id checked. A Topos
+  session and an external lease carry none. References above
+  `REFERENCE_MAX_BYTES` (16 MiB) together, one whose bytes do not match,
+  or one its store refuses end the trial's checks `not_run` with a
+  reason naming the reference. A task with checks and an `origo`
+  reference is refused at create with `core_not_configured` unless
+  `EXAMEN_ORIGO_URL` is set; Examen reads it with an owner token for
+  `EXAMEN_ORIGO_AUDIENCE`.
 - **The start log names no source that is not built.** It printed
   `key source: lux` with no key endpoint and `token source: token files`
   with `EXAMEN_SOLE_OWNER` set, though neither source exists in this
@@ -44,6 +75,23 @@ here is refused before it is pushed.
   backend. The bump also brings v0.114.0's option for the authorizer
   client's default allow `ttl`, which examend leaves unset: an allow
   that names no `ttl` is still reused for 60 seconds.
+- **A repeated lease asks the authorizer again before it hands back
+  the model Key.** A lease repeated with the same `Idempotency-Key`
+  within 24 hours answered the experiment's Key with no new question,
+  so a caller whose `trial.lease` was withdrawn kept getting it; the
+  repeat is now refused as a first lease would be.
+- **Requests are counted by client address before the token is read.**
+  A client address past 6,000 requests a minute to the routes that take
+  a token on one replica is refused `429 rate_limited`, valid token or
+  not, and one past 120 a minute to `<base path>/version` and
+  `<base path>/openapi.yaml` alike. Requests with no token or a bad one
+  were not counted at all. Behind a proxy, set `EXAMEN_TRUSTED_PROXIES`
+  so each caller is counted by its own address.
+- **A request must arrive within 1 minute.** examend already waited 10
+  seconds for the headers and now waits 1 minute for the whole request,
+  so a client that sends its body slowly no longer holds a connection
+  without end. An idle connection is closed after 2 minutes. No write
+  timeout is set, so progress streams are not cut.
 - **Every error a log line carries has its URL queries and user info
   cut.** Twelve lines, among them an issuer or the authorizer that did
   not answer at start, logged a library's error text whole.
@@ -55,7 +103,9 @@ here is refused before it is pushed.
   ones that need a container, and lists what is not defended, including
   the routes that take no token, an `http` issuer, cached allows and
   idempotent replays, and what telemetry carries. Reports go through
-  GitHub's private vulnerability reporting or security@latere.ai.
+  GitHub's private vulnerability reporting or security@latere.ai. A
+  test fails when SECURITY.md or the threat model in specs/012 names a
+  test that does not exist.
 
 ## v0.8.6 - 2026-11-05
 

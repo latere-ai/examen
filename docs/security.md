@@ -52,9 +52,10 @@ Each service gets only what its part of the work needs.
 | The authorizer | `EXAMEN_AUTHORIZER_TOKEN_FILE` | the question: the subject, every claim of the caller's token as the issuer signed it, the action, the object's kind, id and the fields [Writing an authorizer](authorizer.md#the-question) lists, the request id, the client address and the user agent; on a create, the `sign_in` handle |
 | The minter | `EXAMEN_MINTER_TOKEN_FILE` | the owner, the subject, the audience, the experiment, the purpose and a lifetime of 15 minutes |
 | Topos | an owner token for Topos | for each trial a session: the agent and version, the task's instruction as its first message, a title with the candidate's and task's names and the run number, the rollout, the model, the limits, ids of the experiment, cell and trial, and the task's Origo repository and commit |
-| Cella | an owner token for Cella | a sandbox with no network egress; the run's kept files, the session log, the final message and the check's own files; the check's command and environment |
+| Cella | an owner token for Cella | a sandbox with no network egress; the run's kept files, the session log, the final message, the check's own files and the task's references; the check's command and environment |
 | Lux | a Key for the judge's one model | the judge's prompt, rubric and metrics, and the evidence it names: the final message, the session log, the check values and the kept files it reads, cut to its input bound |
-| Arca | an owner token for Arca | reads of the check files and of the run's kept files; writes of each check's standard output and error |
+| Arca | an owner token for Arca | reads of the check files, of the run's kept files and of the task's `arca` references; writes of each check's standard output and error |
+| Origo | an owner token for Origo | for each trial with checks whose task has an `origo` reference: the repository's owner and slug, the commit and the path, to read that one file |
 | The key endpoint | `EXAMEN_KEYS_TOKEN_FILE` | requests for a Key, a Budget, a release and usage records, naming the owner, the subject, the experiment, the purpose, the models, the Budget's name, the Key's labels (the experiment's, trial's or grader's ids) and a lifetime |
 | An external harness | none: the harness calls Examen with its own token | in a lease: the trial's id, candidate, task name and digest, the task's instruction, the outputs it must return, its limits, and the experiment's model Key when a key source is configured |
 | A telemetry backend | `OTEL_EXPORTER_OTLP_HEADERS` | with `OTEL_EXPORTER_OTLP_ENDPOINT` set: spans of requests and outbound calls, logs and metrics, below |
@@ -62,8 +63,8 @@ Each service gets only what its part of the work needs.
 What no service receives: the caller's bearer token, which Examen keeps
 nowhere; a Key, except by the harness that leased it and the judge it
 was leased for; an owner token, except by the service it was minted
-for; and a task's references, which this release keeps and sends to
-nobody, checks included.
+for; and a task's references, which reach the check sandbox of its
+trials and nothing else: no Topos session and no lease carries one.
 
 The authorizer sees every claim of every caller's token, which may
 include an email address or other personal data, with the caller's
@@ -138,11 +139,12 @@ The limits an operator plans around:
 
 - **A permission withdrawn moments ago.** An allow is reused for its
   `ttl`, and a repeated idempotent request within 24 hours replays its
-  answer, a lease's Key included, without a new question.
+  answer without a new question. A repeated lease asks again before it
+  hands back the Key.
 - **What a deny says.** The authorizer's reason for a `403` reaches the
   caller.
 - **Load beyond one replica.** Rate and stream limits count per replica,
-  after authentication, and nothing caps how much Postgres holds.
+  and nothing caps how much Postgres holds.
 - **The database's owner.** The role `examend migrate` ran as can drop
   the triggers that keep measurements unchanged, and a role that can
   delete an experiment's row removes its measurements with it.
@@ -169,11 +171,16 @@ Beside the secrets:
 - Keep `EXAMEN_OIDC_AUDIENCE` to the audiences you mean: a token for any
   of them is accepted.
 - Keep `EXAMEN_TRUSTED_PROXIES` to the proxies in front of `examend`;
-  any peer in it can name the address the authorizer is told.
+  any peer in it can name the address the authorizer is told and the
+  address a request's rate is counted by. Without it, every client
+  behind your proxy has the proxy's address and shares one rate of
+  6,000 requests a minute on each replica.
 - Without `EXAMEN_AUTHORIZER_URL` the owner policy decides: owners act
   on their own objects alone, with no organizations, shares or limits
   beyond Examen's own.
-- Put a proxy with read and write timeouts in front of `examend`, which
-  sets none past the 10 seconds it allows for the headers.
+- `examend` waits 10 seconds for a request's headers and 1 minute for
+  the whole request, and sets no write timeout, which would cut
+  progress streams. A proxy in front can bound how long a client takes
+  to read an answer.
 - [Installing examend](install.md#what-a-production-installation-must-have)
   lists the rest of what a production installation must have.

@@ -747,7 +747,9 @@ These are fixed in the code of the release and are not settings.
 | Bound | Value | What happens above it |
 |---|---|---|
 | Request body | 4 MiB | `413 request_too_large`, refused from `Content-Length` before the body is read |
-| Requests per minute | 600 per caller to one replica | `429 rate_limited` with `Retry-After` |
+| Requests per minute | 600 per caller, and 6,000 per client address counted before the token is read, to one replica | `429 rate_limited` with `Retry-After` |
+| Requests per minute to `<base path>/version` and `<base path>/openapi.yaml` | 120 per client address to one replica | `429 rate_limited` with `Retry-After` |
+| Time to send a request | 10 seconds for the headers, 1 minute for the whole request | The connection is closed, or `400 invalid_request` for a body cut short |
 | List page | 50 items by default, 200 at most | `400 invalid_field` on `limit` |
 | Trials per cell | 10 by default, 1000 at most | `422 limit_exceeded`, `MAX_TRIALS_PER_CELL` |
 | Cells per experiment | 2000 (tasks times candidates) | `422 limit_exceeded`, `MAX_CELLS_PER_EXPERIMENT` |
@@ -774,7 +776,7 @@ These are fixed in the code of the release and are not settings.
 | A submitted rationale | 4 KiB | `422 limit_exceeded`, `JUDGE_MAX_RATIONALE_BYTES` |
 | A service name, version or unit in a submit | 63 characters | `400 invalid_field` |
 
-The request rate is counted per replica. Nothing bounds the trials of an
+The request rates are counted per replica. Nothing bounds the trials of an
 experiment as a whole beyond cells times `trials` per cell; an
 authorizer's `max_trials` can.
 
