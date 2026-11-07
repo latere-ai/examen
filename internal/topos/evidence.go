@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json/v2"
 	"fmt"
+	"io/fs"
 	"slices"
 	"strings"
 
@@ -42,7 +43,8 @@ type workSaved struct {
 // and the kept copy of its working directory as the log's saves fold it,
 // in ascending bytewise order of path. Unvouched counts the paths a save
 // changed and did not write, whose files the copy no longer vouches for
-// and the copy leaves out.
+// and the copy leaves out, with the paths a save wrote that are not a
+// file inside the working directory.
 type Evidence struct {
 	Log          []byte
 	LogDigest    string
@@ -97,6 +99,14 @@ func EvidenceOf(events []Event) (Evidence, error) {
 				clear(unvouched)
 			}
 			for _, f := range w.Written {
+				// A path a grader would follow out of the working directory,
+				// such as one with a ".." part or an absolute one, is no file
+				// of the copy, whatever the log says it holds.
+				if !inside(f.Path) {
+					delete(work, f.Path)
+					unvouched[f.Path] = true
+					continue
+				}
 				work[f.Path] = f
 				delete(unvouched, f.Path)
 			}
@@ -118,6 +128,12 @@ func EvidenceOf(events []Event) (Evidence, error) {
 	slices.SortFunc(ev.Work, func(a, b WorkFile) int { return strings.Compare(a.Path, b.Path) })
 	ev.Unvouched = len(unvouched)
 	return ev, nil
+}
+
+// inside reports whether p names a file inside the working directory: a
+// relative, slash-separated path with no empty, "." or ".." part.
+func inside(p string) bool {
+	return p != "." && fs.ValidPath(p)
 }
 
 // WorkDigest is the digest of a kept copy of a working directory as a

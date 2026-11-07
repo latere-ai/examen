@@ -24,6 +24,23 @@ func text(s string) map[string]any {
 	return map[string]any{"message": map[string]any{"role": "assistant", "blocks": []map[string]any{{"type": "thinking", "text": "hm"}, {"type": "text", "text": s}}}}
 }
 
+// A save that names a path outside the working directory keeps no file
+// at it: graders never read or write past the session's own folder.
+func TestAPathOutsideTheWorkingDirectoryIsNoFile(t *testing.T) {
+	outside := []string{"../escape.py", "/etc/passwd", "a/../../b.py", "./a.py", "a//b.py", "a/", "", "."}
+	written := []WorkFile{{Path: "ok.py", SHA256: "ok"}}
+	for _, p := range outside {
+		written = append(written, WorkFile{Path: p, SHA256: "xx"})
+	}
+	ev, err := EvidenceOf([]Event{event(1, EventWorkSaved, "", map[string]any{"written": written})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ev.Work) != 1 || ev.Work[0].Path != "ok.py" || ev.Unvouched != len(outside) {
+		t.Fatalf("the kept copy %+v, %d unvouched", ev.Work, ev.Unvouched)
+	}
+}
+
 // TestEvidenceOf folds a session's log into what its graders read: the log
 // as Read renders it with its digest, the last answer of the session's own
 // thread, and the kept copy of the working directory as its saves leave
