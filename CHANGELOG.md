@@ -18,6 +18,9 @@ here is refused before it is pushed.
 - **A deny's reason is documented as what it is.** [Writing an authorizer](docs/authorizer.md)
   said it was logged; it is returned to the caller in `details.reason`
   of a `403`, and never logged.
+- **The network policy no longer admits the Dash0 collector.** The collector
+  is retired, so the egress rule to it is gone. Telemetry export stays off
+  until a deployment sets `OTEL_EXPORTER_OTLP_ENDPOINT`.
 
 ### Removed
 
