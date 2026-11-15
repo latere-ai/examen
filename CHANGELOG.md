@@ -8,6 +8,8 @@ here is refused before it is pushed.
 
 ### Changed
 
+- Built with Go 1.27.4, which fixes GO-2026-6859.
+
 - **The documentation is split by reader.** [Installing examend](docs/install.md)
   covers the image, its signatures, the database, probes, upgrades and
   what production must have; [Using the API](docs/api.md) walks every
