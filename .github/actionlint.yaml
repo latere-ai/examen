@@ -1,5 +1,0 @@
-# The organization's self-hosted runner, by the label the runner policy
-# names it with, so actionlint accepts a job that names it.
-self-hosted-runner:
-  labels:
-    - linux-vm
