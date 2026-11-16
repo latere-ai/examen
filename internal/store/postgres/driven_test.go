@@ -30,7 +30,7 @@ func TestDrivenTrials(t *testing.T) {
 		t.Fatalf("another executor's experiment is driven: %v %v", got, err)
 	}
 	claimed, err := x.Claim(ctx, eid, cells[:1])
-	if err != nil || len(claimed) != 1 || claimed[0].State != objects.StateRunning || claimed[0].Lease != nil {
+	if err != nil || len(claimed) != 1 || claimed[0].State != objects.TrialRunning || claimed[0].Lease != nil {
 		t.Fatalf("claimed %+v %v", claimed, err)
 	}
 	if again, err := x.Claim(ctx, eid, cells[:1]); err != nil || len(again) != 0 {

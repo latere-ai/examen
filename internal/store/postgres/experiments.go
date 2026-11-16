@@ -149,20 +149,23 @@ func (x experiments) Create(ctx context.Context, ne store.NewExperiment) error {
 			}
 			independence = &raw
 		}
+		if err := objects.ExperimentTable.CheckStart(objects.ExperimentPending); err != nil {
+			return fmt.Errorf("postgres: storing an experiment: %w", err)
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO experiments (id, owner, suite, suite_id, suite_name, candidates, candidate_ids, trials, budget, parallelism,
 				reference_baseline, reference_candidate, mode, scheduling, comparisons, independence, state, created_by, metadata, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'pending', $17, $18, $19, $19)`,
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $20, $17, $18, $19, $19)`,
 			e.ID, e.Owner, e.Suite, e.SuiteID, e.SuiteName, e.Candidates, e.CandidateIDs, e.Trials, e.Budget.Name, e.Parallelism,
-			refBaseline, refCandidate, e.Mode, scheduling, rawDeclared, independence, e.CreatedBy, metadata, now); err != nil {
+			refBaseline, refCandidate, e.Mode, scheduling, rawDeclared, independence, e.CreatedBy, metadata, now, objects.ExperimentPending); err != nil {
 			return fmt.Errorf("postgres: storing an experiment: %w", err)
 		}
 		j := &journal{tx: tx, exp: e.ID, owner: e.Owner, seq: 1, now: now}
-		if err := j.add(ctx, objects.EventExperiment, map[string]any{"id": e.ID, "state": objects.StatePending, "progress": emptyProgress()}); err != nil {
+		if err := j.add(ctx, objects.EventExperiment, map[string]any{"id": e.ID, "state": objects.ExperimentPending, "progress": emptyProgress()}); err != nil {
 			return err
 		}
 		for _, nc := range ne.Cells {
 			c := nc.Cell
-			c.Experiment, c.Owner, c.State = e.ID, e.Owner, objects.StatePending
+			c.Experiment, c.Owner, c.State = e.ID, e.Owner, objects.CellPending
 			var trials []store.RolloutTrial
 			if nc.Smoke != nil {
 				c.Rollouts = []objects.Rollout{nc.Smoke.Rollout}
@@ -196,6 +199,9 @@ func emptyProgress() objects.Progress {
 
 // insertCell stores a cell.
 func insertCell(ctx context.Context, tx pgx.Tx, c objects.Cell, now time.Time) error {
+	if err := objects.CellTable.CheckStart(c.State); err != nil {
+		return fmt.Errorf("postgres: storing cell %s: %w", c.ID, err)
+	}
 	tuple, err := marshal(c.Tuple)
 	if err != nil {
 		return err
@@ -217,15 +223,18 @@ func insertCell(ctx context.Context, tx pgx.Tx, c objects.Cell, now time.Time) e
 
 // insertTrials mints a rollout's trials, pending, and journals each.
 func insertTrials(ctx context.Context, tx pgx.Tx, j *journal, c objects.Cell, rollout string, trials []store.RolloutTrial, now time.Time) error {
+	if err := objects.TrialTable.CheckStart(objects.TrialPending); err != nil {
+		return fmt.Errorf("postgres: minting a trial: %w", err)
+	}
 	for _, rt := range trials {
-		t := objects.Trial{ID: id.New(id.Trial), Owner: c.Owner, Experiment: c.Experiment, Cell: c.ID, Index: rt.Index, State: objects.StatePending, RetryOf: rt.RetryOf}
+		t := objects.Trial{ID: id.New(id.Trial), Owner: c.Owner, Experiment: c.Experiment, Cell: c.ID, Index: rt.Index, State: objects.TrialPending, RetryOf: rt.RetryOf}
 		var retryOf *string
 		if rt.RetryOf != "" {
 			retryOf = &rt.RetryOf
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO trials (id, owner, experiment, cell, idx, rollout, state, retry_of, auto_retry, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $9)`,
-			t.ID, t.Owner, t.Experiment, t.Cell, t.Index, rollout, retryOf, rt.Auto, now); err != nil {
+			VALUES ($1, $2, $3, $4, $5, $6, $10, $7, $8, $9, $9)`,
+			t.ID, t.Owner, t.Experiment, t.Cell, t.Index, rollout, retryOf, rt.Auto, now, t.State); err != nil {
 			return fmt.Errorf("postgres: minting a trial: %w", err)
 		}
 		if err := j.add(ctx, objects.EventTrial, trialEvent(t)); err != nil {
@@ -457,7 +466,7 @@ func scanTrial(row pgx.Row) (objects.Trial, error) {
 	t.StartedAt, t.AgentEndedAt, t.EndedAt = ptr(t.StartedAt), ptr(t.AgentEndedAt), ptr(t.EndedAt)
 	// A trial shows its lease only while it is leased; the columns stay
 	// after a lease lapses, to tell a lapsed lease from another.
-	if leaseID != "" && t.State == objects.StateRunning && leaseExpires != nil {
+	if leaseID != "" && t.State == objects.TrialRunning && leaseExpires != nil {
 		t.Lease = &objects.Lease{ID: leaseID, Subject: leaseSubject, ExpiresAt: leaseExpires.UTC()}
 	}
 	t.Checks, t.Judgments, t.Evidence = []jsontext.Value{}, []jsontext.Value{}, []objects.EvidenceRef{}
@@ -544,7 +553,7 @@ func (x experiments) withGradings(ctx context.Context, trials []objects.Trial) e
 	for _, g := range list {
 		rec := g.Record
 		if g.State == objects.GradingPending || len(rec) == 0 {
-			raw, err := json.Marshal(map[string]string{"grader": g.Grader, "state": objects.GradingPending})
+			raw, err := json.Marshal(map[string]string{"grader": g.Grader, "state": string(objects.GradingPending)})
 			if err != nil {
 				return fmt.Errorf("postgres: rendering a pending grading: %w", err)
 			}

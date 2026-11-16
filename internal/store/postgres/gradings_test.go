@@ -63,7 +63,7 @@ func TestGradingsRunInOrderAndEndOnce(t *testing.T) {
 	ctx := t.Context()
 	x, g := w.st.Experiments(), w.st.Gradings()
 	eid, cid, trial := w.gradedTrial(ctx, p)
-	if cell, _ := x.Cell(ctx, cid); cell.State != objects.StateGrading {
+	if cell, _ := x.Cell(ctx, cid); cell.State != objects.CellGrading {
 		t.Fatalf("the cell of a trial with gradings is %s", cell.State)
 	}
 	if got, _ := x.Trial(ctx, trial.ID); len(got.Checks) != 1 || len(got.Judgments) != 1 || !strings.Contains(string(got.Judgments[0]), "pending") {
@@ -87,15 +87,15 @@ func TestGradingsRunInOrderAndEndOnce(t *testing.T) {
 	if len(due) != 1 || due[0].Attempts != 3 {
 		t.Fatalf("a grading put off: %+v", due)
 	}
-	run := objects.CheckRun{Grader: checkDigest, State: objects.CheckOK}
-	if err := g.End(ctx, store.GradingEnd{ID: due[0].ID, State: objects.CheckOK, Record: run, Values: []store.Measured{{Metric: gradedValue, Value: true}}}); err != nil {
+	run := objects.CheckRun{Grader: checkDigest, State: objects.GradingOK}
+	if err := g.End(ctx, store.GradingEnd{ID: due[0].ID, State: objects.GradingOK, Record: run, Values: []store.Measured{{Metric: gradedValue, Value: true}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.End(ctx, store.GradingEnd{ID: due[0].ID, State: objects.CheckError, Record: run}); err != nil {
+	if err := g.End(ctx, store.GradingEnd{ID: due[0].ID, State: objects.GradingError, Record: run}); err != nil {
 		t.Fatal(err)
 	}
 	list, err := g.OfTrials(ctx, []string{trial.ID})
-	if err != nil || len(list) != 2 || list[0].State != objects.CheckOK || !strings.Contains(string(list[0].Record), `"generation": 1`) {
+	if err != nil || len(list) != 2 || list[0].State != objects.GradingOK || !strings.Contains(string(list[0].Record), `"generation": 1`) {
 		t.Fatalf("the check after its end, and an end again: %+v %v", list, err)
 	}
 	ms, _ := x.MeasurementsOf(ctx, []string{trial.ID})
@@ -110,12 +110,12 @@ func TestGradingsRunInOrderAndEndOnce(t *testing.T) {
 	if len(due) != 1 || due[0].Grader != judgeDigest {
 		t.Fatalf("the judge after the check ended: %+v", due)
 	}
-	if err := g.End(ctx, store.GradingEnd{ID: due[0].ID, State: objects.JudgmentRefused, Record: objects.Judgment{Grader: judgeDigest, State: objects.JudgmentRefused}}); err != nil {
+	if err := g.End(ctx, store.GradingEnd{ID: due[0].ID, State: objects.GradingRefused, Record: objects.Judgment{Grader: judgeDigest, State: objects.GradingRefused}}); err != nil {
 		t.Fatal(err)
 	}
 	cell, _ := x.Cell(ctx, cid)
 	exp, _ := x.Get(ctx, eid)
-	if cell.State != objects.StateComplete || exp.State != objects.StateComplete {
+	if cell.State != objects.CellComplete || exp.State != objects.ExperimentComplete {
 		t.Fatalf("after every grading ended: cell %s, experiment %s", cell.State, exp.State)
 	}
 	if err := g.HoldKey(ctx, eid, judgeDigest, "key-1"); err != nil {
@@ -155,7 +155,7 @@ func TestACancelEndsOpenGradings(t *testing.T) {
 	}
 	list, _ := g.OfTrials(ctx, []string{trial.ID})
 	var rec map[string]any
-	if err := json.Unmarshal(list[1].Record, &rec); err != nil || list[1].State != objects.CheckNotRun || !strings.Contains(rec["reason"].(string), "canceled") {
+	if err := json.Unmarshal(list[1].Record, &rec); err != nil || list[1].State != objects.GradingNotRun || !strings.Contains(rec["reason"].(string), "canceled") {
 		t.Fatalf("a canceled experiment's gradings: %+v %v", list, err)
 	}
 	if due, _ := g.Due(ctx, 10); len(due) != 0 {
@@ -164,13 +164,13 @@ func TestACancelEndsOpenGradings(t *testing.T) {
 
 	_, cid, trial := w.gradedTrial(ctx, p)
 	list, _ = g.OfTrials(ctx, []string{trial.ID})
-	if err := g.End(ctx, store.GradingEnd{ID: list[1].ID, State: objects.JudgmentOverBudget, Record: objects.Judgment{State: objects.JudgmentOverBudget},
-		Park: objects.StateOverBudget, ParkReason: "budget_exhausted: judge"}); err != nil {
+	if err := g.End(ctx, store.GradingEnd{ID: list[1].ID, State: objects.GradingOverBudget, Record: objects.Judgment{State: objects.GradingOverBudget},
+		Park: objects.CellOverBudget, ParkReason: "budget_exhausted: judge"}); err != nil {
 		t.Fatal(err)
 	}
 	cell, _ := x.Cell(ctx, cid)
 	list, _ = g.OfTrials(ctx, []string{trial.ID})
-	if cell.State != objects.StateOverBudget || cell.ParkedReason != "budget_exhausted: judge" || list[0].State != objects.CheckNotRun {
+	if cell.State != objects.CellOverBudget || cell.ParkedReason != "budget_exhausted: judge" || list[0].State != objects.GradingNotRun {
 		t.Fatalf("a spend refusal: cell %s %q, check %s", cell.State, cell.ParkedReason, list[0].State)
 	}
 }
@@ -214,7 +214,7 @@ func TestAGradingsEndFailsWhole(t *testing.T) {
 			t.Fatal(err)
 		}
 		return func() error {
-			return g.End(ctx, store.GradingEnd{ID: list[0].ID, State: objects.CheckOK, Record: objects.CheckRun{State: objects.CheckOK},
+			return g.End(ctx, store.GradingEnd{ID: list[0].ID, State: objects.GradingOK, Record: objects.CheckRun{State: objects.GradingOK},
 				Values: []store.Measured{{Metric: gradedValue, Value: 1.0}}})
 		}
 	})
@@ -228,8 +228,8 @@ func TestAGradingsEndFailsWhole(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, end := range []store.GradingEnd{
-		{ID: list[0].ID, State: objects.CheckOK, Record: math.NaN()},
-		{ID: list[0].ID, State: objects.CheckOK, Record: "no object", Values: []store.Measured{{Metric: gradedValue, Value: 1.0}}},
+		{ID: list[0].ID, State: objects.GradingOK, Record: math.NaN()},
+		{ID: list[0].ID, State: objects.GradingOK, Record: "no object", Values: []store.Measured{{Metric: gradedValue, Value: 1.0}}},
 	} {
 		if err := g.End(ctx, end); err == nil || !strings.Contains(err.Error(), "rendering a grading's record") {
 			t.Fatalf("a record that does not render: %v", err)

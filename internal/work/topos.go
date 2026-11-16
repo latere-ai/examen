@@ -115,7 +115,7 @@ func (e *Engine) toposExperiment(ctx context.Context, eid string) error {
 	if exp.Finished() {
 		return errors.Join(errs...)
 	}
-	running, err := x.Trials(ctx, eid, store.TrialFilter{Cells: ids(toposCells), State: objects.StateRunning}, store.Page{Limit: limits.MaxParallelism})
+	running, err := x.Trials(ctx, eid, store.TrialFilter{Cells: ids(toposCells), State: string(objects.TrialRunning)}, store.Page{Limit: limits.MaxParallelism})
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (e *Engine) toposExperiment(ctx context.Context, eid string) error {
 	// allows, start.
 	var open []objects.Cell
 	for _, c := range toposCells {
-		if !objects.Parked(c.State) && c.State != objects.StateComplete {
+		if !objects.Parked(c.State) && c.State != objects.CellComplete {
 			open = append(open, c)
 		}
 	}
@@ -207,9 +207,9 @@ func (e *Engine) refusal(ctx context.Context, cell string, err error) (bool, err
 	var core *topos.RefusedError
 	switch {
 	case errors.As(err, &mint):
-		return true, e.Store.Experiments().Park(ctx, cell, objects.StateBlocked, mint.Reason)
+		return true, e.Store.Experiments().Park(ctx, cell, objects.CellBlocked, mint.Reason)
 	case errors.As(err, &core):
-		return true, e.Store.Experiments().Park(ctx, cell, objects.StateBlocked, "topos_refused: "+cmpOr(core.Code, strconv.Itoa(core.Status)))
+		return true, e.Store.Experiments().Park(ctx, cell, objects.CellBlocked, "topos_refused: "+cmpOr(core.Code, strconv.Itoa(core.Status)))
 	case errors.Is(err, tokens.ErrUnavailable), errors.Is(err, topos.ErrUnavailable):
 		e.log().WarnContext(ctx, "the minter or Topos did not answer; the run waits", "cell", cell, "error", apierr.LogText(err))
 		return true, nil
@@ -520,14 +520,14 @@ func (e *Engine) stopRun(ctx context.Context, exp objects.Experiment, t objects.
 func (e *Engine) allowed(ctx context.Context, exp objects.Experiment, cells []objects.Cell, executor string) ([]string, error) {
 	var out []string
 	for _, c := range cells {
-		allow, err := e.run(ctx, exp.ID, exp.Owner, exp.CreatedBy, exp.State, exp.Budget.Name, c.ID, executor)
+		allow, err := e.run(ctx, exp.ID, exp.Owner, exp.CreatedBy, string(exp.State), exp.Budget.Name, c.ID, executor)
 		switch {
 		case errors.Is(err, access.ErrUnavailable):
 			e.log().WarnContext(ctx, "the authorizer gave no decision on a cell's trials; they wait", "experiment", exp.ID, "cell", c.ID, "error", apierr.LogText(err))
 		case err != nil:
 			return nil, err
 		case !allow:
-			if err := e.Store.Experiments().Park(ctx, c.ID, objects.StateCanceled, ReasonRunDenied); err != nil {
+			if err := e.Store.Experiments().Park(ctx, c.ID, objects.CellCanceled, ReasonRunDenied); err != nil {
 				return nil, err
 			}
 		default:

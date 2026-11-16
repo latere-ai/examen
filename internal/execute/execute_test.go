@@ -105,7 +105,7 @@ func TestBefore(t *testing.T) {
 }
 
 // trial builds a trial of a rollout.
-func trial(id string, index int, rollout, state, outcome string) objects.Trial {
+func trial(id string, index int, rollout string, state objects.TrialState, outcome string) objects.Trial {
 	return objects.Trial{ID: id, Index: index, Rollout: rollout, State: state, Outcome: outcome}
 }
 
@@ -116,10 +116,10 @@ func submitted(key, kind string) objects.Rollout {
 }
 
 func TestSmokePassesAndQueuesMain(t *testing.T) {
-	smokeTrial := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted)
-	c := Cell{ID: "c", State: objects.StateSmoking, N: 3, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{smokeTrial}}
+	smokeTrial := trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeCompleted)
+	c := Cell{ID: "c", State: objects.CellSmoking, N: 3, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{smokeTrial}}
 	s := Advance(c, smokeTrial)
-	if s.State != objects.StateRunning || !slices.Equal(s.Ended, []string{"c.smoke"}) || len(s.Queue) != 1 {
+	if s.State != objects.CellRunning || !slices.Equal(s.Ended, []string{"c.smoke"}) || len(s.Queue) != 1 {
 		t.Fatalf("%+v", s)
 	}
 	main := s.Queue[0]
@@ -131,20 +131,20 @@ func TestSmokePassesAndQueuesMain(t *testing.T) {
 	}
 	// N within the smoke trials: the cell completes.
 	c.N = 1
-	if s := Advance(c, smokeTrial); s.State != objects.StateComplete || len(s.Queue) != 0 {
+	if s := Advance(c, smokeTrial); s.State != objects.CellComplete || len(s.Queue) != 0 {
 		t.Fatalf("one trial: %+v", s)
 	}
 	// A smoke trial still running holds the cell.
-	c.N, c.Trials = 3, []objects.Trial{trial("t1", 0, "c.smoke", objects.StateRunning, "")}
+	c.N, c.Trials = 3, []objects.Trial{trial("t1", 0, "c.smoke", objects.TrialRunning, "")}
 	if s := Advance(c, smokeTrial); s.Changed() {
 		t.Fatalf("waiting: %+v", s)
 	}
 }
 
 func TestInfraFailuresRetryThenBlock(t *testing.T) {
-	failed := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeInfraFailed)
+	failed := trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeInfraFailed)
 	failed.Failure = &objects.Failure{Code: "harness_crashed"}
-	c := Cell{ID: "c", State: objects.StateSmoking, N: 3, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{failed}}
+	c := Cell{ID: "c", State: objects.CellSmoking, N: 3, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{failed}}
 	s := Advance(c, failed)
 	if s.State != "" || len(s.Queue) != 1 || s.Queue[0].Rollout.Key != "c.retry.1" || !s.Queue[0].Trials[0].Auto || s.Queue[0].Trials[0].RetryOf != "t1" || !slices.Equal(s.Retried, []string{"t1"}) {
 		t.Fatalf("the first retry: %+v", s)
@@ -156,7 +156,7 @@ func TestInfraFailuresRetryThenBlock(t *testing.T) {
 	chain[0] = failed
 	prev := "t1"
 	for i := range limits.MaxInfraRetries {
-		r := trial("t"+string(rune('2'+i)), 0, "c.retry."+string(rune('1'+i)), objects.StateDone, objects.OutcomeInfraFailed)
+		r := trial("t"+string(rune('2'+i)), 0, "c.retry."+string(rune('1'+i)), objects.TrialDone, objects.OutcomeInfraFailed)
 		r.RetryOf, r.AutoRetry, r.Failure = prev, true, &objects.Failure{Code: "harness_crashed"}
 		if i < limits.MaxInfraRetries-1 {
 			r.Retried = true
@@ -172,9 +172,9 @@ func TestInfraFailuresRetryThenBlock(t *testing.T) {
 			rollouts[len(rollouts)-1].State = objects.RolloutEnded
 		}
 	}
-	c = Cell{ID: "c", State: objects.StateSmoking, N: 3, Rollouts: rollouts, Trials: chain}
+	c = Cell{ID: "c", State: objects.CellSmoking, N: 3, Rollouts: rollouts, Trials: chain}
 	s = Advance(c, chain[len(chain)-1])
-	if s.State != objects.StateBlocked || len(s.Queue) != 0 || s.Reason != "smoke_infra_failed: "+prev+": harness_crashed" {
+	if s.State != objects.CellBlocked || len(s.Queue) != 0 || s.Reason != "smoke_infra_failed: "+prev+": harness_crashed" {
 		t.Fatalf("blocked: %+v", s)
 	}
 }
@@ -192,7 +192,7 @@ func noMachineChain(n int) (Cell, objects.Trial) {
 			key = "c.retry." + strconv.Itoa(i)
 			rollouts = append(rollouts, submitted(key, objects.RolloutRetry))
 		}
-		tr := trial("t"+strconv.Itoa(100+i), 0, key, objects.StateDone, objects.OutcomeInfraFailed)
+		tr := trial("t"+strconv.Itoa(100+i), 0, key, objects.TrialDone, objects.OutcomeInfraFailed)
 		tr.RetryOf, tr.AutoRetry, tr.Failure = prev, i > 0, &objects.Failure{Code: objects.CodeMachineUnavailable}
 		if i < n-1 {
 			tr.Retried = true
@@ -201,7 +201,7 @@ func noMachineChain(n int) (Cell, objects.Trial) {
 		chain = append(chain, tr)
 		prev = tr.ID
 	}
-	return Cell{ID: "c", State: objects.StateSmoking, N: 1, Rollouts: rollouts, Trials: chain}, chain[n-1]
+	return Cell{ID: "c", State: objects.CellSmoking, N: 1, Rollouts: rollouts, Trials: chain}, chain[n-1]
 }
 
 // TestANoMachineRunWaitsWithoutSpendingRetries: a run that found no
@@ -220,7 +220,7 @@ func TestANoMachineRunWaitsWithoutSpendingRetries(t *testing.T) {
 			}
 			continue
 		}
-		if s.State != objects.StateBlocked || len(s.Queue) != 0 || s.Reason != "smoke_infra_failed: "+last.ID+": "+objects.CodeMachineUnavailable {
+		if s.State != objects.CellBlocked || len(s.Queue) != 0 || s.Reason != "smoke_infra_failed: "+last.ID+": "+objects.CodeMachineUnavailable {
 			t.Fatalf("run %d past every wait and retry: %+v, want blocked", n, s)
 		}
 	}
@@ -232,12 +232,12 @@ func TestANoMachineRunWaitsWithoutSpendingRetries(t *testing.T) {
 	if r := RetriesOf(last, byID); r != (Retries{Waits: limits.MaxMachineWaits}) {
 		t.Fatalf("a chain of waits spent %+v", r)
 	}
-	crashed := trial("t999", 0, "c.retry.x", objects.StateDone, objects.OutcomeInfraFailed)
+	crashed := trial("t999", 0, "c.retry.x", objects.TrialDone, objects.OutcomeInfraFailed)
 	crashed.RetryOf, crashed.AutoRetry, crashed.Failure = c.Trials[1].ID, true, &objects.Failure{Code: "harness_crashed"}
 	if r := RetriesOf(crashed, byID); r != (Retries{Waits: 2}) {
 		t.Fatalf("a crash after a wait counts %+v, want the waits before it", r)
 	}
-	orphan := trial("t998", 0, "c.retry.y", objects.StateDone, objects.OutcomeInfraFailed)
+	orphan := trial("t998", 0, "c.retry.y", objects.TrialDone, objects.OutcomeInfraFailed)
 	orphan.RetryOf, orphan.AutoRetry = "t_gone", true
 	if r := RetriesOf(orphan, byID); r != (Retries{Infra: 1}) {
 		t.Fatalf("a retry of a trial the cell does not hold counts %+v", r)
@@ -251,35 +251,35 @@ func TestANoMachineRunWaitsWithoutSpendingRetries(t *testing.T) {
 
 func TestRunningCellCompletes(t *testing.T) {
 	done := []objects.Trial{
-		trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted),
-		trial("t2", 1, "c.main", objects.StateDone, objects.OutcomeTimedOut),
-		trial("t3", 2, "c.main", objects.StateDone, objects.OutcomeDeclined),
+		trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeCompleted),
+		trial("t2", 1, "c.main", objects.TrialDone, objects.OutcomeTimedOut),
+		trial("t3", 2, "c.main", objects.TrialDone, objects.OutcomeDeclined),
 	}
 	ended := rollout("c.smoke", objects.RolloutSmoke, objects.ExecutorExternal)
 	ended.State = objects.RolloutEnded
-	c := Cell{ID: "c", State: objects.StateRunning, N: 3, Rollouts: []objects.Rollout{ended, submitted("c.main", objects.RolloutMain)}, Trials: done}
-	if s := Advance(c, done[2]); s.State != objects.StateComplete || !slices.Equal(s.Ended, []string{"c.main"}) {
+	c := Cell{ID: "c", State: objects.CellRunning, N: 3, Rollouts: []objects.Rollout{ended, submitted("c.main", objects.RolloutMain)}, Trials: done}
+	if s := Advance(c, done[2]); s.State != objects.CellComplete || !slices.Equal(s.Ended, []string{"c.main"}) {
 		t.Fatalf("%+v", s)
 	}
-	c.Trials = append(done[:2:2], trial("t3", 2, "c.main", objects.StateRunning, ""))
+	c.Trials = append(done[:2:2], trial("t3", 2, "c.main", objects.TrialRunning, ""))
 	if s := Advance(c, done[1]); s.State != "" || len(s.Ended) != 0 {
 		t.Fatalf("an open main: %+v", s)
 	}
 	// A parked or complete cell does nothing.
-	c.State = objects.StateComplete
+	c.State = objects.CellComplete
 	if s := Advance(c, done[1]); s.Changed() {
 		t.Fatalf("complete: %+v", s)
 	}
 }
 
 func TestOverBudgetParks(t *testing.T) {
-	spent := trial("t2", 1, "c.main", objects.StateDone, objects.OutcomeOverBudget)
+	spent := trial("t2", 1, "c.main", objects.TrialDone, objects.OutcomeOverBudget)
 	spent.Failure = &objects.Failure{Code: "budget_exhausted"}
 	ended := rollout("c.smoke", objects.RolloutSmoke, objects.ExecutorExternal)
 	ended.State = objects.RolloutEnded
-	c := Cell{ID: "c", State: objects.StateRunning, N: 3, Rollouts: []objects.Rollout{ended, submitted("c.main", objects.RolloutMain)}, Trials: []objects.Trial{spent}}
+	c := Cell{ID: "c", State: objects.CellRunning, N: 3, Rollouts: []objects.Rollout{ended, submitted("c.main", objects.RolloutMain)}, Trials: []objects.Trial{spent}}
 	s := Advance(c, spent)
-	if s.State != objects.StateOverBudget || !s.CancelOpen || !slices.Equal(s.Ended, []string{"c.main"}) || s.Reason != "budget_exhausted: t2: budget_exhausted" {
+	if s.State != objects.CellOverBudget || !s.CancelOpen || !slices.Equal(s.Ended, []string{"c.main"}) || s.Reason != "budget_exhausted: t2: budget_exhausted" {
 		t.Fatalf("%+v", s)
 	}
 	spent.Failure = nil
@@ -289,32 +289,32 @@ func TestOverBudgetParks(t *testing.T) {
 }
 
 func TestRetryOfAParkedCell(t *testing.T) {
-	failed := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeInfraFailed)
-	blocked := Cell{ID: "c", State: objects.StateBlocked, N: 3, Rollouts: []objects.Rollout{rollout("c.smoke", objects.RolloutSmoke, objects.ExecutorExternal)}, Trials: []objects.Trial{failed}}
+	failed := trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeInfraFailed)
+	blocked := Cell{ID: "c", State: objects.CellBlocked, N: 3, Rollouts: []objects.Rollout{rollout("c.smoke", objects.RolloutSmoke, objects.ExecutorExternal)}, Trials: []objects.Trial{failed}}
 	s, ok := Retry(blocked)
-	if !ok || s.State != objects.StateSmoking || s.Queue[0].Rollout.Key != "c.smoke.1" || s.Queue[0].Trials[0].RetryOf != "t1" || s.Queue[0].Trials[0].Auto {
+	if !ok || s.State != objects.CellSmoking || s.Queue[0].Rollout.Key != "c.smoke.1" || s.Queue[0].Trials[0].RetryOf != "t1" || s.Queue[0].Trials[0].Auto {
 		t.Fatalf("smoke again: %+v", s)
 	}
 	// A cell parked after its smoke runs again each index without a
 	// finished trial.
-	parked := Cell{ID: "c", State: objects.StateOverBudget, N: 3,
+	parked := Cell{ID: "c", State: objects.CellOverBudget, N: 3,
 		Rollouts: []objects.Rollout{rollout("c.smoke", objects.RolloutSmoke, objects.ExecutorExternal), rollout("c.main", objects.RolloutMain, objects.ExecutorExternal)},
 		Trials: []objects.Trial{
-			trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted),
-			trial("t2", 1, "c.main", objects.StateDone, objects.OutcomeOverBudget),
-			trial("t3", 2, "c.main", objects.StateDone, objects.OutcomeCanceled),
+			trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeCompleted),
+			trial("t2", 1, "c.main", objects.TrialDone, objects.OutcomeOverBudget),
+			trial("t3", 2, "c.main", objects.TrialDone, objects.OutcomeCanceled),
 		}}
 	s, ok = Retry(parked)
-	if !ok || s.State != objects.StateRunning || s.Queue[0].Rollout.Key != "c.retry.1" || len(s.Queue[0].Trials) != 2 || !slices.Equal(s.Retried, []string{"t2", "t3"}) {
+	if !ok || s.State != objects.CellRunning || s.Queue[0].Rollout.Key != "c.retry.1" || len(s.Queue[0].Trials) != 2 || !slices.Equal(s.Retried, []string{"t2", "t3"}) {
 		t.Fatalf("after smoke: %+v", s)
 	}
 	// Nothing left to run completes the cell.
 	parked.Trials = parked.Trials[:1]
 	parked.N = 1
-	if s, ok = Retry(parked); !ok || s.State != objects.StateComplete || len(s.Queue) != 0 {
+	if s, ok = Retry(parked); !ok || s.State != objects.CellComplete || len(s.Queue) != 0 {
 		t.Fatalf("nothing left: %+v", s)
 	}
-	if _, ok := Retry(Cell{State: objects.StateRunning}); ok {
+	if _, ok := Retry(Cell{State: objects.CellRunning}); ok {
 		t.Fatal("a running cell is not parked")
 	}
 	if r := Smoke("c", 5, objects.ExecutorExternal); r.Rollout.Key != "c.smoke" || len(r.Trials) != limits.SmokeTrials {
@@ -332,17 +332,17 @@ func TestRolloutsKeepTheCellsExecutor(t *testing.T) {
 	}
 	sub := smoke.Rollout
 	sub.State = objects.RolloutSubmitted
-	failed := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeInfraFailed)
-	s := Advance(Cell{ID: "c", State: objects.StateSmoking, N: 3, Rollouts: []objects.Rollout{sub}, Trials: []objects.Trial{failed}}, failed)
+	failed := trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeInfraFailed)
+	s := Advance(Cell{ID: "c", State: objects.CellSmoking, N: 3, Rollouts: []objects.Rollout{sub}, Trials: []objects.Trial{failed}}, failed)
 	if len(s.Queue) != 1 || s.Queue[0].Rollout.Executor != objects.ExecutorTopos {
 		t.Fatalf("the retry of a topos cell: %+v", s.Queue)
 	}
-	done := trial("t2", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted)
-	s = Advance(Cell{ID: "c", State: objects.StateSmoking, N: 3, Rollouts: []objects.Rollout{sub}, Trials: []objects.Trial{done}}, done)
+	done := trial("t2", 0, "c.smoke", objects.TrialDone, objects.OutcomeCompleted)
+	s = Advance(Cell{ID: "c", State: objects.CellSmoking, N: 3, Rollouts: []objects.Rollout{sub}, Trials: []objects.Trial{done}}, done)
 	if len(s.Queue) != 1 || s.Queue[0].Rollout.Kind != objects.RolloutMain || s.Queue[0].Rollout.Executor != objects.ExecutorTopos {
 		t.Fatalf("the main rollout of a topos cell: %+v", s.Queue)
 	}
-	r, ok := Retry(Cell{ID: "c", State: objects.StateBlocked, N: 3, Rollouts: []objects.Rollout{sub}, Trials: []objects.Trial{failed}})
+	r, ok := Retry(Cell{ID: "c", State: objects.CellBlocked, N: 3, Rollouts: []objects.Rollout{sub}, Trials: []objects.Trial{failed}})
 	if !ok || len(r.Queue) != 1 || r.Queue[0].Rollout.Executor != objects.ExecutorTopos {
 		t.Fatalf("a retry of a topos cell: %+v", r.Queue)
 	}
@@ -356,25 +356,25 @@ func TestRolloutsKeepTheCellsExecutor(t *testing.T) {
 // check that could not do its job on a smoke trial blocks the cell, so the
 // main rollout spends nothing on checks that would fail the same way.
 func TestSmokeChecksGateTheCell(t *testing.T) {
-	smokeTrial := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted)
-	c := Cell{ID: "c", State: objects.StateSmoking, N: 3, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{smokeTrial},
+	smokeTrial := trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeCompleted)
+	c := Cell{ID: "c", State: objects.CellSmoking, N: 3, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{smokeTrial},
 		Ungraded: map[string]bool{"t1": true}, Checking: map[string]bool{"t1": true}}
 	// A cell of smoke trials alone has no main rollout to hold, and grades.
 	one := c
 	one.N = 1
-	if s := Advance(one, smokeTrial); s.State != objects.StateGrading {
+	if s := Advance(one, smokeTrial); s.State != objects.CellGrading {
 		t.Fatalf("one trial with its checks open: %+v", s)
 	}
 	if s := Advance(c, smokeTrial); len(s.Queue) != 0 || s.State != "" {
 		t.Fatalf("the main rollout went ahead of the smoke trial's checks: %+v", s)
 	}
 	c.Checking, c.CheckFailed = nil, map[string]string{"t1": "sha256:run: not_runnable"}
-	if s := Graded(c); s.State != objects.StateBlocked || s.Reason != "smoke_check_failed: t1: sha256:run: not_runnable" {
+	if s := Graded(c); s.State != objects.CellBlocked || s.Reason != "smoke_check_failed: t1: sha256:run: not_runnable" {
 		t.Fatalf("a smoke check that could not run: %+v", s)
 	}
 	// A judgment still open holds no main rollout: only checks gate.
 	c.CheckFailed = nil
-	if s := Graded(c); s.State != objects.StateRunning || len(s.Queue) != 1 {
+	if s := Graded(c); s.State != objects.CellRunning || len(s.Queue) != 1 {
 		t.Fatalf("checks done, a judgment open: %+v", s)
 	}
 }
@@ -383,20 +383,20 @@ func TestSmokeChecksGateTheCell(t *testing.T) {
 // done is grading while a check run or a judgment of them is open, and
 // complete once every one ended.
 func TestACellIsGradingUntilEveryGradingEnds(t *testing.T) {
-	done := trial("t1", 0, "c.smoke", objects.StateDone, objects.OutcomeCompleted)
-	c := Cell{ID: "c", State: objects.StateSmoking, N: 1, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{done},
+	done := trial("t1", 0, "c.smoke", objects.TrialDone, objects.OutcomeCompleted)
+	c := Cell{ID: "c", State: objects.CellSmoking, N: 1, Rollouts: []objects.Rollout{submitted("c.smoke", objects.RolloutSmoke)}, Trials: []objects.Trial{done},
 		Ungraded: map[string]bool{"t1": true}}
-	if s := Advance(c, done); s.State != objects.StateGrading {
+	if s := Advance(c, done); s.State != objects.CellGrading {
 		t.Fatalf("an ungraded cell: %+v", s)
 	}
 	ended := rollout("c.smoke", objects.RolloutSmoke, objects.ExecutorTopos)
 	ended.State = objects.RolloutEnded
-	c.State, c.Rollouts = objects.StateGrading, []objects.Rollout{ended}
+	c.State, c.Rollouts = objects.CellGrading, []objects.Rollout{ended}
 	if s := Graded(c); s.Changed() {
 		t.Fatalf("still grading: %+v", s)
 	}
 	c.Ungraded = nil
-	if s := Graded(c); s.State != objects.StateComplete {
+	if s := Graded(c); s.State != objects.CellComplete {
 		t.Fatalf("every grading ended: %+v", s)
 	}
 }

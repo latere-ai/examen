@@ -80,12 +80,12 @@ func labelWorld(t *testing.T) *world {
 		for _, task := range []string{taskA, taskB} {
 			cell := fmt.Sprintf("cel_lab_%s_%s", c.label, task[len("sha256:"):])
 			w.x.cells["exp_lab"] = append(w.x.cells["exp_lab"], objects.Cell{ID: cell, Experiment: "exp_lab", Task: task, Candidate: c.cand,
-				Tuple: objects.Tuple{CandidateKind: objects.CandidateExternal, Model: c.label, TaskHash: task}, State: objects.StateComplete})
+				Tuple: objects.Tuple{CandidateKind: objects.CandidateExternal, Model: c.label, TaskHash: task}, State: objects.CellComplete})
 			for i := range 6 {
 				at := start.Add(time.Duration(i) * time.Minute)
 				end := at.Add(30 * time.Second)
 				id := fmt.Sprintf("tri_%s_%d", cell, i)
-				w.x.trials["exp_lab"] = append(w.x.trials["exp_lab"], objects.Trial{ID: id, Cell: cell, State: objects.StateDone, Outcome: objects.OutcomeCompleted,
+				w.x.trials["exp_lab"] = append(w.x.trials["exp_lab"], objects.Trial{ID: id, Cell: cell, State: objects.TrialDone, Outcome: objects.OutcomeCompleted,
 					StartedAt: &at, EndedAt: &end, Observed: objects.Observed{CostState: objects.CostUnknown}})
 				w.x.ms = append(w.x.ms, objects.Measurement{ID: "msr_" + id, Experiment: "exp_lab", Trial: id, Metric: kind, Grader: judge, Generation: 1, Value: c.label})
 			}

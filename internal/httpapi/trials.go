@@ -803,9 +803,9 @@ func (s *Server) lease(w http.ResponseWriter, r *http.Request, c access.Caller) 
 	case candidate != "" && cand.Kind != objects.CandidateExternal:
 		return apierr.OnField(apierr.CodeInvalidField, "candidate", "trials are leased of a candidate of kind external alone")
 	case e.Mode == objects.ModeImport:
-		return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "lease: the experiment is in mode import, whose trials are imported", State: e.State}
+		return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "lease: the experiment is in mode import, whose trials are imported", State: string(e.State)}
 	case e.Finished():
-		return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "lease: the experiment is " + e.State, State: e.State}
+		return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "lease: the experiment is " + string(e.State), State: string(e.State)}
 	}
 	// The Key is asked for before any trial is taken, so a key source that
 	// refuses or does not answer leases nothing.

@@ -75,10 +75,10 @@ func TestNamesAndRefs(t *testing.T) {
 			t.Errorf("%s has no prefix", k)
 		}
 	}
-	if len(Outcomes()) != 7 || len(ExperimentStates()) != 5 || len(CellStates()) != 8 || len(TrialStates()) != 4 {
+	if len(Outcomes()) != 7 || len(ExperimentTable.States()) != 5 || len(CellTable.States()) != 8 || len(TrialTable.States()) != 3 {
 		t.Fatal("the enumerations")
 	}
-	if !Excluded(OutcomeCanceled) || Excluded(OutcomeTimedOut) || !Parked(StateBlocked) || Parked(StateRunning) {
+	if !Excluded(OutcomeCanceled) || Excluded(OutcomeTimedOut) || !Parked(CellBlocked) || Parked(CellRunning) {
 		t.Fatal("excluded and parked")
 	}
 	expect(t, "metadata", ValidateMetadata("metadata", map[string]string{"examen.x": "1"}), apierr.CodeInvalidField, "metadata.examen.x")
@@ -709,10 +709,10 @@ func TestValuesAndCurrent(t *testing.T) {
 	if b := BuiltinValues(Trial{Outcome: OutcomeTimedOut}); b[BuiltinDigest(MetricCompleted)] != false || len(b) != 1 {
 		t.Fatalf("a trial with no times %v", b)
 	}
-	if !(Trial{State: StateDone, Outcome: OutcomeCompleted}).Finished() || (Trial{State: StateDone, Outcome: OutcomeCompleted, Retried: true}).Finished() {
+	if !(Trial{State: TrialDone, Outcome: OutcomeCompleted}).Finished() || (Trial{State: TrialDone, Outcome: OutcomeCompleted, Retried: true}).Finished() {
 		t.Fatal("finished")
 	}
-	if !Sink(EventCellParked) || Sink(EventTrial) || !(Experiment{State: StateCanceled}).Finished() {
+	if !Sink(EventCellParked) || Sink(EventTrial) || !(Experiment{State: ExperimentCanceled}).Finished() {
 		t.Fatal("sink and finished")
 	}
 }

@@ -124,7 +124,7 @@ func jbTrial(i int) objects.Trial {
 	sz := int64(2048)
 	return objects.Trial{
 		ID: fmt.Sprintf("tri_%016x", i), Owner: "usr_01JC8M2Q4V7Y", Experiment: "exp_01JC8M2Q4V7Y", Cell: fmt.Sprintf("cel_%016x", i/5), Index: i % 5,
-		State: objects.StateDone, Outcome: objects.OutcomeCompleted,
+		State: objects.TrialDone, Outcome: objects.OutcomeCompleted,
 		Sent:     &objects.Sent{Requests: 14, BySetting: []objects.SentSetting{{Model: "anthropic/claude-haiku-5.5", Reasoning: "low", Requests: 14}}},
 		Observed: objects.Observed{CostState: objects.CostKnown, CostUSD: &cost, InputTokens: &in, OutputTokens: &out, Duration: &dur, Served: []objects.ModelCount{{Model: "anthropic/claude-haiku-5.5", Requests: 14}}},
 		Checks:   []jsontext.Value{jsontext.Value(`{"grader":"sha256:aa","state":"ok"}`)}, Judgments: []jsontext.Value{},

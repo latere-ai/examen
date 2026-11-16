@@ -18,6 +18,8 @@ import (
 	"encoding/json/v2"
 	"errors"
 	"time"
+
+	"latere.ai/x/examen/internal/objects"
 )
 
 // The purposes a Key is leased for. PurposeExternal is the one Key of an
@@ -125,7 +127,7 @@ type Record struct {
 	Provider string
 	Upstream string
 	// Status is ok, refused or failed, and Error its code.
-	Status string
+	Status objects.UsageStatus
 	Error  string
 	Tokens Tokens
 	// Cost is in micro-units of Currency; Priced is false when Lux could
@@ -135,13 +137,6 @@ type Record struct {
 	Priced   bool
 	Raw      jsontext.Value
 }
-
-// The statuses of a record.
-const (
-	StatusOK      = "ok"
-	StatusRefused = "refused"
-	StatusFailed  = "failed"
-)
 
 // Served is the model that served the call: the provider's own name for
 // it, else the Lux Model's.
@@ -192,17 +187,18 @@ func ParseRecord(raw jsontext.Value) (Record, error) {
 	if err := json.Unmarshal(raw, &w); err != nil {
 		return Record{}, err
 	}
+	status, known := objects.ParseUsageStatus(w.Status)
 	switch {
 	case w.ID == "":
 		return Record{}, errors.New("a record has no id")
 	case w.At.IsZero():
 		return Record{}, errors.New("a record has no time")
-	case w.Status != StatusOK && w.Status != StatusRefused && w.Status != StatusFailed:
+	case !known:
 		return Record{}, errors.New("a record's status is " + w.Status)
 	}
 	return Record{
 		RequestID: w.ID, At: w.At.UTC(), Labels: w.RequestLabels, SentModel: w.Model.Name,
-		Provider: w.Provider.Name, Upstream: w.UpstreamModel, Status: w.Status, Error: w.Error, Tokens: w.Tokens,
+		Provider: w.Provider.Name, Upstream: w.UpstreamModel, Status: status, Error: w.Error, Tokens: w.Tokens,
 		Cost: w.Cost.Amount, Currency: w.Cost.Currency, Priced: w.Cost.Priced, Raw: raw,
 	}, nil
 }

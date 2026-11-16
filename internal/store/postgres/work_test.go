@@ -256,7 +256,7 @@ func TestWritesFailWhole(t *testing.T) {
 	})
 	w.eachFault("park", func() func() error {
 		_, cells := w.running(ctx, p, 2)
-		return func() error { return x.Park(ctx, cells[0], objects.StateCanceled, "run_denied") }
+		return func() error { return x.Park(ctx, cells[0], objects.CellCanceled, "run_denied") }
 	})
 	importCell := func(eid string) objects.Cell {
 		return objects.Cell{Task: p.task.Digest, TaskID: p.task.ID, Candidate: p.a.Digest, CandidateID: p.a.ID}
@@ -287,7 +287,7 @@ func TestWritesFailWhole(t *testing.T) {
 	})
 	w.eachFault("retry", func() func() error {
 		eid, cells := w.running(ctx, p, 2)
-		if err := x.Park(ctx, cells[0], objects.StateBlocked, "smoke_infra_failed"); err != nil {
+		if err := x.Park(ctx, cells[0], objects.CellBlocked, "smoke_infra_failed"); err != nil {
 			t.Fatal(err)
 		}
 		_ = eid
@@ -381,7 +381,7 @@ func TestStateRefusals(t *testing.T) {
 	if err := x.SubmitRollout(ctx, id.New(id.Cell), "k"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a missing cell %v", err)
 	}
-	if err := x.Park(ctx, id.New(id.Cell), objects.StateCanceled, "x"); !errors.Is(err, store.ErrNotFound) {
+	if err := x.Park(ctx, id.New(id.Cell), objects.CellCanceled, "x"); !errors.Is(err, store.ErrNotFound) {
 		t.Fatalf("a missing cell %v", err)
 	}
 	if err := x.Computed(ctx, id.New(id.Comparison), objects.ComparisonComplete, objects.Computed{}, nil); !errors.Is(err, store.ErrNotFound) {
@@ -392,10 +392,10 @@ func TestStateRefusals(t *testing.T) {
 	if err := x.SubmitRollout(ctx, cells[0], "nope"); err != nil {
 		t.Fatal(err)
 	}
-	if err := x.Park(ctx, cells[1], objects.StateCanceled, "x"); err != nil {
+	if err := x.Park(ctx, cells[1], objects.CellCanceled, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if err := x.Park(ctx, cells[1], objects.StateBlocked, "y"); err != nil {
+	if err := x.Park(ctx, cells[1], objects.CellBlocked, "y"); err != nil {
 		t.Fatal(err)
 	}
 	if c, err := x.Cell(ctx, cells[1]); err != nil || c.ParkedReason != "x" {
@@ -613,10 +613,10 @@ func TestLapsesLeasesAndReopensFailWhole(t *testing.T) {
 		if _, err := x.Submit(ctx, store.Submission{Trial: l.Trials[0].ID, Lease: l.Lease, Subject: owner, Digest: "d", Outcome: outcome(objects.OutcomeOverBudget)}); err != nil {
 			t.Fatal(err)
 		}
-		if err := x.Park(ctx, cells[1], objects.StateBlocked, "smoke_infra_failed"); err != nil {
+		if err := x.Park(ctx, cells[1], objects.CellBlocked, "smoke_infra_failed"); err != nil {
 			t.Fatal(err)
 		}
-		if e, err := x.Get(ctx, eid); err != nil || e.State != objects.StateComplete {
+		if e, err := x.Get(ctx, eid); err != nil || e.State != objects.ExperimentComplete {
 			t.Fatalf("complete with parked cells %v %v", e.State, err)
 		}
 		return func() error { _, err := x.RetryCell(ctx, cells[1]); return err }

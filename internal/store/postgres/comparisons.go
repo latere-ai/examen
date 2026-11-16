@@ -71,6 +71,9 @@ func nullable(s string) *string {
 // insertComparison stores a comparison, dirty, so the next computation
 // reads it.
 func insertComparison(ctx context.Context, tx pgx.Tx, c objects.Comparison, now time.Time) error {
+	if err := objects.ComparisonTable.CheckStart(c.State); err != nil {
+		return fmt.Errorf("postgres: storing comparison %s: %w", c.ID, err)
+	}
 	if c.Variable == nil {
 		c.Variable = []string{}
 	}
@@ -182,12 +185,26 @@ func (x experiments) Dirty(ctx context.Context, limit int) ([]objects.Comparison
 	return collectComparisons(rows)
 }
 
-func (x experiments) Computed(ctx context.Context, cid, state string, computed objects.Computed, inputs []string) error {
+func (x experiments) Computed(ctx context.Context, cid string, state objects.ComparisonState, computed objects.Computed, inputs []string) error {
 	c, err := x.Comparison(ctx, cid)
 	if err != nil {
 		return err
 	}
 	return x.begin(ctx, c.Experiment, func(ch *change) error {
+		// The comparison is read again under its row lock in the
+		// transaction that writes its state, so the state the step is
+		// checked against is the state the write lands on. A computation
+		// that ends in the state the comparison holds stores its result
+		// and moves no state.
+		var from objects.ComparisonState
+		if err := ch.tx.QueryRow(ctx, `SELECT state FROM comparisons WHERE id = $1 FOR UPDATE`, cid).Scan(&from); err != nil {
+			return one(err, "a comparison")
+		}
+		if from != state {
+			if err := objects.ComparisonTable.Check(from, state); err != nil {
+				return fmt.Errorf("postgres: storing the results of comparison %s: %w", cid, err)
+			}
+		}
 		if state == objects.ComparisonComplete {
 			at := ch.now
 			computed.ComputedAt = &at

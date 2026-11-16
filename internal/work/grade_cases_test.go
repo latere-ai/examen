@@ -124,21 +124,21 @@ func TestCheckRunsThatFailThemselves(t *testing.T) {
 	b.grade(t)
 	list := b.gradings(t)
 	inv, run := record[objects.CheckRun](t, list[0]), record[objects.CheckRun](t, list[1])
-	if inv.State != objects.CheckNotRunnable || inv.StderrTail != "python3: not found" || run.State != objects.CheckTimedOut || !strings.Contains(run.Reason, "cut by Cella") {
+	if inv.State != objects.GradingNotRunnable || inv.StderrTail != "python3: not found" || run.State != objects.GradingTimedOut || !strings.Contains(run.Reason, "cut by Cella") {
 		t.Fatalf("the runs %+v %+v", inv, run)
 	}
 
 	b = newBench(t, st)
 	b.m.err = &tokens.RefusedError{Reason: "sign_in_not_kept"}
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "no longer acts") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "no longer acts") {
 		t.Fatalf("a sign-in that ended: %+v", run)
 	}
 
 	b = newBench(t, st)
 	b.cl.refuse = "forbidden"
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[1]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "Cella refused") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[1]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "Cella refused") {
 		t.Fatalf("a refused sandbox: %+v", run)
 	}
 }
@@ -152,11 +152,11 @@ func TestEvidenceThatChanged(t *testing.T) {
 	b.fs.put("files/conversations/"+b.stub.Sessions()[0]+"/work/game.py", []byte("print('changed')\n"))
 	b.grade(t)
 	list := b.gradings(t)
-	if run := record[objects.CheckRun](t, list[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "evidence_changed") {
+	if run := record[objects.CheckRun](t, list[0]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "evidence_changed") {
 		t.Fatalf("changed files: %+v", run)
 	}
 	b.grade(t)
-	if j := record[objects.Judgment](t, b.gradings(t)[2]); j.State != objects.JudgmentEvidenceChanged || len(b.lx.calls) != 0 {
+	if j := record[objects.Judgment](t, b.gradings(t)[2]); j.State != objects.GradingEvidenceChanged || len(b.lx.calls) != 0 {
 		t.Fatalf("a judgment over changed files: %+v", j)
 	}
 
@@ -165,7 +165,7 @@ func TestEvidenceThatChanged(t *testing.T) {
 	b.stub.Set(b.stub.Sessions()[0], "ended", "completed", topostest.Event("session.status", "", time.Date(2026, 10, 19, 12, 9, 0, 0, time.UTC), map[string]any{"status": "ended"}))
 	b.cl.answers[b.g.inventory] = cella.Result{Stdout: `{"metrics": {"entry_found": true, "size": 1}}`}
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckOK {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingOK {
 		t.Fatalf("a log that grew past its pinned event: %+v", run)
 	}
 
@@ -173,7 +173,7 @@ func TestEvidenceThatChanged(t *testing.T) {
 	b = newBench(t, st)
 	b.stub.Delete(b.stub.Sessions()[0])
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "evidence_changed") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "evidence_changed") {
 		t.Fatalf("a log that is gone: %+v", run)
 	}
 }
@@ -193,16 +193,16 @@ func TestJudgmentStatesAtLux(t *testing.T) {
 		return b, b.gradings(t)[2]
 	}
 	b, g := run(t, func(b *bench) { b.lx.status, b.lx.code = http.StatusForbidden, "model_not_allowed" })
-	if j := record[objects.Judgment](t, g); j.State != objects.JudgmentGatewayRefused || len(b.lx.calls) != 1 || j.Attempts[0].LuxRequest != "req_refused" {
+	if j := record[objects.Judgment](t, g); j.State != objects.GradingGatewayRefused || len(b.lx.calls) != 1 || j.Attempts[0].LuxRequest != "req_refused" {
 		t.Fatalf("a refused model: %+v", j)
 	}
 	b, g = run(t, func(b *bench) { b.lx.answers = []string{`{}`}; b.lx.status = 0 })
 	_ = b
-	if j := record[objects.Judgment](t, g); j.State != objects.JudgmentMalformed {
+	if j := record[objects.Judgment](t, g); j.State != objects.GradingMalformed {
 		t.Fatalf("an empty answer: %+v", j)
 	}
 	_, g = run(t, func(b *bench) { b.e.Keys.(*keys.Memory).Err = &keys.RefusedError{Reason: "plan_suspended"} })
-	if j := record[objects.Judgment](t, g); j.State != objects.JudgmentGatewayRefused || !strings.Contains(j.Reason, "plan_suspended") {
+	if j := record[objects.Judgment](t, g); j.State != objects.GradingGatewayRefused || !strings.Contains(j.Reason, "plan_suspended") {
 		t.Fatalf("a refused key: %+v", j)
 	}
 	_, g = run(t, func(b *bench) { b.e.Keys.(*keys.Memory).Err = keys.ErrUnavailable })
@@ -214,7 +214,7 @@ func TestJudgmentStatesAtLux(t *testing.T) {
 		t.Fatalf("a Lux outage ended the judgment: %+v", g)
 	}
 	_, g = run(t, func(b *bench) { b.lx.status, b.lx.code = http.StatusTooManyRequests, "spend_exceeded" })
-	if j := record[objects.Judgment](t, g); j.State != objects.JudgmentOverBudget {
+	if j := record[objects.Judgment](t, g); j.State != objects.GradingOverBudget {
 		t.Fatalf("a spend refusal on 429: %+v", j)
 	}
 	_, g = run(t, func(b *bench) { b.lx.raw = "not json" })
@@ -226,7 +226,7 @@ func TestJudgmentStatesAtLux(t *testing.T) {
 		t.Fatalf("a Lux not reached ended the judgment: %+v", g)
 	}
 	_, g = run(t, func(b *bench) { b.lx.unpriced = true })
-	if j := record[objects.Judgment](t, g); j.State != objects.JudgmentOK || j.Cost != nil || j.Attempts[0].LuxRequest != "msg_1" {
+	if j := record[objects.Judgment](t, g); j.State != objects.GradingOK || j.Cost != nil || j.Attempts[0].LuxRequest != "msg_1" {
 		t.Fatalf("an answer with no cost: %+v", j)
 	}
 }
@@ -243,7 +243,7 @@ func TestALongOutageEnds(t *testing.T) {
 			b.release(t)
 		}
 	}
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "outages") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "outages") {
 		t.Fatalf("after %d outages: %+v", gradeOutages, run)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Millisecond)
@@ -438,7 +438,7 @@ func TestTheCheckSandboxsTroubles(t *testing.T) {
 	b = newBench(t, st)
 	b.cl.put = http.StatusBadRequest
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "not written") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "not written") {
 		t.Fatalf("a refused write: %+v", run)
 	}
 	// A refusal that comes before the archive is read ends the writing of
@@ -447,7 +447,7 @@ func TestTheCheckSandboxsTroubles(t *testing.T) {
 	b = newBench(t, st)
 	b.cl.stream, b.cl.put = true, http.StatusBadRequest
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "not written") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "not written") {
 		t.Fatalf("a write refused before it was read: %+v", run)
 	}
 	b = newBench(t, st)
@@ -465,7 +465,7 @@ func TestTheCheckSandboxsTroubles(t *testing.T) {
 	b = newBench(t, st)
 	b.cl.exec = http.StatusBadRequest
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRunnable || !strings.Contains(run.Reason, "no such command") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingNotRunnable || !strings.Contains(run.Reason, "no such command") {
 		t.Fatalf("a refused command: %+v", run)
 	}
 
@@ -493,7 +493,7 @@ func TestTheCheckSandboxsTroubles(t *testing.T) {
 	}
 	b.fs.mu.Unlock()
 	b.grade(t)
-	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.CheckNotRun || !strings.Contains(run.Reason, "files_changed") {
+	if run := record[objects.CheckRun](t, b.gradings(t)[0]); run.State != objects.GradingNotRun || !strings.Contains(run.Reason, "files_changed") {
 		t.Fatalf("check files that are gone: %+v", run)
 	}
 }
@@ -509,7 +509,7 @@ func TestJudgmentsThatEndEarly(t *testing.T) {
 	b.lx.stop = "refusal"
 	b.grade(t)
 	b.grade(t)
-	if j := record[objects.Judgment](t, b.gradings(t)[2]); j.State != objects.JudgmentRefused || len(b.lx.calls) != 1 {
+	if j := record[objects.Judgment](t, b.gradings(t)[2]); j.State != objects.GradingRefused || len(b.lx.calls) != 1 {
 		t.Fatalf("a refusal: %+v after %d calls", j, len(b.lx.calls))
 	}
 	b = newBench(t, st)
@@ -517,7 +517,7 @@ func TestJudgmentsThatEndEarly(t *testing.T) {
 	b.grade(t)
 	b.e.Keys.(*keys.Memory).Err = keys.ErrBudgetExhausted
 	b.grade(t)
-	if cell, _ := st.Experiments().Cell(t.Context(), b.g.cid); cell.State != objects.StateOverBudget || len(b.lx.calls) != 0 {
+	if cell, _ := st.Experiments().Cell(t.Context(), b.g.cid); cell.State != objects.CellOverBudget || len(b.lx.calls) != 0 {
 		t.Fatalf("a key source with no budget: %s after %d calls", cell.State, len(b.lx.calls))
 	}
 }

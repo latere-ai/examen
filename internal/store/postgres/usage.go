@@ -109,6 +109,9 @@ func (u usageTable) Read(ctx context.Context, experiment string, records []store
 		}
 		touched := map[string]bool{}
 		for _, r := range records {
+			if err := objects.UsageStatusTable.CheckStart(r.Status); err != nil {
+				return fmt.Errorf("postgres: keeping usage record %s: %w", r.RequestID, err)
+			}
 			var trial *string
 			err := tx.QueryRow(ctx, keepRecord, experiment, r.RequestID, r.Label, r.At.UTC(), r.SentModel, r.Served, r.Provider, r.Status, r.Error,
 				string(r.Tokens), r.CostMicro, r.Currency, r.Priced, string(r.Record), now).Scan(&trial)

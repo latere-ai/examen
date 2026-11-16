@@ -88,7 +88,7 @@ func (e *Engine) Advance(ctx context.Context, experiment string) error {
 	}
 	var errs []error
 	for _, q := range queued {
-		allow, err := e.run(ctx, q.Experiment, q.Owner, q.CreatedBy, q.State, q.Budget, q.Cell, q.Executor)
+		allow, err := e.run(ctx, q.Experiment, q.Owner, q.CreatedBy, string(q.State), q.Budget, q.Cell, q.Executor)
 		switch {
 		case errors.Is(err, access.ErrUnavailable):
 			e.log().WarnContext(ctx, "the authorizer gave no decision on a rollout; it waits", "experiment", q.Experiment, "cell", q.Cell, "error", apierr.LogText(err))
@@ -97,7 +97,7 @@ func (e *Engine) Advance(ctx context.Context, experiment string) error {
 			errs = append(errs, err)
 			continue
 		case !allow:
-			errs = append(errs, e.Store.Experiments().Park(ctx, q.Cell, objects.StateCanceled, ReasonRunDenied))
+			errs = append(errs, e.Store.Experiments().Park(ctx, q.Cell, objects.CellCanceled, ReasonRunDenied))
 			continue
 		}
 		errs = append(errs, e.Store.Experiments().SubmitRollout(ctx, q.Cell, q.Key))

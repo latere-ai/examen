@@ -88,8 +88,8 @@ func (s *Server) pinBaseline(w http.ResponseWriter, r *http.Request, c access.Ca
 		return storeError(err, missing{apierr.CodeSuiteNotFound, suiteName})
 	}
 	switch {
-	case e.State != objects.StateComplete:
-		return &apierr.Error{Code: apierr.CodeExperimentNotComplete, Detail: "pin: the experiment is " + e.State, State: e.State}
+	case e.State != objects.ExperimentComplete:
+		return &apierr.Error{Code: apierr.CodeExperimentNotComplete, Detail: "pin: the experiment is " + string(e.State), State: string(e.State)}
 	case e.SuiteName != suiteName || e.Owner != owner:
 		return apierr.OnField(apierr.CodeSuiteMismatch, "experiment", "pin: the experiment ran a version of another suite")
 	case !slices.Contains(e.Candidates, candidate):

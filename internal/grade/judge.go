@@ -374,7 +374,7 @@ func boundaryFor(graderDigest, trial string, blocks []block) string {
 // and malformed, the values and rationales of an ok answer, and a
 // developer's reason for another.
 type Answer struct {
-	State  string
+	State  objects.GradingState
 	Values []store.Measured
 	Reason string
 }
@@ -386,7 +386,7 @@ type Answer struct {
 // null, and a rationale of at most JUDGE_MAX_RATIONALE_BYTES.
 func ReadAnswer(resp lux.Response, produces []Produced) Answer {
 	if resp.StopReason == ir.StopRefusal {
-		return Answer{State: objects.JudgmentRefused, Reason: "the response ended with a refusal"}
+		return Answer{State: objects.GradingRefused, Reason: "the response ended with a refusal"}
 	}
 	var calls []*lux.ToolUse
 	for _, b := range resp.Blocks {
@@ -451,9 +451,9 @@ func ReadAnswer(resp lux.Response, produces []Produced) Answer {
 		}
 		values = append(values, store.Measured{Metric: p.Digest, Value: stored, Rationale: *member.Rationale})
 	}
-	return Answer{State: objects.JudgmentOK, Values: values}
+	return Answer{State: objects.GradingOK, Values: values}
 }
 
 func malformed(reason string) Answer {
-	return Answer{State: objects.JudgmentMalformed, Reason: reason}
+	return Answer{State: objects.GradingMalformed, Reason: reason}
 }

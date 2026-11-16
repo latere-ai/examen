@@ -44,12 +44,12 @@ func factorWorld(t *testing.T, tasks []string, factors map[string]map[string]str
 		for ti, name := range tasks {
 			cell := fmt.Sprintf("cel_%s_%s", cand, name)
 			w.x.cells["exp_f"] = append(w.x.cells["exp_f"], objects.Cell{ID: cell, Experiment: "exp_f", Task: digests[ti], Candidate: digest,
-				Tuple: objects.Tuple{CandidateKind: objects.CandidateExternal, Model: "m-" + cand, TaskHash: digests[ti]}, State: objects.StateComplete, CandidatePos: ci, TaskPos: ti})
+				Tuple: objects.Tuple{CandidateKind: objects.CandidateExternal, Model: "m-" + cand, TaskHash: digests[ti]}, State: objects.CellComplete, CandidatePos: ci, TaskPos: ti})
 			for i, label := range values[cand][name] {
 				at := start.Add(time.Duration(i) * time.Minute)
 				end := at.Add(30 * time.Second)
 				tid := fmt.Sprintf("tri_%s_%d", cell, i)
-				w.x.trials["exp_f"] = append(w.x.trials["exp_f"], objects.Trial{ID: tid, Cell: cell, State: objects.StateDone, Outcome: objects.OutcomeCompleted,
+				w.x.trials["exp_f"] = append(w.x.trials["exp_f"], objects.Trial{ID: tid, Cell: cell, State: objects.TrialDone, Outcome: objects.OutcomeCompleted,
 					StartedAt: &at, EndedAt: &end, Observed: objects.Observed{CostState: objects.CostUnknown}})
 				w.x.ms = append(w.x.ms, objects.Measurement{ID: "msr_" + tid, Experiment: "exp_f", Trial: tid, Metric: kind, Grader: "sha256:kinds", Generation: 1, Value: string(label)})
 			}
@@ -216,7 +216,7 @@ func TestDeclaredIndependence(t *testing.T) {
 		t.Fatalf("pending %s %v", pending.Independence, err)
 	}
 	for i := range w.x.trials["exp_f"] {
-		w.x.trials["exp_f"][i].State, w.x.trials["exp_f"][i].Outcome = objects.StateRunning, ""
+		w.x.trials["exp_f"][i].State, w.x.trials["exp_f"][i].Outcome = objects.TrialRunning, ""
 	}
 	a, err = Analysis{}.Declared(t.Context(), e, nil, w.src)
 	if err != nil || a.Final || !strings.Contains(string(a.Independence), analysis.ReasonIndependenceNotComputed) {

@@ -41,7 +41,7 @@ type Call struct {
 	// Served is the model that served it.
 	Served string
 	// Status is ok, refused or failed.
-	Status   string
+	Status   objects.UsageStatus
 	Tokens   Tokens
 	Cost     int64
 	Currency string
@@ -50,7 +50,7 @@ type Call struct {
 
 // refused is a call Lux turned down before any provider served it: it
 // cost nothing, and its price is not missing.
-func (c Call) refused() bool { return c.Status == "refused" }
+func (c Call) refused() bool { return c.Status == objects.UsageRefused }
 
 // unpriced is a call that may have cost something Lux could not price.
 func (c Call) unpriced() bool { return !c.refused() && (!c.Priced || c.Currency != Currency) }

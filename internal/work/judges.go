@@ -15,7 +15,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"latere.ai/x/pkg/llmdialect/lux"
@@ -61,20 +60,20 @@ var errLuxUnavailable = errors.New("lux: unavailable")
 // tried again up to JUDGE_MAX_ATTEMPTS when it is malformed.
 func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 	rec := objects.Judgment{Grader: row.Grader, Attempts: []objects.Attempt{}, Cuts: []objects.Cut{}}
-	end := func(state, reason string) store.GradingEnd {
+	end := func(state objects.GradingState, reason string) store.GradingEnd {
 		rec.State, rec.Reason = state, reason
 		return store.GradingEnd{ID: row.ID, State: state, Record: &rec}
 	}
 	wait := func(cause error) error {
-		return e.later(ctx, row, func(reason string) store.GradingEnd { return end(objects.CheckNotRun, reason) }, cause)
+		return e.later(ctx, row, func(reason string) store.GradingEnd { return end(objects.GradingNotRun, reason) }, cause)
 	}
 	r, err := e.runOfTrial(ctx, row.Trial, tokens.PurposeJudge)
 	why, ended := signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
-		return e.Store.Gradings().End(ctx, end(objects.JudgmentEvidenceChanged, err.Error()))
+		return e.Store.Gradings().End(ctx, end(objects.GradingEvidenceChanged, err.Error()))
 	case ended:
-		return e.Store.Gradings().End(ctx, end(objects.CheckNotRun, why))
+		return e.Store.Gradings().End(ctx, end(objects.GradingNotRun, why))
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -91,7 +90,7 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 		}
 	}
 	if len(produces) == 0 || g.ModelJudge == nil {
-		return e.Store.Gradings().End(ctx, end(objects.CheckNotRun, "no metric the judge produces applies to a trial of this outcome"))
+		return e.Store.Gradings().End(ctx, end(objects.GradingNotRun, "no metric the judge produces applies to a trial of this outcome"))
 	}
 	ev, err := e.judgeEvidence(ctx, r, g.ModelJudge.Inputs)
 	var req grade.Request
@@ -104,9 +103,9 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 	why, ended = signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
-		return e.Store.Gradings().End(ctx, end(objects.JudgmentEvidenceChanged, err.Error()))
+		return e.Store.Gradings().End(ctx, end(objects.GradingEvidenceChanged, err.Error()))
 	case ended:
-		return e.Store.Gradings().End(ctx, end(objects.CheckNotRun, why))
+		return e.Store.Gradings().End(ctx, end(objects.GradingNotRun, why))
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -121,11 +120,11 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 	var refused *keys.RefusedError
 	switch {
 	case errors.Is(err, keys.ErrBudgetExhausted):
-		out := end(objects.JudgmentOverBudget, "the key source has no budget left for the judge")
-		out.Park, out.ParkReason = objects.StateOverBudget, "budget_exhausted: "+r.trial.ID+": judge "+row.Grader
+		out := end(objects.GradingOverBudget, "the key source has no budget left for the judge")
+		out.Park, out.ParkReason = objects.CellOverBudget, "budget_exhausted: "+r.trial.ID+": judge "+row.Grader
 		return e.Store.Gradings().End(ctx, out)
 	case errors.As(err, &refused):
-		return e.Store.Gradings().End(ctx, end(objects.JudgmentGatewayRefused, "the key source refused the judge's key: "+refused.Reason))
+		return e.Store.Gradings().End(ctx, end(objects.GradingGatewayRefused, "the key source refused the judge's key: "+refused.Reason))
 	case errors.Is(err, keys.ErrUnavailable):
 		return wait(err)
 	case err != nil:
@@ -145,13 +144,13 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 			// again once Lux answers.
 			return wait(err)
 		case errors.As(err, &lerr) && slices.Contains(spendCodes, lerr.code):
-			rec.Attempts = append(rec.Attempts, objects.Attempt{LuxRequest: lerr.request, State: objects.JudgmentOverBudget})
-			out := end(objects.JudgmentOverBudget, "Lux refused the call for spend: "+lerr.code)
-			out.Park, out.ParkReason = objects.StateOverBudget, "budget_exhausted: "+r.trial.ID+": judge "+row.Grader
+			rec.Attempts = append(rec.Attempts, objects.Attempt{LuxRequest: lerr.request, State: objects.GradingOverBudget})
+			out := end(objects.GradingOverBudget, "Lux refused the call for spend: "+lerr.code)
+			out.Park, out.ParkReason = objects.CellOverBudget, "budget_exhausted: "+r.trial.ID+": judge "+row.Grader
 			return e.Store.Gradings().End(ctx, out)
 		case errors.As(err, &lerr) && (slices.Contains(gatewayCodes, lerr.code) || lerr.status < 500):
-			rec.Attempts = append(rec.Attempts, objects.Attempt{LuxRequest: lerr.request, State: objects.JudgmentGatewayRefused})
-			return e.Store.Gradings().End(ctx, end(objects.JudgmentGatewayRefused, "Lux refused the call: "+lerr.Error()))
+			rec.Attempts = append(rec.Attempts, objects.Attempt{LuxRequest: lerr.request, State: objects.GradingGatewayRefused})
+			return e.Store.Gradings().End(ctx, end(objects.GradingGatewayRefused, "Lux refused the call: "+lerr.Error()))
 		case err != nil:
 			return err
 		}
@@ -170,24 +169,28 @@ func (e *Engine) runJudge(ctx context.Context, row objects.Grading) error {
 		answer := grade.ReadAnswer(resp, produces)
 		rec.Attempts = append(rec.Attempts, objects.Attempt{LuxRequest: requestID, State: answer.State})
 		switch answer.State {
-		case objects.JudgmentOK:
-			out := end(objects.JudgmentOK, "")
+		case objects.GradingOK:
+			out := end(objects.GradingOK, "")
 			out.Values = answer.Values
 			return e.Store.Gradings().End(ctx, out)
-		case objects.JudgmentRefused:
-			return e.Store.Gradings().End(ctx, end(objects.JudgmentRefused, answer.Reason))
+		case objects.GradingRefused:
+			return e.Store.Gradings().End(ctx, end(objects.GradingRefused, answer.Reason))
+		case objects.GradingPending, objects.GradingMalformed, objects.GradingError, objects.GradingNotRunnable, objects.GradingTimedOut,
+			objects.GradingNotRun, objects.GradingOverBudget, objects.GradingGatewayRefused, objects.GradingEvidenceChanged:
+			// grade.ReadAnswer answers ok, refused or malformed; a malformed
+			// answer is tried again, and every other state is never read.
 		}
 		rec.Reason = answer.Reason
 		e.log().InfoContext(ctx, "a judgment's answer was malformed", "trial", r.trial.ID, "grader", row.Grader, "reason", answer.Reason)
 	}
-	return e.Store.Gradings().End(ctx, end(objects.JudgmentMalformed, rec.Reason))
+	return e.Store.Gradings().End(ctx, end(objects.GradingMalformed, rec.Reason))
 }
 
 // callJudge sends one judgment's call to Lux's door on the judge's Key,
 // labeled with the trial, and answers the response and Lux's request id.
 func (e *Engine) callJudge(ctx context.Context, key, trial string, body []byte) (lux.Response, string, error) {
 	g := e.Grading
-	ctx, cancel := context.WithTimeout(ctx, holdJudge/time.Duration(limits.JudgeMaxAttempts+1))
+	ctx, cancel := context.WithTimeout(ctx, judgeCallTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(g.LuxURL, "/")+generatePath, bytes.NewReader(body))
 	if err != nil {

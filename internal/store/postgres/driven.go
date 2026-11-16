@@ -48,8 +48,9 @@ func (x experiments) Claim(ctx context.Context, eid string, cells []string) ([]o
 		if err != nil || len(take) == 0 {
 			return err
 		}
-		rows, err := c.tx.Query(ctx, `UPDATE trials SET state = 'running', updated_at = $2
-			WHERE id = ANY($1) AND state = 'pending' RETURNING `+trialColumns, take, c.now)
+		rows, err := c.tx.Query(ctx, `UPDATE trials SET state = $3, updated_at = $2
+			WHERE id = ANY($1) AND state = ANY($4) RETURNING `+trialColumns, take, c.now,
+			objects.TrialRunning, sources(objects.TrialTable, objects.TrialRunning))
 		if err != nil {
 			return fmt.Errorf("postgres: claiming trials: %w", err)
 		}
@@ -80,14 +81,15 @@ func (x experiments) Started(ctx context.Context, tid, ref string, at time.Time)
 	}
 	stop := false
 	err = x.begin(ctx, t.Experiment, func(c *change) error {
-		var state, current string
+		var state objects.TrialState
+		var current string
 		if err := c.tx.QueryRow(ctx, `SELECT state, executor_ref FROM trials WHERE id = $1 FOR UPDATE`, tid).Scan(&state, &current); err != nil {
 			return fmt.Errorf("postgres: reading a trial to record its run: %w", err)
 		}
 		switch {
 		case current != "" && current != ref:
 			return fmt.Errorf("postgres: trial %s already names the run %s, not %s", tid, current, ref)
-		case state == objects.StateDone:
+		case state == objects.TrialDone:
 			// The trial ended before the core answered, so the run it
 			// started is stopped; the ref is kept to name the run stopped.
 			stop = true
@@ -113,7 +115,7 @@ func (x experiments) End(ctx context.Context, tid string, o store.Outcome, stop 
 		if err != nil {
 			return fmt.Errorf("postgres: reading a trial to end: %w", err)
 		}
-		if t.State == objects.StateDone {
+		if t.State == objects.TrialDone {
 			out = t
 			return nil
 		}

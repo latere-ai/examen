@@ -75,12 +75,25 @@ func (g *Grading) Judges() bool {
 	return g != nil && g.LuxURL != "" && g.Arca != nil && g.Tokens != nil
 }
 
-// holdChecks is how long a replica holds a trial's checks: their bound,
-// the sandbox's start and the grace.
-const holdChecks = limits.CheckTimeout + limits.TrialGrace + sandboxStart
+// checksBound is the longest a trial's checks run in their sandbox: its
+// start and then the checks' own bound. The files read before and written
+// after have no bound of their own; the grace of holdChecks covers them.
+const checksBound = sandboxStart + limits.CheckTimeout
+
+// holdChecks is how long a replica holds a trial's checks: their bound and
+// the grace. A hold that lapses while the checks still run lets another
+// replica take the same gradings.
+const holdChecks = checksBound + limits.TrialGrace
 
 // holdJudge is how long a replica holds a judgment: its attempts' calls.
 const holdJudge = 10 * time.Minute
+
+// judgeCallTimeout bounds one call of a judgment: the hold, shared by the
+// attempts and the one call's worth left for the answer's write.
+const judgeCallTimeout = holdJudge / (limits.JudgeMaxAttempts + 1)
+
+// judgeBound is the longest a judgment's calls run.
+const judgeBound = limits.JudgeMaxAttempts * judgeCallTimeout
 
 // sandboxStart bounds how long a check sandbox's create waits for it to
 // run.

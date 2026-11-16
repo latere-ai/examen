@@ -165,7 +165,7 @@ func TestToposRunsEachTrialAsASession(t *testing.T) {
 		t.Fatalf("one tick created %d sessions, want 1", len(sessions))
 	}
 	trials := trialsOf(t, st, eid)
-	if len(trials) != 1 || trials[0].State != objects.StateRunning || trials[0].ExecutorRef != sessions[0] || trials[0].StartedAt == nil {
+	if len(trials) != 1 || trials[0].State != objects.TrialRunning || trials[0].ExecutorRef != sessions[0] || trials[0].StartedAt == nil {
 		t.Fatalf("the smoke trial %+v", trials)
 	}
 	body := stub.Body(sessions[0])
@@ -214,7 +214,7 @@ func TestToposRunsEachTrialAsASession(t *testing.T) {
 	trials = trialsOf(t, st, eid)
 	smoke := trials[0]
 	switch {
-	case smoke.State != objects.StateDone || smoke.Outcome != objects.OutcomeCompleted:
+	case smoke.State != objects.TrialDone || smoke.Outcome != objects.OutcomeCompleted:
 		t.Fatalf("the smoke trial ended %s %s", smoke.State, smoke.Outcome)
 	case smoke.Observed.CostState != objects.CostKnown || smoke.Observed.CostUSD == nil || *smoke.Observed.CostUSD != 0.0012 ||
 		!slices.Equal(smoke.Observed.Machines, []objects.Machine{{Kind: "cella", ID: "sbx_" + strings.ToLower(sessions[0])}}):
@@ -295,7 +295,7 @@ func TestToposRefusalsParkAndOutagesWait(t *testing.T) {
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if c := cellOf(cid); c.State != objects.StateBlocked || c.ParkedReason != "sign_in_not_kept" {
+	if c := cellOf(cid); c.State != objects.CellBlocked || c.ParkedReason != "sign_in_not_kept" {
 		t.Fatalf("a sign-in not kept: cell %s %q", c.State, c.ParkedReason)
 	}
 
@@ -305,7 +305,7 @@ func TestToposRefusalsParkAndOutagesWait(t *testing.T) {
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if c := cellOf(cid); c.State != objects.StateBlocked || c.ParkedReason != "topos_refused: forbidden" {
+	if c := cellOf(cid); c.State != objects.CellBlocked || c.ParkedReason != "topos_refused: forbidden" {
 		t.Fatalf("a refused create: cell %s %q", c.State, c.ParkedReason)
 	}
 
@@ -331,7 +331,7 @@ func TestToposRefusalsParkAndOutagesWait(t *testing.T) {
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if tr := trialsOf(t, st, eid); tr[0].State != objects.StateRunning || tr[0].ExecutorRef != "" {
+	if tr := trialsOf(t, st, eid); tr[0].State != objects.TrialRunning || tr[0].ExecutorRef != "" {
 		t.Fatalf("after an outage the trial is %+v", tr[0])
 	}
 	stub.Down(false)
@@ -577,7 +577,7 @@ func TestToposFollowsThroughRefusals(t *testing.T) {
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if tr := trialsOf(t, st, eid); tr[0].State != objects.StateRunning {
+	if tr := trialsOf(t, st, eid); tr[0].State != objects.TrialRunning {
 		t.Fatalf("a read Topos did not answer ended the trial: %+v", tr[0])
 	}
 	stub.Down(false)
@@ -585,7 +585,7 @@ func TestToposFollowsThroughRefusals(t *testing.T) {
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if c := cellOf(cid); c.State != objects.StateBlocked || c.ParkedReason != tokens.ReasonRefused {
+	if c := cellOf(cid); c.State != objects.CellBlocked || c.ParkedReason != tokens.ReasonRefused {
 		t.Fatalf("a refused token while running: cell %s %q", c.State, c.ParkedReason)
 	}
 	m.err = nil
@@ -595,7 +595,7 @@ func TestToposFollowsThroughRefusals(t *testing.T) {
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if c := cellOf(cid); c.State != objects.StateBlocked || c.ParkedReason != "topos_refused: 422" {
+	if c := cellOf(cid); c.State != objects.CellBlocked || c.ParkedReason != "topos_refused: 422" {
 		t.Fatalf("a refusal with no code: cell %s %q", c.State, c.ParkedReason)
 	}
 
@@ -612,7 +612,7 @@ func TestToposFollowsThroughRefusals(t *testing.T) {
 	if err := e.RunTopos(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if c := cellOf(cid); c.State != objects.StateCanceled || c.ParkedReason != ReasonRunDenied || len(stub.Sessions()) != before {
+	if c := cellOf(cid); c.State != objects.CellCanceled || c.ParkedReason != ReasonRunDenied || len(stub.Sessions()) != before {
 		t.Fatalf("a denied run: cell %s %q, %d sessions", c.State, c.ParkedReason, len(stub.Sessions()))
 	}
 }
@@ -655,7 +655,7 @@ func TestARunReadsItsCellsVersions(t *testing.T) {
 	if err := e.Tick(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if c := mustCell(t, st, cid); c.State != objects.StateBlocked || c.ParkedReason != "topos_refused: not_found" {
+	if c := mustCell(t, st, cid); c.State != objects.CellBlocked || c.ParkedReason != "topos_refused: not_found" {
 		t.Fatalf("a version Topos does not hold: cell %s %q", c.State, c.ParkedReason)
 	}
 }
@@ -715,7 +715,7 @@ func TestARunWithNoMachineIsRetriedAfterAWait(t *testing.T) {
 	if len(trials) != 2 || trials[1].Outcome != objects.OutcomeCompleted || trials[1].ExecutorRef != sessions[1] {
 		t.Fatalf("the retry: %+v", trials)
 	}
-	if c := mustCell(t, st, cid); c.State != objects.StateComplete {
+	if c := mustCell(t, st, cid); c.State != objects.CellComplete {
 		t.Fatalf("the cell is %s", c.State)
 	}
 }

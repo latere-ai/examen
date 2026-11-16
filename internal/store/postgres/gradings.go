@@ -53,10 +53,13 @@ func gradingID(trial string, position int) string { return trial + "." + strconv
 
 // grade makes a finished trial's gradings pending, due at once.
 func (c *change) grade(ctx context.Context, t objects.Trial, list []objects.NewGrading) error {
+	if err := objects.GradingTable.CheckStart(objects.GradingPending); err != nil {
+		return fmt.Errorf("postgres: making a trial's gradings: %w", err)
+	}
 	for _, g := range list {
 		if _, err := c.tx.Exec(ctx, `INSERT INTO gradings (id, owner, experiment, cell, trial, grader, kind, position, state, due_at, created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $9, $9) ON CONFLICT (trial, grader) DO NOTHING`,
-			gradingID(t.ID, g.Position), t.Owner, t.Experiment, t.Cell, t.ID, g.Grader, g.Kind, g.Position, c.now); err != nil {
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $10, $9, $9, $9) ON CONFLICT (trial, grader) DO NOTHING`,
+			gradingID(t.ID, g.Position), t.Owner, t.Experiment, t.Cell, t.ID, g.Grader, g.Kind, g.Position, c.now, objects.GradingPending); err != nil {
 			return fmt.Errorf("postgres: making a trial's gradings: %w", err)
 		}
 	}
@@ -67,13 +70,13 @@ func (c *change) grade(ctx context.Context, t objects.Trial, list []objects.NewG
 // canceled, not_run with the reason, since the trials they would grade are
 // no longer read toward the cell.
 func (c *change) endGradings(ctx context.Context, cell, reason string) error {
-	record, err := marshal(map[string]string{"state": objects.CheckNotRun, "reason": reason})
+	record, err := marshal(map[string]string{"state": string(objects.GradingNotRun), "reason": reason})
 	if err != nil {
 		return err
 	}
-	if _, err := c.tx.Exec(ctx, `UPDATE gradings SET state = 'not_run', record = jsonb_build_object('grader', grader) || $2::jsonb,
+	if _, err := c.tx.Exec(ctx, `UPDATE gradings SET state = $4, record = jsonb_build_object('grader', grader) || $2::jsonb,
 			held_until = NULL, ended_at = $3, updated_at = $3
-		WHERE cell = $1 AND state = 'pending'`, cell, record, c.now); err != nil {
+		WHERE cell = $1 AND state = ANY($5)`, cell, record, c.now, objects.GradingNotRun, sources(objects.GradingTable, objects.GradingNotRun)); err != nil {
 		return fmt.Errorf("postgres: ending a cell's gradings: %w", err)
 	}
 	return nil
@@ -90,7 +93,8 @@ func (c *change) graded(ctx context.Context, view *execute.Cell) error {
 	defer rows.Close()
 	view.Ungraded, view.Checking, view.CheckFailed = map[string]bool{}, map[string]bool{}, map[string]string{}
 	for rows.Next() {
-		var trial, grader, kind, state string
+		var trial, grader, kind string
+		var state objects.GradingState
 		if err := rows.Scan(&trial, &grader, &kind, &state); err != nil {
 			return fmt.Errorf("postgres: reading a cell's grading: %w", err)
 		}
@@ -100,8 +104,8 @@ func (c *change) graded(ctx context.Context, view *execute.Cell) error {
 			if kind == objects.GraderCheck {
 				view.Checking[trial] = true
 			}
-		case kind == objects.GraderCheck && state != objects.CheckOK && view.CheckFailed[trial] == "":
-			view.CheckFailed[trial] = grader + ": " + state
+		case kind == objects.GraderCheck && state != objects.GradingOK && view.CheckFailed[trial] == "":
+			view.CheckFailed[trial] = grader + ": " + string(state)
 		}
 	}
 	if err := rows.Err(); err != nil {
@@ -172,6 +176,9 @@ func (g gradings) End(ctx context.Context, end store.GradingEnd) error {
 		if gr.State != objects.GradingPending {
 			return nil
 		}
+		if err := objects.GradingTable.Check(gr.State, end.State); err != nil {
+			return fmt.Errorf("postgres: ending grading %s: %w", gr.ID, err)
+		}
 		t, err := scanTrial(c.tx.QueryRow(ctx, `SELECT `+trialColumns+` FROM trials WHERE id = $1`, gr.Trial))
 		if err := one(err, "a graded trial"); err != nil {
 			return err
@@ -201,8 +208,8 @@ func (g gradings) End(ctx context.Context, end store.GradingEnd) error {
 		if err != nil {
 			return err
 		}
-		step := execute.Step{State: end.Park, Reason: end.ParkReason, CancelOpen: end.Park != ""}
-		if end.Park == "" || objects.Parked(cell.State) || cell.State == objects.StateComplete {
+		step := execute.Step{State: end.Park, Reason: end.ParkReason, CancelOpen: end.Parks()}
+		if !end.Parks() || objects.Parked(cell.State) || cell.State == objects.CellComplete {
 			view := c.view(cell, trials)
 			if err := c.graded(ctx, &view); err != nil {
 				return err

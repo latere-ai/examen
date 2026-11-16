@@ -73,7 +73,7 @@ type checkGrader struct {
 func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	slices.SortFunc(rows, func(a, b objects.Grading) int { return a.Position - b.Position })
 	first := rows[0]
-	endAll := func(state, reason string, checks []checkGrader) error {
+	endAll := func(state objects.GradingState, reason string, checks []checkGrader) error {
 		var errs []error
 		for _, c := range checks {
 			errs = append(errs, e.Store.Gradings().End(ctx, store.GradingEnd{ID: c.row.ID, State: state,
@@ -89,7 +89,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		var errs []error
 		for _, c := range checks {
 			errs = append(errs, e.later(ctx, c.row, func(reason string) store.GradingEnd {
-				return store.GradingEnd{ID: c.row.ID, State: objects.CheckNotRun, Record: objects.CheckRun{Grader: c.row.Grader, State: objects.CheckNotRun, Reason: reason}}
+				return store.GradingEnd{ID: c.row.ID, State: objects.GradingNotRun, Record: objects.CheckRun{Grader: c.row.Grader, State: objects.GradingNotRun, Reason: reason}}
 			}, cause))
 		}
 		return errors.Join(errs...)
@@ -98,9 +98,9 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	why, ended := signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
-		return endAll(objects.CheckNotRun, "evidence_changed: "+err.Error(), checks)
+		return endAll(objects.GradingNotRun, "evidence_changed: "+err.Error(), checks)
 	case ended:
-		return endAll(objects.CheckNotRun, why, checks)
+		return endAll(objects.GradingNotRun, why, checks)
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -117,9 +117,9 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	why, ended = signInEnded(err)
 	switch {
 	case errors.Is(err, errEvidenceChanged):
-		return endAll(objects.CheckNotRun, "evidence_changed: "+err.Error(), checks)
+		return endAll(objects.GradingNotRun, "evidence_changed: "+err.Error(), checks)
 	case ended:
-		return endAll(objects.CheckNotRun, why, checks)
+		return endAll(objects.GradingNotRun, why, checks)
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -128,7 +128,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	for i := range checks {
 		files, why, err := e.checkFiles(ctx, r, checks[i].grader)
 		if reason, ended := signInEnded(err); ended {
-			return endAll(objects.CheckNotRun, reason, checks)
+			return endAll(objects.GradingNotRun, reason, checks)
 		}
 		switch {
 		case outage(err):
@@ -140,7 +140,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	}
 	refs, refWhy, err := e.references(ctx, r)
 	if reason, ended := signInEnded(err); ended {
-		return endAll(objects.CheckNotRun, reason, checks)
+		return endAll(objects.GradingNotRun, reason, checks)
 	}
 	switch {
 	case outage(err):
@@ -163,7 +163,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	why, ended = signInEnded(err)
 	switch {
 	case ended:
-		return endAll(objects.CheckNotRun, why, checks)
+		return endAll(objects.GradingNotRun, why, checks)
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -203,7 +203,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		e.log().InfoContext(ctx, "a trial's checks wait for a place in the owner's sandbox limit", "trial", r.trial.ID)
 		return errors.Join(errs...)
 	case errors.As(err, &refused):
-		return endAll(objects.CheckNotRun, "Cella refused the check sandbox: "+refused.Error(), checks)
+		return endAll(objects.GradingNotRun, "Cella refused the check sandbox: "+refused.Error(), checks)
 	case outage(err):
 		return wait(err)
 	case err != nil:
@@ -236,7 +236,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	}
 	switch {
 	case errors.Is(writeErr, errEvidenceChanged):
-		return endAll(objects.CheckNotRun, "evidence_changed: "+writeErr.Error(), checks)
+		return endAll(objects.GradingNotRun, "evidence_changed: "+writeErr.Error(), checks)
 	case outage(writeErr):
 		return wait(writeErr)
 	case writeErr != nil:
@@ -244,7 +244,7 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 	case outage(putErr):
 		return wait(putErr)
 	case putErr != nil:
-		return endAll(objects.CheckNotRun, "the run's files were not written into the check sandbox: "+apierr.LogText(putErr), checks)
+		return endAll(objects.GradingNotRun, "the run's files were not written into the check sandbox: "+apierr.LogText(putErr), checks)
 	}
 	deadline := e.now().Add(limits.CheckTimeout)
 	keep := e.outputKeeper(r)
@@ -254,9 +254,9 @@ func (e *Engine) runChecks(ctx context.Context, rows []objects.Grading) error {
 		left := deadline.Sub(e.now())
 		switch {
 		case c.notRun != "":
-			run.State, run.Reason = objects.CheckNotRun, c.notRun
+			run.State, run.Reason = objects.GradingNotRun, c.notRun
 		case left <= time.Second:
-			run.State, run.Reason = objects.CheckNotRun, "CHECK_TIMEOUT had run out before the check started"
+			run.State, run.Reason = objects.GradingNotRun, "CHECK_TIMEOUT had run out before the check started"
 		default:
 			res, err := g.Cella.Run(ctx, current(ctx), sb.ID, cella.Exec{
 				Command: c.grader.Check.Command, Env: checkEnv(r, c, paths), Workdir: path.Join(paths.workspace(), c.grader.Check.Workdir), Timeout: left,

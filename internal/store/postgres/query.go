@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"latere.ai/x/pkg/statemachine"
 
 	"latere.ai/x/examen/internal/store"
 )
@@ -147,4 +148,16 @@ func ptr(t *time.Time) *time.Time {
 	}
 	u := t.UTC()
 	return &u
+}
+
+// sources is the states of a lifecycle with a step to a state, as the text
+// array a guarded write binds: a slice of a named type has no encoding on
+// the pooled endpoint, where the driver picks one from the Go type alone.
+func sources[S ~string](t *statemachine.Table[S], to S) []string {
+	from := t.Sources(to)
+	out := make([]string, len(from))
+	for i, s := range from {
+		out[i] = string(s)
+	}
+	return out
 }

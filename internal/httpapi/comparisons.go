@@ -267,7 +267,7 @@ func (s *Server) requestComparison(w http.ResponseWriter, r *http.Request, c acc
 		return apierr.OnField(apierr.CodeNotInExperiment, "candidate", "the candidate is not one of the experiment's")
 	}
 	cmp := objects.Comparison{ID: id.New(id.Comparison), Owner: e.Owner, Experiment: e.ID, Candidate: candidate, Exploratory: true, State: objects.ComparisonComputing}
-	final := e.State == objects.StateComplete
+	final := e.State == objects.ExperimentComplete
 	switch {
 	case in.Baseline != "":
 		b, err := s.Store.Baselines().ByID(r.Context(), in.Baseline)
@@ -360,15 +360,15 @@ type gridTrials struct {
 
 // gridCell is one entry of a grid row.
 type gridCell struct {
-	Cell         string         `json:"cell"`
-	Candidate    string         `json:"candidate"`
-	State        string         `json:"state"`
-	ParkedReason string         `json:"parked_reason,omitempty"`
-	Trials       gridTrials     `json:"trials"`
-	Summary      jsontext.Value `json:"summary,omitzero"`
-	Verdict      string         `json:"verdict,omitempty"`
-	Reason       string         `json:"reason,omitempty"`
-	Comparison   string         `json:"comparison,omitempty"`
+	Cell         string            `json:"cell"`
+	Candidate    string            `json:"candidate"`
+	State        objects.CellState `json:"state"`
+	ParkedReason string            `json:"parked_reason,omitempty"`
+	Trials       gridTrials        `json:"trials"`
+	Summary      jsontext.Value    `json:"summary,omitzero"`
+	Verdict      string            `json:"verdict,omitempty"`
+	Reason       string            `json:"reason,omitempty"`
+	Comparison   string            `json:"comparison,omitempty"`
 }
 
 // gridRow is one task of a grid.
@@ -380,13 +380,13 @@ type gridRow struct {
 
 // gridAnswer is the candidate × task grid of specs/003-api.md.
 type gridAnswer struct {
-	Experiment string            `json:"experiment"`
-	State      string            `json:"state"`
-	Reference  objects.Reference `json:"reference"`
-	Metric     gridMetric        `json:"metric"`
-	Candidates []gridCandidate   `json:"candidates"`
-	Items      []gridRow         `json:"items"`
-	NextCursor string            `json:"next_cursor,omitempty"`
+	Experiment string                  `json:"experiment"`
+	State      objects.ExperimentState `json:"state"`
+	Reference  objects.Reference       `json:"reference"`
+	Metric     gridMetric              `json:"metric"`
+	Candidates []gridCandidate         `json:"candidates"`
+	Items      []gridRow               `json:"items"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
 }
 
 // columnComparisons are the comparison each candidate's column reads: the
@@ -483,6 +483,7 @@ func (s *Server) grid(w http.ResponseWriter, r *http.Request, c access.Caller) e
 		start++
 	}
 	tasks, state := q["task"], q.Get("state")
+	want, wanted := objects.ParseCellState(state)
 	var shown []objects.Cell
 	for pos := start; pos < len(v.res.Suite.Tasks); pos++ {
 		td := v.res.Suite.Tasks[pos]
@@ -498,11 +499,11 @@ func (s *Server) grid(w http.ResponseWriter, r *http.Request, c access.Caller) e
 			if !ok {
 				continue
 			}
-			holds = holds || cl.State == state
+			holds = holds || (wanted && cl.State == want)
 			ct := counts[cl.ID]
 			entry := gridCell{Cell: cl.ID, Candidate: col.Digest, State: cl.State, ParkedReason: cl.ParkedReason, Trials: gridTrials{
-				Declared: e.Trials, Pending: ct.States[objects.StatePending], Running: ct.States[objects.StateRunning],
-				Checking: ct.States[objects.StateChecking], Done: ct.States[objects.StateDone], Retried: ct.Retried, Outcomes: ct.Outcomes,
+				Declared: e.Trials, Pending: ct.States[string(objects.TrialPending)], Running: ct.States[string(objects.TrialRunning)],
+				Checking: ct.States[string(objects.TrialChecking)], Done: ct.States[string(objects.TrialDone)], Retried: ct.Retried, Outcomes: ct.Outcomes,
 			}}
 			if entry.Trials.Outcomes == nil {
 				entry.Trials.Outcomes = map[string]int{}

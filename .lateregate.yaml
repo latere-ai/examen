@@ -105,3 +105,41 @@ e2e:
     env:
       EXAMEN_DATABASE_URL: "${postgres.url}"
     reads: [Dockerfile, scripts/image-e2e.sh]
+
+# The stored lifecycles are statemachine tables (internal/objects/lifecycles.go),
+# so every switch over a status names each status.
+enums:
+  go:
+    types:
+      - internal/objects.ExperimentState
+      - internal/objects.CellState
+      - internal/objects.RolloutState
+      - internal/objects.TrialState
+      - internal/objects.GradingState
+      - internal/objects.ComparisonState
+      - internal/objects.UsageStatus
+      - internal/objects.KeyState
+    fields:
+      internal/objects.Experiment.State: internal/objects.ExperimentState
+      internal/objects.Cell.State: internal/objects.CellState
+      internal/objects.Rollout.State: internal/objects.RolloutState
+      internal/objects.Trial.State: internal/objects.TrialState
+      internal/objects.CheckRun.State: internal/objects.GradingState
+      internal/objects.Judgment.State: internal/objects.GradingState
+      internal/objects.Attempt.State: internal/objects.GradingState
+      internal/objects.Grading.State: internal/objects.GradingState
+      internal/objects.Comparison.State: internal/objects.ComparisonState
+      internal/store.GradingEnd.State: internal/objects.GradingState
+      internal/store.GradingEnd.Park: internal/objects.CellState
+      internal/store.QueuedRollout.State: internal/objects.ExperimentState
+      internal/store.UsageRead.State: internal/objects.ExperimentState
+      internal/store.UsageRecord.Status: internal/objects.UsageStatus
+      internal/execute.Cell.State: internal/objects.CellState
+      internal/execute.Step.State: internal/objects.CellState
+      internal/grade.CheckResult.State: internal/objects.GradingState
+      internal/grade.Answer.State: internal/objects.GradingState
+      internal/keys.Record.Status: internal/objects.UsageStatus
+      internal/usage.Call.Status: internal/objects.UsageStatus
+    parsers:
+      internal/objects.ParseUsageStatus: Reads a call status written as text in Lux's record, and reports whether UsageStatusTable has it.
+      internal/objects.ParseCellState: Reads a cell state written as text in a query parameter, and reports whether CellTable has it.

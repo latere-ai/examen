@@ -9,7 +9,7 @@ import (
 	"latere.ai/x/examen/internal/objects"
 )
 
-func call(model, served, status string, cost int64, priced bool) Call {
+func call(model, served string, status objects.UsageStatus, cost int64, priced bool) Call {
 	return Call{SentModel: model, Served: served, Status: status, Cost: cost, Currency: Currency, Priced: priced,
 		Tokens: Tokens{Input: 100, CachedInput: 20, Output: 50, Reasoning: 10}}
 }
@@ -21,10 +21,10 @@ func call(model, served, status string, cost int64, priced bool) Call {
 // call costing nothing and counting toward no model served.
 func TestTheLayersOfATrialsCalls(t *testing.T) {
 	l := Of([]Call{
-		call("anthropic/claude-haiku-5.5", "claude-haiku-5-5", "ok", 1000, true),
-		call("anthropic/claude-haiku-5.5", "claude-haiku-5-5", "failed", 20, true),
-		call("openai/gpt-5-mini", "gpt-5-mini", "ok", 300, true),
-		call("openai/gpt-5-mini", "", "refused", 0, false),
+		call("anthropic/claude-haiku-5.5", "claude-haiku-5-5", objects.UsageOK, 1000, true),
+		call("anthropic/claude-haiku-5.5", "claude-haiku-5-5", objects.UsageFailed, 20, true),
+		call("openai/gpt-5-mini", "gpt-5-mini", objects.UsageOK, 300, true),
+		call("openai/gpt-5-mini", "", objects.UsageRefused, 0, false),
 	})
 	if l.Sent.Requests != 4 || len(l.Sent.BySetting) != 2 || l.Sent.BySetting[0] != (objects.SentSetting{Model: "anthropic/claude-haiku-5.5", Requests: 2}) ||
 		l.Sent.BySetting[1] != (objects.SentSetting{Model: "openai/gpt-5-mini", Requests: 2}) {
@@ -45,7 +45,7 @@ func TestTheLayersOfATrialsCalls(t *testing.T) {
 		t.Errorf("built-in %v", b)
 	}
 
-	unpriced := Of([]Call{call("m", "m", "ok", 10, true), call("n", "n", "ok", 0, false)})
+	unpriced := Of([]Call{call("m", "m", objects.UsageOK, 10, true), call("n", "n", objects.UsageOK, 0, false)})
 	if unpriced.CostState != objects.CostUnpriced {
 		t.Errorf("a call not priced: %s", unpriced.CostState)
 	}
@@ -56,7 +56,7 @@ func TestTheLayersOfATrialsCalls(t *testing.T) {
 	if _, ok := unpriced.Builtin()[objects.BuiltinDigest(objects.MetricCostUSD)]; ok {
 		t.Error("an unpriced trial has a built-in cost")
 	}
-	other := call("m", "m", "ok", 10, true)
+	other := call("m", "m", objects.UsageOK, 10, true)
 	other.Currency = "EUR"
 	if Of([]Call{other}).CostState != objects.CostUnpriced {
 		t.Error("a call priced in another currency is summed")

@@ -201,7 +201,7 @@ func TestMalformedAnswers(t *testing.T) {
 	both := []Produced{kind, idea}
 	good := `{"kind": {"value": "game", "rationale": "it scores"}, "idea": {"value": "Snake", "rationale": "a snake"}}`
 	got := ReadAnswer(answer(good, ir.StopToolUse), both)
-	if got.State != objects.JudgmentOK || len(got.Values) != 2 || got.Values[1].Value != "snake" || got.Values[0].Rationale != "it scores" {
+	if got.State != objects.GradingOK || len(got.Values) != 2 || got.Values[1].Value != "snake" || got.Values[0].Rationale != "it scores" {
 		t.Fatalf("a good answer: %+v", got)
 	}
 	two := answer(good, ir.StopToolUse)
@@ -220,7 +220,7 @@ func TestMalformedAnswers(t *testing.T) {
 		"an unknown label": answer(`{"kind": {"value": "film", "rationale": "r"}, "idea": {"value": "x", "rationale": "r"}}`, ir.StopToolUse),
 		"a long rationale": answer(`{"kind": {"value": "game", "rationale": "`+strings.Repeat("r", limits.JudgeMaxRationaleBytes+1)+`"}, "idea": {"value": "x", "rationale": "r"}}`, ir.StopToolUse),
 	} {
-		if got := ReadAnswer(resp, both); got.State != objects.JudgmentMalformed || len(got.Values) != 0 || got.Reason == "" {
+		if got := ReadAnswer(resp, both); got.State != objects.GradingMalformed || len(got.Values) != 0 || got.Reason == "" {
 			t.Errorf("%s: %+v", name, got)
 		}
 	}
@@ -228,7 +228,7 @@ func TestMalformedAnswers(t *testing.T) {
 
 // TestJudgmentStates: a refusal is refused, with no value.
 func TestJudgmentStates(t *testing.T) {
-	if got := ReadAnswer(lux.Response{StopReason: ir.StopRefusal}, []Produced{kind}); got.State != objects.JudgmentRefused || len(got.Values) != 0 {
+	if got := ReadAnswer(lux.Response{StopReason: ir.StopRefusal}, []Produced{kind}); got.State != objects.GradingRefused || len(got.Values) != 0 {
 		t.Fatalf("a refusal: %+v", got)
 	}
 }

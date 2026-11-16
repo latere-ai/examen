@@ -177,7 +177,7 @@ func TestAReferenceThatCannotBeDeliveredEndsTheChecks(t *testing.T) {
 			list := r.gradings(t)
 			for _, g := range list[:2] {
 				run := record[objects.CheckRun](t, g)
-				if run.State != objects.CheckNotRun || !strings.HasPrefix(run.Reason, c.prefix+": ") || !strings.Contains(run.Reason, "the reference "+c.ref) || strings.Contains(run.Reason, "SECRET") {
+				if run.State != objects.GradingNotRun || !strings.HasPrefix(run.Reason, c.prefix+": ") || !strings.Contains(run.Reason, "the reference "+c.ref) || strings.Contains(run.Reason, "SECRET") {
 					t.Errorf("the check's record %+v", run)
 				}
 			}

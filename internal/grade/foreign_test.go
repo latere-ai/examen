@@ -18,18 +18,18 @@ import (
 // a float64 is a reason, not a failure to read the object.
 func TestCheckOutputFromAProcess(t *testing.T) {
 	got := ReadCheck([]Produced{passes, size}, Exit{Stdout: `{"metrics": {"size": 1, "tests_pass": true, "size": 2}}`})
-	if got.State != objects.CheckOK || len(got.Values) != 2 || got.Values[1].Value != 2.0 {
+	if got.State != objects.GradingOK || len(got.Values) != 2 || got.Values[1].Value != 2.0 {
 		t.Fatalf("a repeated member: %+v", got)
 	}
 	got = ReadCheck([]Produced{size}, Exit{Stdout: `{"metrics": {"size": 1e999}}`})
-	if got.State != objects.CheckMalformed || got.Reason != "metrics.size: the value is not a number this service reads" {
+	if got.State != objects.GradingMalformed || got.Reason != "metrics.size: the value is not a number this service reads" {
 		t.Fatalf("a number out of range: %+v", got)
 	}
 }
 
 func TestJudgeAnswerFromAModel(t *testing.T) {
 	got := ReadAnswer(answer("{\"kind\": {\"value\": \"game\", \"rationale\": \"a\"}, \"idea\": {\"value\": \"snake\", \"rationale\": \"x\xffy\", \"rationale\": \"b\xfe\"}}", ir.StopToolUse), []Produced{kind, idea})
-	if got.State != objects.JudgmentOK || len(got.Values) != 2 || got.Values[1].Rationale != "b�" {
+	if got.State != objects.GradingOK || len(got.Values) != 2 || got.Values[1].Rationale != "b�" {
 		t.Fatalf("a repeated member and bytes that are not UTF-8: %+v", got)
 	}
 }

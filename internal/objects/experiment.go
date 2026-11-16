@@ -113,7 +113,7 @@ type Experiment struct {
 	// Independence is the experiment's declared test of independence;
 	// nil when it declares none.
 	Independence *Independence     `json:"independence,omitzero"`
-	State        string            `json:"state"`
+	State        ExperimentState   `json:"state"`
 	CreatedBy    string            `json:"created_by"`
 	Judgments    []jsontext.Value  `json:"judgments"`
 	Progress     *Progress         `json:"progress,omitzero"`
@@ -132,28 +132,26 @@ type Experiment struct {
 }
 
 // Finished reports whether the experiment is complete or canceled.
-func (e Experiment) Finished() bool { return e.State == StateComplete || e.State == StateCanceled }
+func (e Experiment) Finished() bool {
+	return e.State == ExperimentComplete || e.State == ExperimentCanceled
+}
 
 // Rollout is one submission of some of a cell's trials to its executor.
 type Rollout struct {
-	Key         string `json:"key"`
-	Kind        string `json:"kind"`
-	Executor    string `json:"executor"`
-	Handle      string `json:"handle,omitempty"`
-	Parallelism int    `json:"parallelism"`
-	KeyID       string `json:"key_id,omitempty"`
-	State       string `json:"state"`
+	Key         string       `json:"key"`
+	Kind        string       `json:"kind"`
+	Executor    string       `json:"executor"`
+	Handle      string       `json:"handle,omitempty"`
+	Parallelism int          `json:"parallelism"`
+	KeyID       string       `json:"key_id,omitempty"`
+	State       RolloutState `json:"state"`
 }
 
-// The kinds and states of a rollout.
+// The kinds of a rollout.
 const (
 	RolloutSmoke = "smoke"
 	RolloutMain  = "main"
 	RolloutRetry = "retry"
-
-	RolloutQueued    = "queued"
-	RolloutSubmitted = "submitted"
-	RolloutEnded     = "ended"
 )
 
 // Cell is one task and one candidate in an experiment.
@@ -166,7 +164,7 @@ type Cell struct {
 	Tuple        Tuple     `json:"tuple"`
 	Rollouts     []Rollout `json:"rollouts"`
 	Adopted      []string  `json:"adopted"`
-	State        string    `json:"state"`
+	State        CellState `json:"state"`
 	ParkedReason string    `json:"parked_reason,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
@@ -304,7 +302,7 @@ type Trial struct {
 	Index        int              `json:"index"`
 	ExecutorRef  string           `json:"executor_ref,omitempty"`
 	Lease        *Lease           `json:"lease,omitzero"`
-	State        string           `json:"state"`
+	State        TrialState       `json:"state"`
 	Outcome      string           `json:"outcome,omitempty"`
 	Failure      *Failure         `json:"failure,omitzero"`
 	RetryOf      string           `json:"retry_of,omitempty"`
@@ -341,7 +339,7 @@ func (t Trial) NoMachine() bool {
 // Finished reports whether the trial is a finished trial: done, with an
 // outcome that is a result, and not retried.
 func (t Trial) Finished() bool {
-	return t.State == StateDone && t.Outcome != "" && !Excluded(t.Outcome) && !t.Retried
+	return t.State == TrialDone && t.Outcome != "" && !Excluded(t.Outcome) && !t.Retried
 }
 
 // Measurement is one value of one metric for one trial, or for a
@@ -441,13 +439,6 @@ type Taxonomy struct {
 	CreatedAt time.Time         `json:"created_at"`
 }
 
-// The states of a comparison.
-const (
-	ComparisonComputing = "computing"
-	ComparisonComplete  = "complete"
-	ComparisonFailed    = "failed"
-)
-
 // ResultRow is one result of a comparison (specs/002-objects.md). The
 // summaries and the members only the analysis reads are kept as it
 // rendered them.
@@ -506,21 +497,21 @@ type Computed struct {
 // reference. DeclaredIndex is, for a comparison its experiment declared,
 // its position in the experiment's comparisons, and nil otherwise.
 type Comparison struct {
-	ID                 string   `json:"id"`
-	Owner              string   `json:"owner"`
-	Experiment         string   `json:"experiment"`
-	Candidate          string   `json:"candidate"`
-	Baseline           string   `json:"baseline,omitempty"`
-	ReferenceCandidate string   `json:"reference_candidate,omitempty"`
-	Task               string   `json:"task,omitempty"`
-	ReferenceTask      string   `json:"reference_task,omitempty"`
-	Automatic          bool     `json:"automatic"`
-	DeclaredIndex      *int     `json:"declared,omitzero"`
-	Exploratory        bool     `json:"exploratory"`
-	State              string   `json:"state"`
-	Final              bool     `json:"final"`
-	Variable           []string `json:"variable"`
-	DeclaredProvenance []string `json:"declared_provenance"`
+	ID                 string          `json:"id"`
+	Owner              string          `json:"owner"`
+	Experiment         string          `json:"experiment"`
+	Candidate          string          `json:"candidate"`
+	Baseline           string          `json:"baseline,omitempty"`
+	ReferenceCandidate string          `json:"reference_candidate,omitempty"`
+	Task               string          `json:"task,omitempty"`
+	ReferenceTask      string          `json:"reference_task,omitempty"`
+	Automatic          bool            `json:"automatic"`
+	DeclaredIndex      *int            `json:"declared,omitzero"`
+	Exploratory        bool            `json:"exploratory"`
+	State              ComparisonState `json:"state"`
+	Final              bool            `json:"final"`
+	Variable           []string        `json:"variable"`
+	DeclaredProvenance []string        `json:"declared_provenance"`
 	// Declaration is, for a declared comparison of the general form, its
 	// declaration, whose two levels select its sides; nil otherwise.
 	Declaration *DeclaredComparison `json:"declaration,omitzero"`

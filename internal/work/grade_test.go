@@ -473,14 +473,14 @@ func TestEvalsGradesARun(t *testing.T) {
 		t.Fatal(err)
 	}
 	trial := trialsOf(t, st, g.eid)[0]
-	if trial.State != objects.StateDone || len(trial.Checks) != 2 || len(trial.Judgments) != 1 || !strings.Contains(string(trial.Checks[0]), `"pending"`) {
+	if trial.State != objects.TrialDone || len(trial.Checks) != 2 || len(trial.Judgments) != 1 || !strings.Contains(string(trial.Checks[0]), `"pending"`) {
 		t.Fatalf("the done trial's gradings: %s %v %v", trial.State, trial.Checks, trial.Judgments)
 	}
 	if work := trial.Evidence[1]; work.Name != "workspace/" || work.Digest == "" || *work.Size != 23 {
 		t.Fatalf("the kept copy's evidence %+v", work)
 	}
 	cell, err := st.Experiments().Cell(ctx, g.cid)
-	if err != nil || cell.State != objects.StateGrading {
+	if err != nil || cell.State != objects.CellGrading {
 		t.Fatalf("the cell before grading: %s %v", cell.State, err)
 	}
 
@@ -573,16 +573,16 @@ func TestEvalsGradesARun(t *testing.T) {
 	}
 	var run objects.CheckRun
 	var judgment objects.Judgment
-	if err := json.Unmarshal(trial.Checks[1], &run); err != nil || run.State != objects.CheckOK || *run.ExitCode != 1 || run.Duration != 0.9 || run.Image == "" {
+	if err := json.Unmarshal(trial.Checks[1], &run); err != nil || run.State != objects.GradingOK || *run.ExitCode != 1 || run.Duration != 0.9 || run.Image == "" {
 		t.Fatalf("the run check's record %s %v", trial.Checks[1], err)
 	}
-	if err := json.Unmarshal(trial.Judgments[0], &judgment); err != nil || judgment.State != objects.JudgmentOK || judgment.Generation != 1 ||
+	if err := json.Unmarshal(trial.Judgments[0], &judgment); err != nil || judgment.State != objects.GradingOK || judgment.Generation != 1 ||
 		*judgment.Cost != 1500 || judgment.Attempts[0].LuxRequest != "req_1" || judgment.RequestDigest == "" {
 		t.Fatalf("the judgment's record %s %v", trial.Judgments[0], err)
 	}
 	cell, _ = st.Experiments().Cell(ctx, g.cid)
 	exp, _ := st.Experiments().Get(ctx, g.eid)
-	if cell.State != objects.StateComplete || exp.State != objects.StateComplete {
+	if cell.State != objects.CellComplete || exp.State != objects.ExperimentComplete {
 		t.Fatalf("after grading the cell is %s and the experiment %s", cell.State, exp.State)
 	}
 	for _, a := range m.asks {
@@ -630,17 +630,17 @@ func TestGradingsThatCannotRun(t *testing.T) {
 	_ = json.Unmarshal(trial.Checks[0], &inv)
 	_ = json.Unmarshal(trial.Checks[1], &run)
 	_ = json.Unmarshal(trial.Judgments[0], &judgment)
-	if inv.State != objects.CheckNotRun || !strings.Contains(inv.Reason, "files_changed") || run.State != objects.CheckMalformed {
+	if inv.State != objects.GradingNotRun || !strings.Contains(inv.Reason, "files_changed") || run.State != objects.GradingMalformed {
 		t.Fatalf("the check runs %+v %+v", inv, run)
 	}
-	if judgment.State != objects.CheckNotRun || !strings.Contains(judgment.Reason, "parked blocked") || len(lx.calls) != 0 {
+	if judgment.State != objects.GradingNotRun || !strings.Contains(judgment.Reason, "parked blocked") || len(lx.calls) != 0 {
 		t.Fatalf("the judgment of a blocked cell %+v after %d calls", judgment, len(lx.calls))
 	}
 	if got := values(t, st, trial.ID, g.metrics); len(got) != 0 {
 		t.Fatalf("a run with no ok grading recorded %v", got)
 	}
 	cell, _ := st.Experiments().Cell(ctx, g.cid)
-	if cell.State != objects.StateBlocked || !strings.HasPrefix(cell.ParkedReason, "smoke_check_failed: "+trial.ID) || len(stub.Sessions()) != 1 {
+	if cell.State != objects.CellBlocked || !strings.HasPrefix(cell.ParkedReason, "smoke_check_failed: "+trial.ID) || len(stub.Sessions()) != 1 {
 		t.Fatalf("the cell %s %q after %d sessions", cell.State, cell.ParkedReason, len(stub.Sessions()))
 	}
 
@@ -667,13 +667,13 @@ func TestGradingsThatCannotRun(t *testing.T) {
 	}
 	trial = trialsOf(t, st3, g3.eid)[0]
 	_ = json.Unmarshal(trial.Judgments[0], &judgment)
-	if judgment.State != objects.JudgmentMalformed || len(judgment.Attempts) != 2 || len(lx.calls) != 2 || !strings.Contains(judgment.Reason, "kind.value") {
+	if judgment.State != objects.GradingMalformed || len(judgment.Attempts) != 2 || len(lx.calls) != 2 || !strings.Contains(judgment.Reason, "kind.value") {
 		t.Fatalf("a malformed judgment %+v after %d calls", judgment, len(lx.calls))
 	}
 	if got := values(t, st3, trial.ID, g3.metrics); got["entry_found"] != false || got["kind"] != nil || got["runs"] != true || got["size"] != nil {
 		t.Fatalf("the values beside a malformed judgment %v", got)
 	}
-	if cell, _ := st3.Experiments().Cell(ctx, g3.cid); cell.State != objects.StateComplete {
+	if cell, _ := st3.Experiments().Cell(ctx, g3.cid); cell.State != objects.CellComplete {
 		t.Fatalf("a cell whose judgment ended malformed is %s", cell.State)
 	}
 
@@ -704,12 +704,12 @@ func TestGradingsThatCannotRun(t *testing.T) {
 		}
 	}
 	cell2, _ := st2.Experiments().Cell(ctx, g2.cid)
-	if cell2.State != objects.StateOverBudget || !strings.Contains(cell2.ParkedReason, "judge") {
+	if cell2.State != objects.CellOverBudget || !strings.Contains(cell2.ParkedReason, "judge") {
 		t.Fatalf("a judge refused for spend: %s %q", cell2.State, cell2.ParkedReason)
 	}
 	for _, raw := range trialsOf(t, st2, g2.eid)[0].Checks {
 		var run objects.CheckRun
-		if err := json.Unmarshal(raw, &run); err != nil || run.State != objects.CheckOK || len(run.Outputs) != 0 {
+		if err := json.Unmarshal(raw, &run); err != nil || run.State != objects.GradingOK || len(run.Outputs) != 0 {
 			t.Fatalf("a check whose output the store refused %s %v", raw, err)
 		}
 	}
@@ -864,7 +864,7 @@ func TestCheckCallsCarryAFreshOwnerToken(t *testing.T) {
 			trial := trialsOf(t, st, g.eid)[0]
 			for i, raw := range trial.Checks {
 				var run objects.CheckRun
-				if err := json.Unmarshal(raw, &run); err != nil || run.State != objects.CheckOK || len(run.Outputs) != 2 {
+				if err := json.Unmarshal(raw, &run); err != nil || run.State != objects.GradingOK || len(run.Outputs) != 2 {
 					t.Fatalf("check %d's record %s %v", i, raw, err)
 				}
 			}

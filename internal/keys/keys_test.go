@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"latere.ai/x/examen/internal/objects"
 )
 
 const bearer = "keys-bearer"
@@ -204,7 +206,7 @@ func TestParseRecord(t *testing.T) {
 		}
 	}
 	r, err := ParseRecord(jsontext.Value(`{"id":"req_1","at":"2026-10-19T09:30:00Z","status":"refused","error":"model_not_found","model":{"name":""}}`))
-	if err != nil || r.Served() != "" || r.Status != StatusRefused || r.Error != "model_not_found" {
+	if err != nil || r.Served() != "" || r.Status != objects.UsageRefused || r.Error != "model_not_found" {
 		t.Errorf("%v %+v", err, r)
 	}
 }

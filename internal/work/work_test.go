@@ -267,7 +267,7 @@ func TestAdvance(t *testing.T) {
 	if err := e.Advance(t.Context(), eid); err != nil {
 		t.Fatal(err)
 	}
-	if exp, err := st.Experiments().Get(t.Context(), eid); err != nil || exp.State != objects.StatePending {
+	if exp, err := st.Experiments().Get(t.Context(), eid); err != nil || exp.State != objects.ExperimentPending {
 		t.Fatalf("an outage submits nothing: %v %v", exp.State, err)
 	}
 	if !strings.Contains(logs.String(), "no decision on a rollout") {
@@ -282,7 +282,7 @@ func TestAdvance(t *testing.T) {
 		t.Fatal(err)
 	}
 	exp, err := st.Experiments().Get(t.Context(), eid)
-	if err != nil || exp.State != objects.StateRunning || exp.Progress.Cells[objects.StateSmoking] != 2 {
+	if err != nil || exp.State != objects.ExperimentRunning || exp.Progress.Cells[string(objects.CellSmoking)] != 2 {
 		t.Fatalf("submitted: %+v %v", exp.Progress, err)
 	}
 	// A second advance finds nothing queued.
@@ -312,7 +312,7 @@ func TestAdvance(t *testing.T) {
 		t.Fatalf("denied %v %v", ok, err)
 	}
 	c, err := st.Experiments().Cell(t.Context(), cells[0])
-	if err != nil || c.State != objects.StateCanceled || c.ParkedReason != ReasonRunDenied {
+	if err != nil || c.State != objects.CellCanceled || c.ParkedReason != ReasonRunDenied {
 		t.Fatalf("the denied cell %+v %v", c, err)
 	}
 }
@@ -327,7 +327,7 @@ func TestAdvanceDenied(t *testing.T) {
 		t.Fatal(err)
 	}
 	exp, err := st.Experiments().Get(t.Context(), eid)
-	if err != nil || exp.Progress.Cells[objects.StateCanceled] != 2 || exp.State != objects.StateComplete {
+	if err != nil || exp.Progress.Cells[string(objects.CellCanceled)] != 2 || exp.State != objects.ExperimentComplete {
 		t.Fatalf("every cell denied completes the experiment: %s %+v %v", exp.State, exp.Progress, err)
 	}
 }
@@ -336,7 +336,8 @@ func TestCompute(t *testing.T) {
 	st := pgtest.Open(t, false, postgres.Options{})
 	eid, _ := seed(t, st)
 	for _, c := range []struct {
-		mode, state string
+		mode  string
+		state objects.ComparisonState
 	}{{"none", objects.ComparisonComputing}, {"fail", objects.ComparisonFailed}, {"", objects.ComparisonComplete}} {
 		cs, err := st.Experiments().Comparisons(t.Context(), store.ComparisonFilter{Experiment: eid}, store.Page{Limit: 10})
 		if err != nil {
@@ -387,7 +388,7 @@ func TestTickAndLoop(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if exp.State == objects.StateRunning && cs[0].State == objects.ComparisonComplete {
+		if exp.State == objects.ExperimentRunning && cs[0].State == objects.ComparisonComplete {
 			break
 		}
 		if time.Now().After(deadline) {

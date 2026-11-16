@@ -178,17 +178,17 @@ func newWorld(t *testing.T) *world {
 		return objects.Tuple{CandidateKind: objects.CandidateExternal, Program: jsontext.Value(`{"harness":"h"}`), Model: model, Tools: []string{"write", "read"}, TaskHash: task}
 	}
 	x.cells["exp_new"] = []objects.Cell{
-		{ID: "cel_a", Experiment: "exp_new", Task: taskA, Candidate: candNew, Tuple: tuple(taskA, "m-2"), State: objects.StateComplete},
-		{ID: "cel_b", Experiment: "exp_new", Task: taskB, Candidate: candNew, Tuple: tuple(taskB, "m-2"), State: objects.StateRunning},
-		{ID: "cel_other", Experiment: "exp_new", Task: taskA, Candidate: candOld, Tuple: tuple(taskA, "m-1"), State: objects.StateComplete},
+		{ID: "cel_a", Experiment: "exp_new", Task: taskA, Candidate: candNew, Tuple: tuple(taskA, "m-2"), State: objects.CellComplete},
+		{ID: "cel_b", Experiment: "exp_new", Task: taskB, Candidate: candNew, Tuple: tuple(taskB, "m-2"), State: objects.CellRunning},
+		{ID: "cel_other", Experiment: "exp_new", Task: taskA, Candidate: candOld, Tuple: tuple(taskA, "m-1"), State: objects.CellComplete},
 	}
-	x.cells["exp_old"] = []objects.Cell{{ID: "cel_old", Experiment: "exp_old", Task: taskA + "-checked", Candidate: candOld, Tuple: tuple(taskA, "m-1"), State: objects.StateComplete}}
+	x.cells["exp_old"] = []objects.Cell{{ID: "cel_old", Experiment: "exp_old", Task: taskA + "-checked", Candidate: candOld, Tuple: tuple(taskA, "m-1"), State: objects.CellComplete}}
 	start := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
 	add := func(exp, cell string, n int, grader string, self bool, value func(i int) float64) {
 		for i := range n {
 			at, end := start.Add(time.Duration(i)*time.Minute), start.Add(time.Duration(i)*time.Minute+30*time.Second)
 			id := fmt.Sprintf("tri_%s_%04d", cell, i)
-			x.trials[exp] = append(x.trials[exp], objects.Trial{ID: id, Cell: cell, State: objects.StateDone, Outcome: objects.OutcomeCompleted,
+			x.trials[exp] = append(x.trials[exp], objects.Trial{ID: id, Cell: cell, State: objects.TrialDone, Outcome: objects.OutcomeCompleted,
 				StartedAt: &at, EndedAt: &end, Observed: objects.Observed{CostState: objects.CostUnknown}})
 			x.ms = append(x.ms, objects.Measurement{ID: "msr_" + id, Trial: id, Metric: score, Grader: grader, SelfReported: self, Generation: 1, Value: value(i)})
 		}
@@ -344,7 +344,7 @@ func TestAnalysis(t *testing.T) {
 	// waits, a final one and one on request are computed.
 	for i := range w.x.trials["exp_new"] {
 		if w.x.trials["exp_new"][i].Cell != "cel_other" {
-			w.x.trials["exp_new"][i].State, w.x.trials["exp_new"][i].Outcome = objects.StateRunning, ""
+			w.x.trials["exp_new"][i].State, w.x.trials["exp_new"][i].Outcome = objects.TrialRunning, ""
 		}
 	}
 	if _, _, err := a.Compare(ctx, objects.Comparison{ID: "cmp_1", Experiment: "exp_new", Candidate: candNew, ReferenceCandidate: candOld, Automatic: true}, w.src); !errors.Is(err, ErrNotComputed) {
@@ -539,7 +539,7 @@ func TestCellReads(t *testing.T) {
 		t.Fatalf("an absent tool set %+v", tu)
 	}
 	at := time.Date(2026, 3, 2, 14, 0, 0, 0, time.UTC)
-	tr := trialOf(objects.Trial{ID: "t", State: objects.StateRunning, Outcome: "", StartedAt: &at, Declared: &objects.Declared{Image: "img:1"}}, nil)
+	tr := trialOf(objects.Trial{ID: "t", State: objects.TrialRunning, Outcome: "", StartedAt: &at, Declared: &objects.Declared{Image: "img:1"}}, nil)
 	if tr.DeclaredImage != "img:1" || tr.Outcome != "" || !tr.EndedAt.IsZero() {
 		t.Fatalf("a running trial %+v", tr)
 	}

@@ -121,7 +121,7 @@ func DealInterleaved(parallelism int, trials []Unfinished) map[string]int {
 // declares, its rollouts and every trial it holds.
 type Cell struct {
 	ID       string
-	State    string
+	State    objects.CellState
 	N        int
 	Rollouts []objects.Rollout
 	Trials   []objects.Trial
@@ -137,13 +137,13 @@ type Cell struct {
 // settled is the state of a cell no rollout of which is open: grading
 // while a check run or a judgment of its trials has not ended, and
 // complete once every one has (specs/006-grading.md).
-func settled(c Cell) string {
+func settled(c Cell) objects.CellState {
 	for _, t := range c.Trials {
 		if c.Ungraded[t.ID] {
-			return objects.StateGrading
+			return objects.CellGrading
 		}
 	}
-	return objects.StateComplete
+	return objects.CellComplete
 }
 
 // NewTrial is a trial a decision mints: its index, the trial it retries,
@@ -164,7 +164,7 @@ type NewRollout struct {
 // that ended, the rollouts it queues, the trials a new trial retries, and
 // whether its trials not yet done end canceled.
 type Step struct {
-	State      string
+	State      objects.CellState
 	Reason     string
 	Ended      []string
 	Queue      []NewRollout
@@ -172,9 +172,16 @@ type Step struct {
 	CancelOpen bool
 }
 
+// stay is the zero state: a step whose State is stay leaves its cell where
+// it is.
+var stay objects.CellState
+
+// Moves reports whether the step takes the cell to a new state.
+func (s Step) Moves() bool { return s.State != stay }
+
 // Changed reports whether the step changes anything.
 func (s Step) Changed() bool {
-	return s.State != "" || len(s.Ended) > 0 || len(s.Queue) > 0 || len(s.Retried) > 0 || s.CancelOpen
+	return s.Moves() || len(s.Ended) > 0 || len(s.Queue) > 0 || len(s.Retried) > 0 || s.CancelOpen
 }
 
 // smoke is how many of a cell's indices are smoke trials.
@@ -196,7 +203,7 @@ func last(trials []objects.Trial, retried map[string]bool) map[int]objects.Trial
 
 // rolloutOpen reports whether a rollout has a trial not yet done.
 func rolloutOpen(key string, trials []objects.Trial) bool {
-	return slices.ContainsFunc(trials, func(t objects.Trial) bool { return t.Rollout == key && t.State != objects.StateDone })
+	return slices.ContainsFunc(trials, func(t objects.Trial) bool { return t.Rollout == key && t.State != objects.TrialDone })
 }
 
 // count is how many rollouts of a kind a cell has had.
@@ -306,7 +313,7 @@ func executorOf(c Cell) string {
 // complete; its graders, the built-ins, ran with each trial's done.
 func Advance(c Cell, just objects.Trial) Step {
 	var s Step
-	if objects.Parked(c.State) || c.State == objects.StateComplete {
+	if objects.Parked(c.State) || c.State == objects.CellComplete {
 		return s
 	}
 	if just.Outcome == objects.OutcomeOverBudget {
@@ -314,7 +321,7 @@ func Advance(c Cell, just objects.Trial) Step {
 		if just.Failure != nil {
 			code = just.Failure.Code
 		}
-		s.State, s.CancelOpen = objects.StateOverBudget, true
+		s.State, s.CancelOpen = objects.CellOverBudget, true
 		s.Reason = "budget_exhausted: " + just.ID + ": " + code
 		for _, r := range c.Rollouts {
 			if r.State != objects.RolloutEnded {
@@ -358,11 +365,11 @@ func Advance(c Cell, just objects.Trial) Step {
 		return false
 	}
 	switch c.State {
-	case objects.StateSmoking:
+	case objects.CellSmoking:
 		attempts := last(c.Trials, retried)
 		for i := range smoke(c.N) {
 			t, ok := attempts[i]
-			if !ok || t.State != objects.StateDone {
+			if !ok || t.State != objects.TrialDone {
 				return s
 			}
 		}
@@ -372,7 +379,7 @@ func Advance(c Cell, just objects.Trial) Step {
 				if t.Failure != nil {
 					code = t.Failure.Code
 				}
-				s.State, s.Reason = objects.StateBlocked, "smoke_infra_failed: "+t.ID+": "+code
+				s.State, s.Reason = objects.CellBlocked, "smoke_infra_failed: "+t.ID+": "+code
 				return s
 			}
 		}
@@ -389,7 +396,7 @@ func Advance(c Cell, just objects.Trial) Step {
 		}
 		for i := range smoke(c.N) {
 			if t := attempts[i]; c.N > smoke(c.N) && c.CheckFailed[t.ID] != "" {
-				s.State, s.Reason = objects.StateBlocked, "smoke_check_failed: "+t.ID+": "+c.CheckFailed[t.ID]
+				s.State, s.Reason = objects.CellBlocked, "smoke_check_failed: "+t.ID+": "+c.CheckFailed[t.ID]
 				return s
 			}
 		}
@@ -399,23 +406,26 @@ func Advance(c Cell, just objects.Trial) Step {
 				main.Trials = append(main.Trials, NewTrial{Index: i})
 			}
 			s.Queue = append(s.Queue, main)
-			s.State = objects.StateRunning
+			s.State = objects.CellRunning
 			return s
 		}
 		if !open() {
 			s.State = settled(c)
 		}
-	case objects.StateRunning:
+	case objects.CellRunning:
 		if !open() {
 			s.State = settled(c)
 		}
-	case objects.StateGrading:
-		if !open() && settled(c) == objects.StateComplete {
-			s.State = objects.StateComplete
+	case objects.CellGrading:
+		if !open() && settled(c) == objects.CellComplete {
+			s.State = objects.CellComplete
 		}
+	case objects.CellPending, objects.CellComplete, objects.CellBlocked, objects.CellOverBudget, objects.CellCanceled:
+		// A pending cell has no trial to finish, and a parked or complete
+		// cell returned before this switch.
 	}
 	if s.State == c.State {
-		s.State = ""
+		s.State = stay
 	}
 	return s
 }
@@ -437,7 +447,7 @@ func Graded(c Cell) Step {
 // trials a retry adds are not automatic retries.
 func Retry(c Cell) (Step, bool) {
 	var s Step
-	if c.State != objects.StateBlocked && c.State != objects.StateOverBudget {
+	if c.State != objects.CellBlocked && c.State != objects.CellOverBudget {
 		return s, false
 	}
 	attempts := last(c.Trials, nil)
@@ -452,7 +462,7 @@ func Retry(c Cell) (Step, bool) {
 			}
 			r.Trials = append(r.Trials, nt)
 		}
-		s.Queue, s.State = []NewRollout{r}, objects.StateSmoking
+		s.Queue, s.State = []NewRollout{r}, objects.CellSmoking
 		return s, true
 	}
 	r := NewRollout{Rollout: rollout(c.ID+".retry."+strconv.Itoa(count(c.Rollouts, objects.RolloutRetry)+1), objects.RolloutRetry, executorOf(c))}
@@ -469,10 +479,10 @@ func Retry(c Cell) (Step, bool) {
 		r.Trials = append(r.Trials, nt)
 	}
 	if len(r.Trials) == 0 {
-		s.State = objects.StateComplete
+		s.State = objects.CellComplete
 		return s, true
 	}
-	s.Queue, s.State = []NewRollout{r}, objects.StateRunning
+	s.Queue, s.State = []NewRollout{r}, objects.CellRunning
 	return s, true
 }
 

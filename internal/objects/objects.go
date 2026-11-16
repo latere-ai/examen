@@ -81,40 +81,6 @@ func Excluded(outcome string) bool {
 	return outcome == OutcomeOverBudget || outcome == OutcomeInfraFailed || outcome == OutcomeCanceled
 }
 
-// The states of an experiment, a cell and a trial.
-const (
-	StatePending    = "pending"
-	StateSmoking    = "smoking"
-	StateRunning    = "running"
-	StateChecking   = "checking"
-	StateGrading    = "grading"
-	StateComplete   = "complete"
-	StateDone       = "done"
-	StateCanceled   = "canceled"
-	StateBlocked    = "blocked"
-	StateOverBudget = "over_budget"
-)
-
-// ExperimentStates, CellStates and TrialStates list each object's states.
-func ExperimentStates() []string {
-	return []string{StatePending, StateRunning, StateGrading, StateComplete, StateCanceled}
-}
-
-// CellStates lists a cell's states, the parking ones last.
-func CellStates() []string {
-	return []string{StatePending, StateSmoking, StateRunning, StateGrading, StateComplete, StateBlocked, StateOverBudget, StateCanceled}
-}
-
-// TrialStates lists a trial's states.
-func TrialStates() []string {
-	return []string{StatePending, StateRunning, StateChecking, StateDone}
-}
-
-// Parked reports whether a cell state is one of the parking states.
-func Parked(state string) bool {
-	return state == StateBlocked || state == StateOverBudget || state == StateCanceled
-}
-
 // The modes of an experiment.
 const (
 	ModeExecute = "execute"

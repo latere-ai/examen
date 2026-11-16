@@ -132,7 +132,7 @@ func TestGradingHoldsNoRunWhole(t *testing.T) {
 			t.Fatalf("a grading did not end: %+v", g)
 		}
 	}
-	if j := record[objects.Judgment](t, list[len(list)-1]); j.State != objects.JudgmentOK || len(j.Cuts) == 0 {
+	if j := record[objects.Judgment](t, list[len(list)-1]); j.State != objects.GradingOK || len(j.Cuts) == 0 {
 		t.Fatalf("the judgment %+v", j)
 	}
 	if grew > gradingHeapBudget {

@@ -190,7 +190,7 @@ func sortedNames[V any](m map[string]V) []string {
 // annotation queue's, which no comparison reads.
 func trialOf(t objects.Trial, ms []objects.Measurement) analysis.Trial {
 	out := analysis.Trial{ID: t.ID, Retried: t.Retried, ServiceVersions: t.Observed.ServiceVersions, Cost: costOf(t.Observed)}
-	if t.State == objects.StateDone {
+	if t.State == objects.TrialDone {
 		out.Outcome = analysis.Outcome(t.Outcome)
 	}
 	if t.StartedAt != nil {
@@ -301,7 +301,7 @@ func cellsOf(ctx context.Context, x store.Experiments, su suiteOf, experiment st
 		}
 		out = append(out, analysis.Cell{
 			Task: task.Name, TaskDigest: c.Task, Tuple: tupleOf(c.Tuple), Producers: su.producers[c.Task],
-			Trials: trials[c.ID], Final: c.State == objects.StateComplete,
+			Trials: trials[c.ID], Final: c.State == objects.CellComplete,
 		})
 	}
 	return out, nil

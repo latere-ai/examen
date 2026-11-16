@@ -44,7 +44,7 @@ type Produced struct {
 // a state other than ok, and a developer's reason for a run that is not
 // ok.
 type CheckResult struct {
-	State  string
+	State  objects.GradingState
 	Values []store.Measured
 	Reason string
 }
@@ -58,32 +58,32 @@ type CheckResult struct {
 func ReadCheck(produces []Produced, e Exit) CheckResult {
 	switch {
 	case e.NotRunnable:
-		return CheckResult{State: objects.CheckNotRunnable, Reason: "the command could not start"}
+		return CheckResult{State: objects.GradingNotRunnable, Reason: "the command could not start"}
 	case e.TimedOut:
-		return CheckResult{State: objects.CheckTimedOut, Reason: "CHECK_TIMEOUT ran out while the command ran"}
+		return CheckResult{State: objects.GradingTimedOut, Reason: "CHECK_TIMEOUT ran out while the command ran"}
 	}
 	out := strings.TrimSpace(e.Stdout)
 	binary := len(produces) == 1 && produces[0].Metric.Type == objects.TypeBinary
 	if out == "" {
 		switch {
 		case (e.Code == 0 || e.Code == 1) && binary:
-			return CheckResult{State: objects.CheckOK, Values: []store.Measured{{Metric: produces[0].Digest, Value: e.Code == 0}}}
+			return CheckResult{State: objects.GradingOK, Values: []store.Measured{{Metric: produces[0].Digest, Value: e.Code == 0}}}
 		case e.Code == 0:
-			return CheckResult{State: objects.CheckMalformed, Reason: "stdout is empty, which answers only a grader of one binary metric"}
+			return CheckResult{State: objects.GradingMalformed, Reason: "stdout is empty, which answers only a grader of one binary metric"}
 		}
-		return CheckResult{State: objects.CheckError, Reason: "the command exited " + strconv.Itoa(e.Code)}
+		return CheckResult{State: objects.GradingError, Reason: "the command exited " + strconv.Itoa(e.Code)}
 	}
 	if e.Code != 0 {
-		return CheckResult{State: objects.CheckError, Reason: "the command exited " + strconv.Itoa(e.Code) + " with output"}
+		return CheckResult{State: objects.GradingError, Reason: "the command exited " + strconv.Itoa(e.Code) + " with output"}
 	}
 	if len(e.Stdout) > limits.CheckMaxOutputBytes {
-		return CheckResult{State: objects.CheckMalformed, Reason: "stdout is longer than CHECK_MAX_OUTPUT_BYTES"}
+		return CheckResult{State: objects.GradingMalformed, Reason: "stdout is longer than CHECK_MAX_OUTPUT_BYTES"}
 	}
 	values, reason := readMetrics(produces, out)
 	if reason != "" {
-		return CheckResult{State: objects.CheckMalformed, Reason: reason}
+		return CheckResult{State: objects.GradingMalformed, Reason: reason}
 	}
-	return CheckResult{State: objects.CheckOK, Values: values}
+	return CheckResult{State: objects.GradingOK, Values: values}
 }
 
 // foreignJSON reads JSON the service did not write: a check's stdout and a

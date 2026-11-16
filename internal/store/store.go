@@ -397,7 +397,7 @@ type QueuedRollout struct {
 	Experiment string
 	Owner      string
 	CreatedBy  string
-	State      string
+	State      objects.ExperimentState
 	Budget     string
 	Cell       string
 	Key        string
@@ -444,7 +444,7 @@ type Experiments interface {
 	// or of every one when it names none.
 	Queued(ctx context.Context, experiment string, limit int) ([]QueuedRollout, error)
 	SubmitRollout(ctx context.Context, cell, key string) error
-	Park(ctx context.Context, cell, state, reason string) error
+	Park(ctx context.Context, cell string, state objects.CellState, reason string) error
 	// Leasable are the cells of a candidate with pending trials in
 	// submitted rollouts, or of every candidate when it names none.
 	Leasable(ctx context.Context, experiment, candidate string) ([]objects.Cell, error)
@@ -478,7 +478,7 @@ type Experiments interface {
 	Dirty(ctx context.Context, limit int) ([]objects.Comparison, error)
 	// Computed stores what the analysis answered of a comparison and the
 	// measurements it read, in state complete or failed, and journals it.
-	Computed(ctx context.Context, id string, state string, c objects.Computed, inputs []string) error
+	Computed(ctx context.Context, id string, state objects.ComparisonState, c objects.Computed, inputs []string) error
 	// Clean clears a comparison's dirty mark, as of the update it read.
 	Clean(ctx context.Context, id string, seen time.Time) error
 	// Declare recomputes an experiment's declared analysis: correct is
@@ -574,14 +574,20 @@ type Gradings interface {
 // record, and the values its run gave, none for a run that is not ok.
 type GradingEnd struct {
 	ID     string
-	State  string
+	State  objects.GradingState
 	Record any
 	Values []Measured
 	// Park, when set, parks the grading's cell in this state with
 	// ParkReason, as a judge's spend refusal parks it over_budget.
-	Park       string
+	Park       objects.CellState
 	ParkReason string
 }
+
+// noPark is the zero state: a grading that ends without parking its cell.
+var noPark objects.CellState
+
+// Parks reports whether the grading's end parks its cell.
+func (g GradingEnd) Parks() bool { return g.Park != noPark }
 
 // KeyHold is an experiment's Key.
 type KeyHold struct {
@@ -596,7 +602,7 @@ type KeyHold struct {
 type UsageRead struct {
 	Experiment string
 	Owner      string
-	State      string
+	State      objects.ExperimentState
 	CreatedAt  time.Time
 	ReadTo     *time.Time
 	EndedAt    *time.Time
@@ -612,7 +618,7 @@ type UsageRecord struct {
 	SentModel string
 	Served    string
 	Provider  string
-	Status    string
+	Status    objects.UsageStatus
 	Error     string
 	Tokens    jsontext.Value
 	CostMicro int64

@@ -157,7 +157,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request, c access.Caller)
 		if now.Finished() {
 			last, err := s.Store.Experiments().LatestSeq(r.Context(), e.ID)
 			if err == nil && last == after {
-				end, err := json.Marshal(map[string]string{"state": now.State})
+				end, err := json.Marshal(map[string]string{"state": string(now.State)})
 				if err != nil || frame(w, 0, "end", end) != nil {
 					return nil
 				}

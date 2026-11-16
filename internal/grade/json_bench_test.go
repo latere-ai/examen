@@ -145,13 +145,13 @@ func BenchmarkJSONJudgeAnswerUnmarshal(b *testing.B) {
 		b.Run(c.name, func(b *testing.B) {
 			produces := jbProduced(c.metrics)
 			resp := jbAnswer(produces, c.rationale)
-			if got := ReadAnswer(resp, produces); got.State != objects.JudgmentOK {
+			if got := ReadAnswer(resp, produces); got.State != objects.GradingOK {
 				b.Fatalf("the fixture answer is %s: %s", got.State, got.Reason)
 			}
 			b.ReportAllocs()
 			b.SetBytes(int64(len(resp.Blocks[0].ToolUse.Args)))
 			for b.Loop() {
-				if got := ReadAnswer(resp, produces); got.State != objects.JudgmentOK {
+				if got := ReadAnswer(resp, produces); got.State != objects.GradingOK {
 					b.Fatalf("%s: %s", got.State, got.Reason)
 				}
 			}
@@ -179,13 +179,13 @@ func BenchmarkJSONCheckOutputDecode(b *testing.B) {
 				b.Fatalf("the fixture is %d bytes, past CHECK_MAX_OUTPUT_BYTES", len(out))
 			}
 			e := Exit{Stdout: out}
-			if got := ReadCheck(produces, e); got.State != objects.CheckOK {
+			if got := ReadCheck(produces, e); got.State != objects.GradingOK {
 				b.Fatalf("the fixture check is %s: %s", got.State, got.Reason)
 			}
 			b.ReportAllocs()
 			b.SetBytes(int64(len(out)))
 			for b.Loop() {
-				if got := ReadCheck(produces, e); got.State != objects.CheckOK {
+				if got := ReadCheck(produces, e); got.State != objects.GradingOK {
 					b.Fatalf("%s: %s", got.State, got.Reason)
 				}
 			}

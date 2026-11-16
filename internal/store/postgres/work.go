@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"latere.ai/x/pkg/statemachine"
 
 	"latere.ai/x/examen/internal/apierr"
 	"latere.ai/x/examen/internal/execute"
@@ -84,10 +85,16 @@ func declaredOf(comparisons, independence []byte, e *objects.Experiment) error {
 }
 
 // experimentState moves the experiment to a state and journals it, with
-// the sink event of an end.
-func (c *change) experimentState(ctx context.Context, state string) error {
+// the sink event of an end. It is the one writer of experiments.state, and
+// it holds to objects.ExperimentTable: the experiment was read under its
+// row lock in this transaction, so the state it checks is the state the
+// write lands on. A move to the state it already holds changes nothing.
+func (c *change) experimentState(ctx context.Context, state objects.ExperimentState) error {
 	if c.e.State == state {
 		return nil
+	}
+	if err := objects.ExperimentTable.Check(c.e.State, state); err != nil {
+		return fmt.Errorf("postgres: moving experiment %s: %w", c.e.ID, err)
 	}
 	if _, err := c.tx.Exec(ctx, `UPDATE experiments SET state = $2, updated_at = $3 WHERE id = $1`, c.e.ID, state, c.now); err != nil {
 		return fmt.Errorf("postgres: changing an experiment's state: %w", err)
@@ -102,10 +109,14 @@ func (c *change) experimentState(ctx context.Context, state string) error {
 	}
 	end := map[string]any{"id": c.e.ID, "state": state, "budget": c.e.Budget.Name, "created_by": c.e.CreatedBy}
 	switch state {
-	case objects.StateComplete:
+	case objects.ExperimentComplete:
 		return c.j.add(ctx, objects.EventExperimentCompleted, end)
-	case objects.StateCanceled:
+	case objects.ExperimentCanceled:
 		return c.j.add(ctx, objects.EventExperimentCanceled, end)
+	case objects.ExperimentPending, objects.ExperimentRunning, objects.ExperimentGrading:
+		// Only an end has an event of its own; the experiment event above
+		// carries every other state.
+		return nil
 	}
 	return nil
 }
@@ -127,14 +138,19 @@ func (c *change) cell(ctx context.Context, cid string) (objects.Cell, []objects.
 
 // cellState moves a cell to a state with its parked reason, and journals
 // it, with cell.parked for a parking state. A cell that completes passes
-// through grading.
-func (c *change) cellState(ctx context.Context, cell *objects.Cell, state, reason string) error {
+// through grading in the journal. The cell was read under its row lock in
+// this transaction, so the move is checked against objects.CellTable here,
+// and saveCell lands it in one write.
+func (c *change) cellState(ctx context.Context, cell *objects.Cell, state objects.CellState, reason string) error {
 	if cell.State == state {
 		return nil
 	}
-	steps := []string{state}
-	if state == objects.StateComplete && cell.State != objects.StateGrading {
-		steps = []string{objects.StateGrading, objects.StateComplete}
+	if err := objects.CellTable.Check(cell.State, state); err != nil {
+		return fmt.Errorf("postgres: moving cell %s: %w", cell.ID, err)
+	}
+	steps := []objects.CellState{state}
+	if state == objects.CellComplete && cell.State != objects.CellGrading {
+		steps = []objects.CellState{objects.CellGrading, objects.CellComplete}
 	}
 	for _, s := range steps {
 		cell.State, cell.ParkedReason = s, ""
@@ -153,7 +169,10 @@ func (c *change) cellState(ctx context.Context, cell *objects.Cell, state, reaso
 	return nil
 }
 
-// saveCell writes a cell's rollouts, state and parked reason.
+// saveCell writes a cell's rollouts, state and parked reason. With cellState
+// it is the writer of cells.state: the cell was read under its row lock in
+// this transaction and cellState checked its move against the table, so the
+// write lands on the state that was checked.
 func (c *change) saveCell(ctx context.Context, cell objects.Cell) error {
 	rollouts, err := marshal(cell.Rollouts)
 	if err != nil {
@@ -163,6 +182,20 @@ func (c *change) saveCell(ctx context.Context, cell objects.Cell) error {
 		cell.ID, rollouts, cell.State, cell.ParkedReason, c.now); err != nil {
 		return fmt.Errorf("postgres: writing a cell: %w", err)
 	}
+	return nil
+}
+
+// moveRollout takes a rollout of a cell read under its row lock to a state,
+// as objects.RolloutTable allows. A rollout already in the state is left as
+// it is.
+func moveRollout(r *objects.Rollout, to objects.RolloutState) error {
+	if r.State == to {
+		return nil
+	}
+	if err := objects.RolloutTable.Check(r.State, to); err != nil {
+		return fmt.Errorf("postgres: moving rollout %s: %w", r.Key, err)
+	}
+	r.State = to
 	return nil
 }
 
@@ -180,9 +213,9 @@ func (c *change) endOpen(ctx context.Context, cid, code, detail string) error {
 	}
 	// A trial whose run an executor started at a core keeps running there
 	// until the executor stops it, so the trial marks it to be stopped.
-	rows, err := c.tx.Query(ctx, `UPDATE trials SET state = 'done', outcome = 'canceled', failure = $2, ended_at = $3, lease_expires_at = NULL, updated_at = $3,
+	rows, err := c.tx.Query(ctx, `UPDATE trials SET state = $4, outcome = 'canceled', failure = $2, ended_at = $3, lease_expires_at = NULL, updated_at = $3,
 			stop_pending = (executor_ref <> '')
-		WHERE cell = $1 AND state <> 'done' RETURNING `+trialColumns, cid, failure, c.now)
+		WHERE cell = $1 AND state = ANY($5) RETURNING `+trialColumns, cid, failure, c.now, objects.TrialDone, sources(objects.TrialTable, objects.TrialDone))
 	if err != nil {
 		return fmt.Errorf("postgres: canceling a cell's trials: %w", err)
 	}
@@ -209,16 +242,18 @@ func (c *change) apply(ctx context.Context, cell objects.Cell, s execute.Step) e
 	}
 	for i, r := range cell.Rollouts {
 		if slices.Contains(s.Ended, r.Key) {
-			cell.Rollouts[i].State = objects.RolloutEnded
+			if err := moveRollout(&cell.Rollouts[i], objects.RolloutEnded); err != nil {
+				return err
+			}
 		}
 	}
 	if s.CancelOpen {
-		if err := c.endOpen(ctx, cell.ID, "cell_parked", "the cell parked "+s.State+" before the trial ended: "+s.Reason); err != nil {
+		if err := c.endOpen(ctx, cell.ID, "cell_parked", "the cell parked "+string(s.State)+" before the trial ended: "+s.Reason); err != nil {
 			return err
 		}
 	}
 	if objects.Parked(s.State) {
-		if err := c.endGradings(ctx, cell.ID, "the cell parked "+s.State+" before the run started: "+s.Reason); err != nil {
+		if err := c.endGradings(ctx, cell.ID, "the cell parked "+string(s.State)+" before the run started: "+s.Reason); err != nil {
 			return err
 		}
 	}
@@ -232,7 +267,7 @@ func (c *change) apply(ctx context.Context, cell objects.Cell, s execute.Step) e
 			return err
 		}
 	}
-	if s.State != "" {
+	if s.Moves() {
 		if err := c.cellState(ctx, &cell, s.State, s.Reason); err != nil {
 			return err
 		}
@@ -254,10 +289,10 @@ func (c *change) settle(ctx context.Context) error {
 	if open > 0 {
 		return nil
 	}
-	if err := c.experimentState(ctx, objects.StateGrading); err != nil {
+	if err := c.experimentState(ctx, objects.ExperimentGrading); err != nil {
 		return err
 	}
-	if err := c.experimentState(ctx, objects.StateComplete); err != nil {
+	if err := c.experimentState(ctx, objects.ExperimentComplete); err != nil {
 		return err
 	}
 	if _, err := c.tx.Exec(ctx, `UPDATE comparisons SET final = true, dirty = true, updated_at = $2 WHERE experiment = $1 AND `+keptComparisons+` AND NOT final`, c.e.ID, c.now); err != nil {
@@ -363,7 +398,7 @@ func (c *change) grading(ctx context.Context, t objects.Trial, grader string, va
 // finish records a trial's outcome as done, writes its gradings, advances
 // its cell, and settles the experiment.
 func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, submitLease, submitDigest string) (objects.Trial, error) {
-	t.State, t.Outcome, t.Failure = objects.StateDone, o.Outcome, o.Failure
+	t.State, t.Outcome, t.Failure = objects.TrialDone, o.Outcome, o.Failure
 	started, agentEnded := o.StartedAt.UTC(), o.AgentEndedAt.UTC()
 	t.StartedAt, t.AgentEndedAt = &started, &agentEnded
 	ended := c.now
@@ -413,14 +448,18 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 	if o.Settled {
 		settled = &c.now
 	}
-	if _, err := c.tx.Exec(ctx, `UPDATE trials SET state = 'done', outcome = $2, failure = $3, started_at = $4, agent_ended_at = $5, ended_at = $6,
+	tag, err := c.tx.Exec(ctx, `UPDATE trials SET state = $18, outcome = $2, failure = $3, started_at = $4, agent_ended_at = $5, ended_at = $6,
 			executor_ref = $7, observed = $8, declared = $9, evidence = $10, outputs = $11, imported = $12,
 			lease_id = NULL, lease_subject = NULL, lease_expires_at = NULL, submit_lease = $13, submit_digest = $14, updated_at = $15,
 			sent = $16, usage_settled_at = coalesce($17, usage_settled_at)
-		WHERE id = $1`,
+		WHERE id = $1 AND state = ANY($19)`,
 		t.ID, t.Outcome, failure, started, agentEnded, ended, t.ExecutorRef, observed, declared, evidence, outputs, t.Imported, lease, digest, c.now,
-		sent, settled); err != nil {
+		sent, settled, objects.TrialDone, sources(objects.TrialTable, objects.TrialDone))
+	if err != nil {
 		return t, fmt.Errorf("postgres: recording a trial's outcome: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return t, fmt.Errorf("postgres: recording the outcome of trial %s: %w", t.ID, statemachine.ErrIllegalTransition)
 	}
 	if err := c.trialState(ctx, t); err != nil {
 		return t, err
@@ -451,8 +490,9 @@ func (c *change) finish(ctx context.Context, t objects.Trial, o store.Outcome, s
 // keeping their lease columns, so a renewal or a submit under the lapsed
 // lease is told apart, and spending no retry.
 func (c *change) lapse(ctx context.Context) (int, error) {
-	rows, err := c.tx.Query(ctx, `UPDATE trials SET state = 'pending', updated_at = $2
-		WHERE experiment = $1 AND state = 'running' AND lease_expires_at <= $2 RETURNING `+trialColumns, c.e.ID, c.now)
+	rows, err := c.tx.Query(ctx, `UPDATE trials SET state = $3, updated_at = $2
+		WHERE experiment = $1 AND state = ANY($4) AND lease_expires_at <= $2 RETURNING `+trialColumns,
+		c.e.ID, c.now, objects.TrialPending, sources(objects.TrialTable, objects.TrialPending))
 	if err != nil {
 		return 0, fmt.Errorf("postgres: returning lapsed trials: %w", err)
 	}
@@ -500,9 +540,9 @@ func (x experiments) Lease(ctx context.Context, r store.LeaseRequest) (store.Lea
 	err := x.begin(ctx, r.Experiment, func(c *change) error {
 		switch {
 		case c.e.Mode == objects.ModeImport:
-			return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "lease: the experiment is in mode import, whose trials are imported", State: c.e.State}
+			return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "lease: the experiment is in mode import, whose trials are imported", State: string(c.e.State)}
 		case c.e.Finished():
-			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "lease: the experiment is " + c.e.State, State: c.e.State}
+			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "lease: the experiment is " + string(c.e.State), State: string(c.e.State)}
 		}
 		if _, err := c.lapse(ctx); err != nil {
 			return err
@@ -512,8 +552,9 @@ func (x experiments) Lease(ctx context.Context, r store.LeaseRequest) (store.Lea
 			return err
 		}
 		out.Lease, out.ExpiresAt = id.New(id.Lease), c.now.Add(limits.ExternalLease)
-		rows, err := c.tx.Query(ctx, `UPDATE trials SET state = 'running', lease_id = $2, lease_subject = $3, lease_expires_at = $4, updated_at = $5
-			WHERE id = ANY($1) AND state = 'pending' RETURNING `+trialColumns, take, out.Lease, r.Subject, out.ExpiresAt, c.now)
+		rows, err := c.tx.Query(ctx, `UPDATE trials SET state = $6, lease_id = $2, lease_subject = $3, lease_expires_at = $4, updated_at = $5
+			WHERE id = ANY($1) AND state = ANY($7) RETURNING `+trialColumns, take, out.Lease, r.Subject, out.ExpiresAt, c.now,
+			objects.TrialRunning, sources(objects.TrialTable, objects.TrialRunning))
 		if err != nil {
 			return fmt.Errorf("postgres: leasing trials: %w", err)
 		}
@@ -566,7 +607,8 @@ func (c *change) leasable(ctx context.Context, r store.LeaseRequest) ([]string, 
 	var all []unfinished
 	for rows.Next() {
 		var u unfinished
-		var rollout, state string
+		var rollout string
+		var state objects.TrialState
 		if err := rows.Scan(&u.id, &u.Cell, &rollout, &u.Index, &state); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("postgres: reading an open trial: %w", err)
@@ -575,7 +617,7 @@ func (c *change) leasable(ctx context.Context, r store.LeaseRequest) ([]string, 
 		if !ok || !slices.Contains(openRollouts(cell), rollout) {
 			continue
 		}
-		u.TaskPos, u.CandidatePos, u.Rank, u.Held = cell.TaskPos, cell.CandidatePos, rolloutRank(cell, rollout), state != objects.StatePending
+		u.TaskPos, u.CandidatePos, u.Rank, u.Held = cell.TaskPos, cell.CandidatePos, rolloutRank(cell, rollout), state != objects.TrialPending
 		all = append(all, u)
 	}
 	rows.Close()
@@ -715,9 +757,9 @@ func (x experiments) Submit(ctx context.Context, s store.Submission) (objects.Tr
 			out = t
 			return nil
 		case leaseID != s.Lease || leaseSubject != s.Subject:
-			return &apierr.Error{Code: apierr.CodeLeaseNotHeld, Field: "lease", Detail: "submit: the trial is not held under this lease by this subject", State: t.State}
-		case t.State == objects.StateDone || t.State == objects.StateChecking:
-			return &apierr.Error{Code: apierr.CodeLeaseNotHeld, Field: "lease", Detail: "submit: the trial is " + t.State + " and no longer held", State: t.State}
+			return &apierr.Error{Code: apierr.CodeLeaseNotHeld, Field: "lease", Detail: "submit: the trial is not held under this lease by this subject", State: string(t.State)}
+		case t.State == objects.TrialDone || t.State == objects.TrialChecking:
+			return &apierr.Error{Code: apierr.CodeLeaseNotHeld, Field: "lease", Detail: "submit: the trial is " + string(t.State) + " and no longer held", State: string(t.State)}
 		case expires == nil || !expires.After(c.now):
 			// A lapsed lease keeps its columns on the trial it returned to
 			// pending, so its submit is told apart from another lease's.
@@ -747,9 +789,9 @@ func (x experiments) Import(ctx context.Context, imp store.Import) (objects.Tria
 	err := x.begin(ctx, imp.Experiment, func(c *change) error {
 		switch {
 		case c.e.Mode == objects.ModeExecute:
-			return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "import: the experiment is in mode execute, whose trials Examen runs", State: c.e.State}
+			return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "import: the experiment is in mode execute, whose trials Examen runs", State: string(c.e.State)}
 		case c.e.Finished() || c.e.IntakeClosed:
-			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "import: the experiment's intake is closed", State: c.e.State}
+			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "import: the experiment's intake is closed", State: string(c.e.State)}
 		}
 		if imp.Ref != "" {
 			var n int
@@ -765,7 +807,7 @@ func (x experiments) Import(ctx context.Context, imp store.Import) (objects.Tria
 		switch {
 		case errors.Is(err, pgx.ErrNoRows):
 			cell = imp.Cell
-			cell.ID, cell.Experiment, cell.Owner, cell.State = id.New(id.Cell), c.e.ID, c.e.Owner, objects.StateRunning
+			cell.ID, cell.Experiment, cell.Owner, cell.State = id.New(id.Cell), c.e.ID, c.e.Owner, objects.CellRunning
 			if err := insertCell(ctx, c.tx, cell, c.now); err != nil {
 				return err
 			}
@@ -782,16 +824,19 @@ func (x experiments) Import(ctx context.Context, imp store.Import) (objects.Tria
 		if held >= c.e.Trials {
 			return apierr.Newf(apierr.CodeCellFull, "import: the cell holds its %d declared trials", c.e.Trials)
 		}
-		t := objects.Trial{ID: id.New(id.Trial), Owner: c.e.Owner, Experiment: c.e.ID, Cell: cell.ID, Index: held, State: objects.StatePending, Imported: true}
-		if _, err := c.tx.Exec(ctx, `INSERT INTO trials (id, owner, experiment, cell, idx, state, imported, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, 'pending', true, $6, $6)`,
-			t.ID, t.Owner, t.Experiment, t.Cell, t.Index, c.now); err != nil {
+		if err := objects.TrialTable.CheckStart(objects.TrialPending); err != nil {
+			return fmt.Errorf("postgres: storing an imported trial: %w", err)
+		}
+		t := objects.Trial{ID: id.New(id.Trial), Owner: c.e.Owner, Experiment: c.e.ID, Cell: cell.ID, Index: held, State: objects.TrialPending, Imported: true}
+		if _, err := c.tx.Exec(ctx, `INSERT INTO trials (id, owner, experiment, cell, idx, state, imported, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $7, true, $6, $6)`,
+			t.ID, t.Owner, t.Experiment, t.Cell, t.Index, c.now, t.State); err != nil {
 			if uniqueViolation(err) {
 				return apierr.OnField(apierr.CodeAlreadyImported, "ref", "import: a run with this ref is already a trial of the experiment")
 			}
 			return fmt.Errorf("postgres: storing an imported trial: %w", err)
 		}
 		t.CreatedAt = c.now
-		if err := c.experimentState(ctx, objects.StateRunning); err != nil {
+		if err := c.experimentState(ctx, objects.ExperimentRunning); err != nil {
 			return err
 		}
 		out, err = c.finish(ctx, t, imp.Outcome, "", "")
@@ -804,11 +849,11 @@ func (x experiments) Close(ctx context.Context, eid string) (objects.Experiment,
 	err := x.begin(ctx, eid, func(c *change) error {
 		switch {
 		case c.e.Mode == objects.ModeExecute:
-			return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "close: the experiment is in mode execute, which has no intake", State: c.e.State}
+			return &apierr.Error{Code: apierr.CodeWrongMode, Detail: "close: the experiment is in mode execute, which has no intake", State: string(c.e.State)}
 		case c.e.IntakeClosed:
 			return nil
-		case c.e.State == objects.StateCanceled:
-			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "close: the experiment was canceled", State: c.e.State}
+		case c.e.State == objects.ExperimentCanceled:
+			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "close: the experiment was canceled", State: string(c.e.State)}
 		}
 		if _, err := c.tx.Exec(ctx, `UPDATE experiments SET intake_closed = true, updated_at = $2 WHERE id = $1`, c.e.ID, c.now); err != nil {
 			return fmt.Errorf("postgres: closing the intake: %w", err)
@@ -819,7 +864,7 @@ func (x experiments) Close(ctx context.Context, eid string) (objects.Experiment,
 			return err
 		}
 		for _, cell := range cells {
-			if err := c.cellState(ctx, &cell, objects.StateComplete, ""); err != nil {
+			if err := c.cellState(ctx, &cell, objects.CellComplete, ""); err != nil {
 				return err
 			}
 			if err := c.saveCell(ctx, cell); err != nil {
@@ -837,10 +882,12 @@ func (x experiments) Close(ctx context.Context, eid string) (objects.Experiment,
 func (x experiments) Cancel(ctx context.Context, eid string) (objects.Experiment, error) {
 	err := x.begin(ctx, eid, func(c *change) error {
 		switch c.e.State {
-		case objects.StateCanceled:
+		case objects.ExperimentCanceled:
 			return nil
-		case objects.StateComplete:
-			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "cancel: the experiment is complete", State: c.e.State}
+		case objects.ExperimentComplete:
+			return &apierr.Error{Code: apierr.CodeExperimentFinished, Detail: "cancel: the experiment is complete", State: string(c.e.State)}
+		case objects.ExperimentPending, objects.ExperimentRunning, objects.ExperimentGrading:
+			// An experiment that has not ended is canceled below.
 		}
 		cells, err := collectCellsQuery(ctx, c.tx, `SELECT `+cellColumns+` FROM cells WHERE experiment = $1 AND state NOT IN ('complete', 'canceled') ORDER BY id FOR UPDATE`, c.e.ID)
 		if err != nil {
@@ -854,16 +901,18 @@ func (x experiments) Cancel(ctx context.Context, eid string) (objects.Experiment
 				return err
 			}
 			for i := range cell.Rollouts {
-				cell.Rollouts[i].State = objects.RolloutEnded
+				if err := moveRollout(&cell.Rollouts[i], objects.RolloutEnded); err != nil {
+					return err
+				}
 			}
-			if err := c.cellState(ctx, &cell, objects.StateCanceled, "experiment_canceled"); err != nil {
+			if err := c.cellState(ctx, &cell, objects.CellCanceled, "experiment_canceled"); err != nil {
 				return err
 			}
 			if err := c.saveCell(ctx, cell); err != nil {
 				return err
 			}
 		}
-		return c.experimentState(ctx, objects.StateCanceled)
+		return c.experimentState(ctx, objects.ExperimentCanceled)
 	})
 	if err != nil {
 		return objects.Experiment{}, err
@@ -883,12 +932,12 @@ func (x experiments) RetryCell(ctx context.Context, cid string) (objects.Cell, e
 		}
 		step, parked := execute.Retry(c.view(cell, trials))
 		if !parked {
-			return &apierr.Error{Code: apierr.CodeCellNotParked, Detail: "retry: the cell is " + cell.State + ", not parked blocked or over_budget", State: cell.State}
+			return &apierr.Error{Code: apierr.CodeCellNotParked, Detail: "retry: the cell is " + string(cell.State) + ", not parked blocked or over_budget", State: string(cell.State)}
 		}
 		if err := c.apply(ctx, cell, step); err != nil {
 			return err
 		}
-		if c.e.State == objects.StateComplete {
+		if c.e.State == objects.ExperimentComplete {
 			// New trials make new comparisons of the pairs a final one
 			// read; the earlier ones stay.
 			if err := c.reopen(ctx); err != nil {
@@ -906,7 +955,7 @@ func (x experiments) RetryCell(ctx context.Context, cid string) (objects.Cell, e
 // reopen moves a complete experiment back to running for a retried cell,
 // and starts a new automatic comparison of each pair a final one read.
 func (c *change) reopen(ctx context.Context) error {
-	if err := c.experimentState(ctx, objects.StateRunning); err != nil {
+	if err := c.experimentState(ctx, objects.ExperimentRunning); err != nil {
 		return err
 	}
 	rows, err := c.tx.Query(ctx, `SELECT `+comparisonColumns+` FROM comparisons WHERE experiment = $1 AND `+keptComparisons+` AND final`, c.e.ID)
@@ -991,23 +1040,25 @@ func (x experiments) SubmitRollout(ctx context.Context, cid, key string) error {
 		if i < 0 || objects.Parked(cell.State) {
 			return nil
 		}
-		cell.Rollouts[i].State = objects.RolloutSubmitted
-		if cell.Rollouts[i].Kind == objects.RolloutSmoke && cell.State == objects.StatePending {
-			if err := c.cellState(ctx, &cell, objects.StateSmoking, ""); err != nil {
+		if err := moveRollout(&cell.Rollouts[i], objects.RolloutSubmitted); err != nil {
+			return err
+		}
+		if cell.Rollouts[i].Kind == objects.RolloutSmoke && cell.State == objects.CellPending {
+			if err := c.cellState(ctx, &cell, objects.CellSmoking, ""); err != nil {
 				return err
 			}
 		}
 		if err := c.saveCell(ctx, cell); err != nil {
 			return err
 		}
-		if c.e.State == objects.StatePending {
-			return c.experimentState(ctx, objects.StateRunning)
+		if c.e.State == objects.ExperimentPending {
+			return c.experimentState(ctx, objects.ExperimentRunning)
 		}
 		return nil
 	})
 }
 
-func (x experiments) Park(ctx context.Context, cid, state, reason string) error {
+func (x experiments) Park(ctx context.Context, cid string, state objects.CellState, reason string) error {
 	cell, err := x.Cell(ctx, cid)
 	if err != nil {
 		return err
@@ -1017,7 +1068,7 @@ func (x experiments) Park(ctx context.Context, cid, state, reason string) error 
 		if err != nil {
 			return err
 		}
-		if objects.Parked(cell.State) || cell.State == objects.StateComplete {
+		if objects.Parked(cell.State) || cell.State == objects.CellComplete {
 			return nil
 		}
 		s := execute.Step{State: state, Reason: reason, CancelOpen: true}

@@ -269,7 +269,7 @@ func outcome(r *Report, s Session, lastError string, refused bool) {
 // served by that model, its tokens, and its cost when Topos priced it. A
 // request that failed with no cost recorded spent nothing.
 func (p requestRecord) call(reasoning string) usage.Call {
-	c := usage.Call{SentModel: p.Model, SentReasoning: reasoning, Served: p.Model, Status: "ok", Currency: usage.Currency}
+	c := usage.Call{SentModel: p.Model, SentReasoning: reasoning, Served: p.Model, Status: objects.UsageOK, Currency: usage.Currency}
 	if p.Usage != nil {
 		c.Tokens = usage.Tokens{Input: p.Usage.InputTokens, Output: p.Usage.OutputTokens, Reasoning: p.Usage.Reasoning}
 		if p.Usage.CacheRead != nil {
@@ -283,10 +283,10 @@ func (p requestRecord) call(reasoning string) usage.Call {
 	case p.CostUSDMicro != nil:
 		c.Cost, c.Priced = *p.CostUSDMicro, true
 		if p.Outcome != "ok" {
-			c.Status = "failed"
+			c.Status = objects.UsageFailed
 		}
 	case p.Outcome != "ok":
-		c.Status = "refused"
+		c.Status = objects.UsageRefused
 	}
 	return c
 }
