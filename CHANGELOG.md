@@ -6,6 +6,23 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+### Changed
+
+- **Experiments, cells, rollouts, trials, gradings and comparisons refuse a
+  step their lifecycle does not have.** A trial that is done stays done, a
+  canceled experiment stays canceled, a grading that ended keeps its
+  result, and a comparison never returns to computing. Each lifecycle is
+  written down once as a table, every write of a state is held to it, and
+  the tables are checked by proofs and model checks, including the hold on a
+  grading, which must outlast the run it covers.
+
+### Fixed
+
+- **A comparison's result is stored only along a step its lifecycle has.**
+  Storing a comparison's result wrote its state without checking the state it
+  replaced, so a result could land on a comparison in a state it should not
+  leave. The state is now read under the comparison's lock and checked.
+
 ## v0.9.1 - 2026-11-15
 
 - **v0.9.0 is published with this release.** Its own release stopped before
