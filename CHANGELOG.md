@@ -6,6 +6,8 @@ here is refused before it is pushed.
 
 ## Unreleased
 
+## v0.10.0 - 2026-11-16
+
 ### Changed
 
 - **Experiments, cells, rollouts, trials, gradings and comparisons refuse a
